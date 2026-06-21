@@ -1,0 +1,186 @@
+.page {
+  padding: var(--space-4) 0;
+}
+
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-gray-900);
+  margin-bottom: var(--space-1);
+}
+
+.controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  background: white;
+  padding: var(--space-3);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--color-gray-200);
+}
+
+.monthSelector {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.monthBtn {
+  background: none;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-sm);
+  padding: 0.25rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s;
+}
+
+.monthBtn:hover {
+  background: var(--color-gray-100);
+}
+
+.monthDisplay {
+  font-weight: 600;
+  min-width: 120px;
+  text-align: center;
+}
+
+.budgetTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.budgetTable th {
+  text-align: left;
+  padding: var(--space-3);
+  border-bottom: 2px solid var(--color-gray-200);
+  color: var(--color-gray-500);
+  font-weight: 500;
+  font-size: 0.875rem;
+}
+
+.budgetTable td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-gray-100);
+  vertical-align: middle;
+}
+
+.categoryName {
+  font-weight: 500;
+  color: var(--color-gray-800);
+}
+
+.inputAmount {
+  width: 100px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-sm);
+  text-align: right;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.inputAmount:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+.amount {
+  text-align: right;
+  font-weight: 500;
+}
+
+.diffPositive {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.diffNegative {
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+.progressWrapper {
+  width: 100%;
+  height: 6px;
+  background-color: var(--color-gray-100);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.progressBar {
+  height: 100%;
+  background-color: var(--color-primary);
+  transition: width 0.3s ease;
+}
+
+.progressBar.warning {
+  background-color: var(--color-warning);
+}
+
+.progressBar.danger {
+  background-color: var(--color-danger);
+}
+
+.totalsRow {
+  font-weight: 700;
+  background-color: var(--color-gray-50);
+}
+
+/* Mobile responsive card list */
+@media (max-width: 768px) {
+  .budgetTable thead {
+    display: none;
+  }
+  
+  .budgetTable, .budgetTable tbody, .budgetTable tr, .budgetTable td {
+    display: block;
+    width: 100%;
+  }
+  
+  .budgetTable tr {
+    margin-bottom: var(--space-4);
+    border: 1px solid var(--color-gray-200);
+    border-radius: var(--border-radius-md);
+    background: white;
+    padding: var(--space-3);
+  }
+  
+  .budgetTable td {
+    border: none;
+    padding: var(--space-1) 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .budgetTable td::before {
+    content: attr(data-label);
+    font-size: 0.8rem;
+    color: var(--color-gray-500);
+    text-transform: uppercase;
+  }
+  
+  .inputAmount {
+    width: 120px;
+  }
+  
+  .totalsRow {
+    background: transparent;
+    border: none;
+  }
+  
+  .totalsRow td {
+    background: var(--color-gray-50);
+    padding: var(--space-3) !important;
+    margin-bottom: 2px;
+  }
+}

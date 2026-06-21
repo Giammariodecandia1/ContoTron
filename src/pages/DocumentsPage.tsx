@@ -1,0 +1,380 @@
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Tesseract from 'tesseract.js';
+import { ExternalLink, FileText, UploadCloud } from 'lucide-react';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { supabase } from '../lib/supabaseClient';
+import { useAuth, useHousehold } from '../hooks';
+import {
+  formatMonthKey,
+  getDocumentUrl,
+  getMonthKey,
+  getMonthRange,
+  uploadArchiveDocument,
+  type DocumentWithUrl,
+} from '../lib/documentArchive';
+import type { DocumentType, OcrJob } from '../types/database';
+import styles from './DocumentsPage.module.css';
+
+const documentTypes: Array<{ value: DocumentType; label: string }> = [
+  { value: 'receipt', label: 'Scontrino' },
+  { value: 'bill', label: 'Bolletta' },
+  { value: 'invoice', label: 'Fattura' },
+  { value: 'bank_statement', label: 'Estratto conto' },
+  { value: 'contract', label: 'Contratto' },
+  { value: 'other', label: 'Altro' },
+];
+
+const getTypeLabel = (type: DocumentType) => {
+  return documentTypes.find(item => item.value === type)?.label || type;
+};
+
+const monthOptions = Array.from({ length: 12 }, (_, index) => {
+  const month = index + 1;
+  return {
+    value: month,
+    label: new Date(2026, index, 1).toLocaleDateString('it-IT', { month: 'long' }),
+  };
+});
+
+export const DocumentsPage: React.FC = () => {
+  const { household } = useHousehold();
+  const { user } = useAuth();
+  const today = new Date();
+
+  const [documents, setDocuments] = useState<DocumentWithUrl[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState('');
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [file, setFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState<DocumentType>('receipt');
+  const [documentDate, setDocumentDate] = useState(today.toISOString().split('T')[0]);
+  const [vendorName, setVendorName] = useState('');
+  const [totalAmount, setTotalAmount] = useState('');
+  const [runOcr, setRunOcr] = useState(true);
+
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(today.getMonth() + 1);
+  const [selectedType, setSelectedType] = useState<DocumentType | 'all'>('all');
+  const [searchText, setSearchText] = useState('');
+
+  const fetchDocuments = useCallback(async () => {
+    if (!household) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      let query = supabase
+        .from('documents')
+        .select('*')
+        .eq('household_id', household.id)
+        .order('document_date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (selectedMonth !== 'all') {
+        const range = getMonthRange(selectedYear, selectedMonth);
+        query = query.gte('document_date', range.start).lte('document_date', range.end);
+      } else {
+        query = query.gte('document_date', `${selectedYear}-01-01`).lte('document_date', `${selectedYear}-12-31`);
+      }
+
+      if (selectedType !== 'all') {
+        query = query.eq('type', selectedType);
+      }
+
+      const { data, error: documentsError } = await query;
+      if (documentsError) throw documentsError;
+
+      const documentRows = data || [];
+      const documentIds = documentRows.map(doc => doc.id);
+      let ocrByDocumentId: Record<string, string | null> = {};
+
+      if (documentIds.length > 0) {
+        const { data: ocrRows } = await supabase
+          .from('ocr_jobs')
+          .select('document_id, extracted_text')
+          .in('document_id', documentIds);
+
+        ocrByDocumentId = (ocrRows || []).reduce<Record<string, string | null>>((acc, row) => {
+          acc[row.document_id] = row.extracted_text || null;
+          return acc;
+        }, {});
+      }
+
+      const withUrls = await Promise.all(
+        documentRows.map(async doc => ({
+          ...doc,
+          url: await getDocumentUrl(doc.storage_path),
+          ocr_text: ocrByDocumentId[doc.id] || null,
+        })),
+      );
+
+      setDocuments(withUrls as DocumentWithUrl[]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Errore durante il caricamento documenti';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [household, selectedMonth, selectedType, selectedYear]);
+
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  const filteredDocuments = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return documents;
+
+    return documents.filter(doc => {
+      const haystack = [
+        doc.original_filename,
+        doc.vendor_name,
+        doc.type,
+        doc.status,
+        doc.ocr_text,
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [documents, searchText]);
+
+  const groupedDocuments = useMemo(() => {
+    return filteredDocuments.reduce<Record<string, DocumentWithUrl[]>>((acc, doc) => {
+      const key = getMonthKey(doc.document_date);
+      acc[key] = acc[key] || [];
+      acc[key].push(doc);
+      return acc;
+    }, {});
+  }, [filteredDocuments]);
+
+  const totalAmountVisible = filteredDocuments.reduce((acc, doc) => acc + (doc.total_amount || 0), 0);
+  const imageCount = filteredDocuments.filter(doc => doc.mime_type?.startsWith('image/')).length;
+
+  const handleUpload = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!household || !file) return;
+
+    setUploading(true);
+    setError(null);
+    setMessage(null);
+    setOcrProgress('');
+
+    try {
+      const parsedAmount = totalAmount ? Number(totalAmount.replace(',', '.')) : null;
+      const document = await uploadArchiveDocument({
+        householdId: household.id,
+        uploadedBy: user?.id || null,
+        file,
+        type: documentType,
+        documentDate,
+        vendorName,
+        totalAmount: Number.isFinite(parsedAmount) ? parsedAmount : null,
+      });
+
+      if (runOcr && file.type.startsWith('image/')) {
+        setOcrProgress('OCR in corso...');
+        const startedAt = new Date().toISOString();
+
+        try {
+          const result = await Tesseract.recognize(file, 'ita');
+          const completedAt = new Date().toISOString();
+
+          await supabase.from('ocr_jobs').insert([{
+            household_id: household.id,
+            document_id: document.id,
+            provider: 'tesseract',
+            status: 'completed',
+            extracted_text: result.data.text,
+            extracted_json: { source: 'documents_archive' },
+            confidence: result.data.confidence,
+            started_at: startedAt,
+            completed_at: completedAt,
+          } satisfies Partial<OcrJob>]);
+        } catch (ocrError) {
+          await supabase.from('ocr_jobs').insert([{
+            household_id: household.id,
+            document_id: document.id,
+            provider: 'tesseract',
+            status: 'failed',
+            error_message: ocrError instanceof Error ? ocrError.message : 'OCR fallito',
+            started_at: startedAt,
+            completed_at: new Date().toISOString(),
+          }]);
+        }
+      }
+
+      setMessage('Documento archiviato correttamente.');
+      setFile(null);
+      setVendorName('');
+      setTotalAmount('');
+      setOcrProgress('');
+      await fetchDocuments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload non riuscito');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <div>
+          <h1 className={styles.title}>Archivio Documenti</h1>
+          <p className="text-muted">Scontrini, bollette e ricevute ordinati per mese e ricercabili nel tempo.</p>
+        </div>
+      </header>
+
+      <div className={styles.grid}>
+        <Card title="Carica documento" icon={<UploadCloud size={20} />}>
+          <form onSubmit={handleUpload} className={styles.form}>
+            {message && <div className={`${styles.message} ${styles.success}`}>{message}</div>}
+            {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
+
+            <div className={styles.formGroup}>
+              <label>File</label>
+              <input
+                className={styles.fileInput}
+                type="file"
+                accept="image/*,.pdf,application/pdf"
+                onChange={event => setFile(event.target.files?.[0] || null)}
+                required
+              />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Tipo</label>
+              <select className={styles.select} value={documentType} onChange={event => setDocumentType(event.target.value as DocumentType)}>
+                {documentTypes.map(type => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Data documento</label>
+              <input className={styles.input} type="date" value={documentDate} onChange={event => setDocumentDate(event.target.value)} required />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Argomento / fornitore / negozio</label>
+              <input className={styles.input} value={vendorName} onChange={event => setVendorName(event.target.value)} placeholder="es. Conad, Enel, pane, assicurazione" />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Importo totale</label>
+              <input className={styles.input} type="number" step="0.01" value={totalAmount} onChange={event => setTotalAmount(event.target.value)} placeholder="0.00" />
+            </div>
+
+            <label className="fs-sm text-muted">
+              <input type="checkbox" checked={runOcr} onChange={event => setRunOcr(event.target.checked)} /> Leggi il testo con OCR se e' un'immagine
+            </label>
+
+            {ocrProgress && <p className="fs-sm text-muted">{ocrProgress}</p>}
+
+            <Button type="submit" disabled={uploading || !file}>
+              {uploading ? 'Archiviazione...' : 'Archivia documento'}
+            </Button>
+          </form>
+        </Card>
+
+        <Card title="Documenti salvati" icon={<FileText size={20} />}>
+          <div className={styles.filters}>
+            <input
+              className={styles.input}
+              value={searchText}
+              onChange={event => setSearchText(event.target.value)}
+              placeholder="Cerca fornitore, file, testo OCR..."
+            />
+            <select className={styles.select} value={selectedYear} onChange={event => setSelectedYear(Number(event.target.value))}>
+              {Array.from({ length: 8 }, (_, index) => today.getFullYear() - index).map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <select
+              className={styles.select}
+              value={selectedMonth}
+              onChange={event => setSelectedMonth(event.target.value === 'all' ? 'all' : Number(event.target.value))}
+            >
+              <option value="all">Tutti i mesi</option>
+              {monthOptions.map(month => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.filters}>
+            <select className={styles.select} value={selectedType} onChange={event => setSelectedType(event.target.value as DocumentType | 'all')}>
+              <option value="all">Tutti i tipi</option>
+              {documentTypes.map(type => (
+                <option key={type.value} value={type.value}>{type.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.stats}>
+            <div className={styles.statBox}>
+              <div className="fs-sm text-muted">Documenti</div>
+              <div className={styles.statValue}>{filteredDocuments.length}</div>
+            </div>
+            <div className={styles.statBox}>
+              <div className="fs-sm text-muted">Immagini</div>
+              <div className={styles.statValue}>{imageCount}</div>
+            </div>
+            <div className={styles.statBox}>
+              <div className="fs-sm text-muted">Importi tracciati</div>
+              <div className={styles.statValue}>{totalAmountVisible.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className={styles.empty}>Caricamento documenti...</div>
+          ) : filteredDocuments.length === 0 ? (
+            <div className={styles.empty}>Nessun documento trovato per i filtri selezionati.</div>
+          ) : (
+            Object.entries(groupedDocuments).map(([monthKey, docs]) => (
+              <section key={monthKey} className={styles.monthSection}>
+                <h2 className={styles.monthTitle}>{formatMonthKey(monthKey)}</h2>
+                <div className={styles.documentGrid}>
+                  {docs.map(doc => (
+                    <article key={doc.id} className={styles.documentCard}>
+                      <div className={styles.preview}>
+                        {doc.mime_type?.startsWith('image/') && doc.url ? (
+                          <img src={doc.url} alt={doc.vendor_name || doc.original_filename} />
+                        ) : (
+                          <FileText size={42} />
+                        )}
+                      </div>
+                      <div className={styles.documentBody}>
+                        <span className={styles.typePill}>{getTypeLabel(doc.type)}</span>
+                        <div className={styles.documentTitle}>{doc.vendor_name || doc.original_filename}</div>
+                        <div className={styles.meta}>{doc.document_date || 'Senza data'} - {doc.original_filename}</div>
+                        {doc.total_amount !== null && doc.total_amount !== undefined && (
+                          <div className="fw-bold">{doc.total_amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+                        )}
+                        {doc.ocr_text && (
+                          <div className={styles.meta}>{doc.ocr_text.slice(0, 120)}...</div>
+                        )}
+                        {doc.url && (
+                          <a href={doc.url} target="_blank" rel="noreferrer">
+                            <ExternalLink size={14} /> Apri documento
+                          </a>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+};
+

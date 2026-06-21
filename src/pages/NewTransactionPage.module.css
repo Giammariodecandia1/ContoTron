@@ -1,0 +1,79 @@
+.page {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.header {
+  margin-bottom: var(--space-4);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin-top: var(--space-2);
+}
+
+.formCard {
+  padding: var(--space-6);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.typeSelector {
+  display: flex;
+  background-color: var(--color-gray-100);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-1);
+}
+
+.typeLabel {
+  flex: 1;
+  text-align: center;
+  padding: var(--space-2);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: var(--text-sm);
+  transition: all 0.2s;
+  color: var(--color-gray-600);
+}
+
+.typeLabel input {
+  display: none;
+}
+
+.activeExpense { background-color: var(--color-white); color: var(--color-danger); box-shadow: var(--shadow-sm); }
+.activeIncome { background-color: var(--color-white); color: var(--color-success); box-shadow: var(--shadow-sm); }
+.activeTransfer { background-color: var(--color-white); color: var(--color-info); box-shadow: var(--shadow-sm); }
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.formGroup label {
+  font-weight: 500;
+  font-size: var(--text-sm);
+  color: var(--color-gray-700);
+}
+
+.input {
+  padding: var(--space-3);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-base);
+}
+
+.inputLg {
+  padding: var(--space-4);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  text-align: center;
+}

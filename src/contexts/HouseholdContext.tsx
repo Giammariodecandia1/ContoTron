@@ -1,0 +1,172 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import { useAuth } from './AuthContext';
+import type { Household, Account, Category, Subcategory } from '../types/database';
+
+interface HouseholdContextType {
+  household: Household | null;
+  accounts: Account[];
+  categories: Category[];
+  subcategories: Subcategory[];
+  loading: boolean;
+  refreshData: () => Promise<void>;
+}
+
+const HouseholdContext = createContext<HouseholdContextType>({
+  household: null,
+  accounts: [],
+  categories: [],
+  subcategories: [],
+  loading: true,
+  refreshData: async () => {},
+});
+
+export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useAuth();
+  const [household, setHousehold] = useState<Household | null>(null);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchHouseholdData = async () => {
+    if (!user) {
+      setHousehold(null);
+      setAccounts([]);
+      setCategories([]);
+      setSubcategories([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const { data: membership } = await supabase
+        .from('household_members')
+        .select('household_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (!membership) {
+        setHousehold(null);
+        setAccounts([]);
+        setCategories([]);
+        setSubcategories([]);
+        setLoading(false);
+        return;
+      }
+
+      const { data: hhData } = await supabase
+        .from('households')
+        .select('*')
+        .eq('id', membership.household_id)
+        .single();
+
+      if (!hhData) {
+        setLoading(false);
+        return;
+      }
+
+      setHousehold(hhData);
+
+      // Fetch accounts
+      const { data: accData } = await supabase
+        .from('accounts')
+        .select('*')
+        .eq('household_id', hhData.id)
+        .order('name');
+      
+      let accountsToSet = accData || [];
+      if (accountsToSet.length === 0) {
+        const { data: insertedAcc } = await supabase.from('accounts').insert([{
+          household_id: hhData.id,
+          name: 'Conto Principale',
+          type: 'current_account',
+          opening_balance: 0
+        }]).select();
+        
+        if (insertedAcc) {
+          accountsToSet = insertedAcc;
+        }
+      }
+      setAccounts(accountsToSet);
+
+      // Fetch categories
+      const { data: catData } = await supabase
+        .from('categories')
+        .select('*')
+        .eq('household_id', hhData.id)
+        .order('name');
+      
+      let categoriesToSet = catData || [];
+
+      // Auto-populate from Excel template if no categories exist
+      if (categoriesToSet.length === 0) {
+        const defaultCats = [
+          { household_id: hhData.id, name: 'Alimentari', type: 'expense', sort_order: 1 },
+          { household_id: hhData.id, name: 'Abitazione', type: 'expense', sort_order: 2 },
+          { household_id: hhData.id, name: 'Abitazione Numana', type: 'expense', sort_order: 3 },
+          { household_id: hhData.id, name: 'Trasporti', type: 'expense', sort_order: 4 },
+          { household_id: hhData.id, name: 'Tempo libero', type: 'expense', sort_order: 5 },
+          { household_id: hhData.id, name: 'Figli', type: 'expense', sort_order: 6 },
+          { household_id: hhData.id, name: 'Cura della persona', type: 'expense', sort_order: 7 },
+          { household_id: hhData.id, name: 'Assicurazione', type: 'expense', sort_order: 8 },
+          { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 9 },
+          { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 10 },
+          { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 11 },
+          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 12 }
+        ];
+        
+        const { data: insertedCats } = await supabase.from('categories').insert(defaultCats).select();
+        if (insertedCats) {
+          categoriesToSet = insertedCats;
+        }
+      }
+      
+      setCategories(categoriesToSet);
+
+      // Fetch subcategories
+      const { data: subData } = await supabase
+        .from('subcategories')
+        .select('*')
+        .eq('household_id', hhData.id)
+        .eq('is_active', true)
+        .order('sort_order');
+        
+      setSubcategories(subData || []);
+
+    } catch (error) {
+      console.error("Errore caricamento dati household:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchHouseholdData();
+  }, [user]);
+
+  return (
+    <HouseholdContext.Provider value={{ 
+      household, 
+      accounts, 
+      categories, 
+      subcategories, 
+      loading,
+      refreshData: fetchHouseholdData
+    }}>
+      {children}
+    </HouseholdContext.Provider>
+  );
+};
+
+export const useHousehold = () => {
+  const context = useContext(HouseholdContext);
+  if (context === undefined) {
+    throw new Error('useHousehold must be used within a HouseholdProvider');
+  }
+  return context;
+};

@@ -1,0 +1,114 @@
+.header {
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-gray-900);
+  margin-bottom: var(--space-1);
+}
+
+.kpiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+.kpiLabel {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+
+.kpiValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--color-gray-900);
+  margin: 0;
+}
+
+.kpiTrend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  margin-top: var(--space-2);
+  font-weight: 500;
+}
+
+.mainGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+}
+
+@media (min-width: 992px) {
+  .mainGrid {
+    grid-template-columns: 1fr 2fr;
+  }
+}
+
+.accountList {
+  list-style: none;
+}
+
+.accountItem {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+
+.accountItem:last-child {
+  border-bottom: none;
+}
+
+.alertList {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.alertItem {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-md);
+  border-left: 3px solid transparent;
+}
+
+.alertItem:has(.text-danger) { border-left-color: var(--color-danger); }
+.alertItem:has(.text-warning) { border-left-color: var(--color-warning); }
+.alertItem:has(.text-info) { border-left-color: var(--color-info); }
+
+.transactionList {
+  display: flex;
+  flex-direction: column;
+}
+
+.transactionItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-gray-100);
+}
+
+.transactionItem:last-child {
+  border-bottom: none;
+}
+
+.tInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.tAmount {
+  font-weight: 600;
+}

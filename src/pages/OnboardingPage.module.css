@@ -1,0 +1,107 @@
+.onboardingContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: var(--space-4);
+}
+
+.onboardingCard {
+  width: 100%;
+  max-width: 520px;
+  padding: var(--space-8);
+}
+
+.stepIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  margin-bottom: var(--space-8);
+}
+
+.stepDot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border: 2px solid var(--color-gray-300);
+  color: var(--color-gray-400);
+  background: var(--color-white);
+  transition: all 0.3s ease;
+}
+
+.stepDot.stepActive {
+  border-color: var(--color-primary);
+  color: var(--color-white);
+  background: var(--color-primary);
+}
+
+.stepLine {
+  width: 60px;
+  height: 2px;
+  background: var(--color-gray-300);
+}
+
+.stepContent h2 {
+  margin-bottom: var(--space-2);
+}
+
+.formGroup {
+  margin-top: var(--space-4);
+}
+
+.formGroup label {
+  display: block;
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  color: var(--color-gray-700);
+}
+
+.input {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.radioOption {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.radioOption:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.radioOption input[type="radio"] {
+  margin-top: 4px;
+}

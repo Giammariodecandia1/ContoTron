@@ -1,0 +1,174 @@
+.page {
+  padding: var(--space-4) 0;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-6);
+}
+
+.title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--color-gray-900);
+  margin-bottom: var(--space-1);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-6);
+}
+
+.saveBanner {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.success {
+  background-color: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.error {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+@media (min-width: 768px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.categoryList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.categoryContainer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+  background-color: var(--color-gray-50);
+}
+
+.categoryItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.categoryItem:hover {
+  background-color: var(--color-primary-light);
+}
+
+.categoryItemExpanded {
+  border-bottom: 1px solid var(--color-gray-200);
+}
+
+.categoryNameContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 500;
+}
+
+.badge {
+  background-color: var(--color-primary);
+  color: white;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+}
+
+.subcategoriesContainer {
+  padding: var(--space-3) var(--space-4);
+  background-color: white;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.subcategoryItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-2) var(--space-3);
+  background-color: var(--color-gray-50);
+  border-radius: var(--border-radius-sm);
+  font-size: 0.9rem;
+}
+
+.emptyText {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+  margin: 0 0 var(--space-2) 0;
+}
+
+.deleteBtn, .deleteBtnSmall {
+  color: var(--color-gray-400);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0.25rem;
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.deleteBtn:hover, .deleteBtnSmall:hover {
+  background-color: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.addForm, .addSubForm {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.addForm {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-gray-100);
+}
+
+.addSubForm {
+  margin-top: var(--space-2);
+}
+
+.input, .inputSmall {
+  flex: 1;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  font-size: 0.875rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input {
+  padding: var(--space-2) var(--space-3);
+}
+
+.inputSmall {
+  padding: var(--space-1) var(--space-2);
+}
+
+.input:focus, .inputSmall:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}

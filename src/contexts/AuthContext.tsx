@@ -1,0 +1,136 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabaseClient';
+import type { Profile } from '../types/database';
+
+type AppUser = Profile & {
+  auth_user?: SupabaseUser;
+};
+
+interface AuthContextType {
+  user: AppUser | null;
+  loading: boolean;
+  loginAs: (profile: AppUser) => void;
+  logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  loading: true,
+  loginAs: () => {},
+  logout: async () => {},
+  refreshUser: async () => {},
+});
+
+const getDisplayName = (authUser: SupabaseUser) => {
+  const metadataName = authUser.user_metadata?.display_name || authUser.user_metadata?.name;
+  if (metadataName) return String(metadataName);
+  if (authUser.email) return authUser.email.split('@')[0];
+  return 'Utente';
+};
+
+const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
+  const { data: existingProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', authUser.id)
+    .maybeSingle();
+
+  const displayName = existingProfile?.display_name || getDisplayName(authUser);
+  const email = existingProfile?.email || authUser.email || null;
+
+  if (!existingProfile || existingProfile.display_name !== displayName || existingProfile.email !== email) {
+    const { data: savedProfile, error } = await supabase
+      .from('profiles')
+      .upsert({
+        id: authUser.id,
+        display_name: displayName,
+        email,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return { ...(savedProfile as Profile), auth_user: authUser };
+  }
+
+  return { ...(existingProfile as Profile), auth_user: authUser };
+};
+
+export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
+  const [user, setUser] = useState<AppUser | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadSessionUser = async (authUser: SupabaseUser | null) => {
+    if (!authUser) {
+      setUser(null);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const profile = await ensureProfile(authUser);
+      setUser(profile);
+    } catch (error) {
+      console.error('Errore caricamento profilo autenticato:', error);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshUser = async () => {
+    setLoading(true);
+    const { data } = await supabase.auth.getUser();
+    await loadSessionUser(data.user);
+  };
+
+  useEffect(() => {
+    localStorage.removeItem('familyledger_profile');
+
+    let isMounted = true;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (isMounted) {
+        loadSessionUser(data.user);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (isMounted) {
+        loadSessionUser(session?.user || null);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  const loginAs = (profile: AppUser) => {
+    setUser(profile);
+  };
+
+  const logout = async () => {
+    localStorage.removeItem('familyledger_profile');
+    await supabase.auth.signOut();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, loading, loginAs, logout, refreshUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};

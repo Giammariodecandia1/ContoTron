@@ -1,0 +1,199 @@
+import React, { useEffect, useState } from 'react';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { ArrowLeft } from 'lucide-react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useHousehold, useTransactions } from '../hooks';
+import { supabase } from '../lib/supabaseClient';
+import styles from './NewTransactionPage.module.css';
+
+interface TransactionFormState {
+  amount?: string;
+  date?: string;
+  categoryId?: string;
+  subcategoryId?: string;
+  merchant?: string;
+  description?: string;
+  documentId?: string;
+}
+
+export const NewTransactionPage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { transactionId } = useParams();
+  const { household, accounts, categories, subcategories } = useHousehold();
+  const { addTransaction, updateTransaction, loading } = useTransactions();
+  const initialState = (location.state || {}) as TransactionFormState;
+  const isEditMode = Boolean(transactionId);
+
+  const [amount, setAmount] = useState(initialState.amount || '');
+  const [date, setDate] = useState(initialState.date || new Date().toISOString().split('T')[0]);
+  const [categoryId, setCategoryId] = useState(initialState.categoryId || '');
+  const [subcategoryId, setSubcategoryId] = useState(initialState.subcategoryId || '');
+  const [merchant, setMerchant] = useState(initialState.merchant || '');
+  const [description, setDescription] = useState(initialState.description || '');
+  const [accountId, setAccountId] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const filteredCategories = categories.filter(c => c.type === 'expense');
+  const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
+
+  useEffect(() => {
+    if (!isEditMode || !transactionId || !household) return;
+
+    const loadTransaction = async () => {
+      setEditLoading(true);
+      setError(null);
+
+      const { data, error: fetchError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', transactionId)
+        .eq('household_id', household.id)
+        .single();
+
+      if (fetchError || !data) {
+        setError(fetchError?.message || 'Transazione non trovata');
+        setEditLoading(false);
+        return;
+      }
+
+      setAmount(String(data.amount || ''));
+      setDate(data.transaction_date || new Date().toISOString().split('T')[0]);
+      setCategoryId(data.category_id || '');
+      setSubcategoryId(data.subcategory_id || '');
+      setMerchant(data.merchant || '');
+      setDescription(data.description || '');
+      setAccountId(data.account_id || '');
+      setEditLoading(false);
+    };
+
+    loadTransaction();
+  }, [household, isEditMode, transactionId]);
+
+  useEffect(() => {
+    if (!accountId && accounts.length > 0) {
+      setAccountId(accounts[0].id);
+    }
+  }, [accountId, accounts]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      setError('Inserire un importo valido');
+      return;
+    }
+
+    const selectedAccountId = accountId || accounts[0]?.id;
+    if (!selectedAccountId) {
+      setError("Nessun conto disponibile. Si e' verificato un errore di sistema.");
+      return;
+    }
+
+    const txData: any = {
+      type: 'expense',
+      amount: amountNum,
+      transaction_date: date,
+      account_id: selectedAccountId,
+      category_id: categoryId || null,
+      subcategory_id: subcategoryId || null,
+      merchant: merchant || null,
+      description
+    };
+
+    const res = isEditMode && transactionId
+      ? await updateTransaction(transactionId, txData)
+      : await addTransaction({
+          ...txData,
+          document_id: initialState.documentId || null,
+          source: initialState.documentId ? 'receipt_ocr' : 'manual'
+        });
+
+    if (res) {
+      navigate('/transazioni');
+    } else {
+      setError(isEditMode ? 'Errore durante il salvataggio delle modifiche' : 'Errore durante il salvataggio');
+    }
+  };
+
+  return (
+    <div className={styles.page}>
+      <header className={styles.header}>
+        <Button variant="ghost" icon={<ArrowLeft size={18} />} onClick={() => navigate(-1)}>
+          Indietro
+        </Button>
+        <h1 className={styles.title}>{isEditMode ? 'Modifica Transazione' : 'Nuova Transazione'}</h1>
+      </header>
+
+      <Card className={styles.formCard}>
+        {error && <div style={{ color: 'red', marginBottom: '1rem', textAlign: 'center' }}>{error}</div>}
+        {editLoading ? (
+          <div style={{ textAlign: 'center', padding: '2rem' }}>Caricamento transazione...</div>
+        ) : (
+          <form onSubmit={handleSubmit} className={styles.form}>
+            <div className={styles.formGroup}>
+              <label>Importo Spesa</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input type="number" step="0.01" required className={styles.inputLg} placeholder="0.00" value={amount} onChange={e => setAmount(e.target.value)} />
+                <span style={{ fontSize: '1.25rem', color: 'var(--text-muted)' }}>{household?.currency === 'USD' ? '$' : 'EUR'}</span>
+              </div>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Data</label>
+              <input type="date" required className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+
+            {accounts.length > 1 && (
+              <div className={styles.formGroup}>
+                <label>Conto</label>
+                <select required className={styles.input} value={accountId} onChange={e => setAccountId(e.target.value)}>
+                  {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className={styles.formGroup}>
+              <label>Categoria</label>
+              <select required className={styles.input} value={categoryId} onChange={e => {
+                setCategoryId(e.target.value);
+                setSubcategoryId('');
+              }}>
+                <option value="">Seleziona categoria...</option>
+                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+
+            {filteredSubcategories.length > 0 && (
+              <div className={styles.formGroup}>
+                <label>Sottocategoria (Opzionale)</label>
+                <select className={styles.input} value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)}>
+                  <option value="">Nessuna sottocategoria</option>
+                  {filteredSubcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className={styles.formGroup}>
+              <label>Esercente (Negozio, Sito web...)</label>
+              <input type="text" className={styles.input} placeholder="es. Conad, Amazon..." value={merchant} onChange={e => setMerchant(e.target.value)} />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Descrizione</label>
+              <input type="text" required className={styles.input} placeholder="es. Spesa settimanale..." value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+
+            <Button type="submit" size="lg" className="mt-4" disabled={loading}>
+              {loading ? 'Salvataggio...' : isEditMode ? 'Salva Modifiche' : 'Salva Transazione'}
+            </Button>
+          </form>
+        )}
+      </Card>
+    </div>
+  );
+};

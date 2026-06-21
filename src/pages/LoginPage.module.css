@@ -1,0 +1,130 @@
+.loginContainer {
+  align-items: center;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--space-4);
+}
+
+.brand {
+  margin-bottom: var(--space-6);
+  text-align: center;
+}
+
+.brand h1 {
+  color: var(--color-primary);
+  font-size: 2.5rem;
+  font-weight: 800;
+  margin-bottom: var(--space-2);
+}
+
+.brand p {
+  color: var(--color-gray-500);
+  font-size: var(--text-lg);
+  max-width: 420px;
+}
+
+.loginCard {
+  max-width: 430px;
+  width: 100%;
+}
+
+.modeSwitch {
+  background: var(--color-gray-100);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-1);
+  grid-template-columns: 1fr 1fr;
+  margin-bottom: var(--space-5);
+  padding: var(--space-1);
+}
+
+.modeSwitch button {
+  border-radius: var(--border-radius-sm);
+  color: var(--color-gray-600);
+  font-weight: 700;
+  padding: var(--space-2) var(--space-3);
+}
+
+.modeActive {
+  background: var(--color-white) !important;
+  color: var(--color-primary) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.formGroup label {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.input {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-900);
+  font-size: 1rem;
+  padding: var(--space-3);
+  width: 100%;
+}
+
+.input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+  outline: none;
+}
+
+.error,
+.message {
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3);
+}
+
+.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.message {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.footer {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  margin-top: var(--space-5);
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .loginContainer {
+    justify-content: flex-start;
+    padding-top: calc(var(--space-8) + env(safe-area-inset-top));
+  }
+
+  .brand h1 {
+    font-size: 2rem;
+  }
+
+  .brand p {
+    font-size: var(--text-base);
+  }
+}

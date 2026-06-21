@@ -1,0 +1,15 @@
+{
+  "short_name": "FamilyLedger",
+  "name": "FamilyLedger - Budget Condiviso",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff"
+}
