@@ -39,10 +39,13 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
+    const redirectTo = `${window.location.origin}/login`;
+
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: {
+        emailRedirectTo: redirectTo,
         data: {
           display_name: cleanName,
         },
@@ -65,7 +68,7 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
-    setMessage('Account creato. Controlla la tua email per confermare l accesso, poi rientra da questa pagina.');
+    setMessage('Account creato. Controlla la tua email e conferma l accesso. Il link tornera automaticamente su Contotron.');
     setMode('login');
     setPassword('');
   };
