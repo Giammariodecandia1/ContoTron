@@ -41,6 +41,13 @@ export type OcrStatus =
   | 'failed'
   | 'skipped';
 
+export type DocumentStorageProvider = 'supabase' | 'google_drive';
+
+export type DocumentStorageStatus =
+  | 'ready'
+  | 'pending_connection'
+  | 'connection_error';
+
 export interface Profile {
   id: string;
   display_name: string | null;
@@ -54,6 +61,13 @@ export interface Household {
   name: string;
   currency: string;
   budget_month_start_day: number;
+  document_storage_provider?: DocumentStorageProvider | null;
+  document_storage_status?: DocumentStorageStatus | null;
+  document_storage_config?: Record<string, unknown> | null;
+  document_storage_connected_by?: string | null;
+  document_storage_connected_at?: string | null;
+  google_drive_folder_id?: string | null;
+  google_drive_folder_name?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -160,6 +174,9 @@ export interface Document {
   type: DocumentType;
   original_filename: string;
   storage_path: string;
+  storage_provider?: DocumentStorageProvider | null;
+  external_file_id?: string | null;
+  external_url?: string | null;
   mime_type: string | null;
   file_size_bytes: number | null;
   document_date: string | null;

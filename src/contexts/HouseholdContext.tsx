@@ -28,6 +28,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
   const fetchHouseholdData = async () => {
     if (!user) {
@@ -35,6 +36,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setAccounts([]);
       setCategories([]);
       setSubcategories([]);
+      setLoadedUserId(null);
       setLoading(false);
       return;
     }
@@ -55,6 +57,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setAccounts([]);
         setCategories([]);
         setSubcategories([]);
+        setLoadedUserId(user.id);
         setLoading(false);
         return;
       }
@@ -110,14 +113,15 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           { household_id: hhData.id, name: 'Abitazione', type: 'expense', sort_order: 2 },
           { household_id: hhData.id, name: 'Abitazione Numana', type: 'expense', sort_order: 3 },
           { household_id: hhData.id, name: 'Trasporti', type: 'expense', sort_order: 4 },
-          { household_id: hhData.id, name: 'Tempo libero', type: 'expense', sort_order: 5 },
-          { household_id: hhData.id, name: 'Figli', type: 'expense', sort_order: 6 },
-          { household_id: hhData.id, name: 'Cura della persona', type: 'expense', sort_order: 7 },
-          { household_id: hhData.id, name: 'Assicurazione', type: 'expense', sort_order: 8 },
-          { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 9 },
-          { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 10 },
-          { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 11 },
-          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 12 }
+          { household_id: hhData.id, name: 'Abbigliamento', type: 'expense', sort_order: 5 },
+          { household_id: hhData.id, name: 'Tempo libero', type: 'expense', sort_order: 6 },
+          { household_id: hhData.id, name: 'Figli', type: 'expense', sort_order: 7 },
+          { household_id: hhData.id, name: 'Cura della persona', type: 'expense', sort_order: 8 },
+          { household_id: hhData.id, name: 'Assicurazione', type: 'expense', sort_order: 9 },
+          { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 10 },
+          { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 11 },
+          { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 12 },
+          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 13 }
         ];
         
         const { data: insertedCats } = await supabase.from('categories').insert(defaultCats).select();
@@ -141,6 +145,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (error) {
       console.error("Errore caricamento dati household:", error);
     } finally {
+      if (user) {
+        setLoadedUserId(user.id);
+      }
       setLoading(false);
     }
   };
@@ -149,13 +156,15 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     fetchHouseholdData();
   }, [user]);
 
+  const effectiveLoading = loading || (!!user && loadedUserId !== user.id);
+
   return (
     <HouseholdContext.Provider value={{ 
       household, 
       accounts, 
       categories, 
       subcategories, 
-      loading,
+      loading: effectiveLoading,
       refreshData: fetchHouseholdData
     }}>
       {children}

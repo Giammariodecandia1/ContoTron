@@ -33,6 +33,14 @@ button {
 
 input, select, textarea {
   font-family: inherit;
+  background-color: var(--color-white);
+  color: var(--color-gray-900);
+  border-color: var(--color-gray-300);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-gray-400);
 }
 
 /* Utilities */

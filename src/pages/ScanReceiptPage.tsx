@@ -10,22 +10,12 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { dataUrlToFile, uploadArchiveDocument } from '../lib/documentArchive';
+import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
+import { classifyReceiptText, extractReceiptItems, extractReceiptTotal, normalizeSearchText, type ReceiptItemResult } from '../lib/receiptParsing';
 import styles from './ScanReceiptPage.module.css';
 
-// Keyword matching for auto-categorization
-const categoryKeywords: Record<string, string[]> = {
-  'Alimentari': ['supermercato', 'conad', 'esselunga', 'coop', 'pam', 'carrefour', 'lidl', 'eurospin', 'md', 'spesa', 'alimentari', 'macelleria', 'panetteria', 'ortofrutta'],
-  'Trasporti': ['benzina', 'eni', 'q8', 'esso', 'ip', 'tamoil', 'trenitalia', 'italo', 'ryanair', 'parcheggio', 'telepass', 'autostrade', 'taxi', 'bus'],
-  'Abitazione': ['enel', 'a2a', 'bolletta', 'luce', 'gas', 'acqua', 'condominio', 'ikea', 'leroy', 'brico', 'ferramenta'],
-  'Abitazione Numana': ['numana', 'mare', 'casa vacanza'],
-  'Tempo libero': ['ristorante', 'pizzeria', 'bar', 'cinema', 'teatro', 'netflix', 'amazon', 'pub', 'caff', 'gelateria', 'sushi', 'mcdonald', 'sport', 'palestra', 'abbigliamento', 'vestiti'],
-  'Figli': ['scuola', 'asilo', 'bambini', 'giocattoli', 'pannolini', 'pediatra', 'mensa'],
-  'Cura della persona': ['farmacia', 'dott', 'medico', 'ospedale', 'clinica', 'dentista', 'visita', 'parrucchiere', 'estetista', 'profumeria'],
-  'Assicurazione': ['assicurazione', 'polizza', 'unipol', 'genertel', 'allianz', 'axa', 'prima'],
-  'Imposte': ['tasse', 'f24', 'imu', 'tari', 'bollo', 'agenzia entrate', 'inps'],
-  'Regali e beneficenza': ['regalo', 'donazione', 'unicef', 'savethechildren', 'matrimonio', 'compleanno'],
-  'Risparmi': ['risparmio', 'investimento', 'pac', 'fondo', 'titoli', 'azioni'],
-  'Prestiti': ['rata', 'mutuo', 'finanziamento', 'prestito', 'compass', 'findomestic', 'agof']
+type EditableReceiptItem = ReceiptItemResult & {
+  amountText: string;
 };
 
 export const ScanReceiptPage: React.FC = () => {
@@ -43,14 +33,56 @@ export const ScanReceiptPage: React.FC = () => {
   const [detectedCategoryId, setDetectedCategoryId] = useState<string>('');
   const [detectedSubcategoryId, setDetectedSubcategoryId] = useState<string>('');
   const [archivedDocumentId, setArchivedDocumentId] = useState<string>('');
+  const [archivedOnGoogleDrive, setArchivedOnGoogleDrive] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [ocrHint, setOcrHint] = useState<string | null>(null);
+  const [receiptItems, setReceiptItems] = useState<EditableReceiptItem[]>([]);
 
   const webcamRef = useRef<Webcam>(null);
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const { household, categories } = useHousehold();
+  const { household, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
+  const documentStorageProvider = getDocumentStorageProvider(household);
+  const documentStorageStatus = getDocumentStorageStatus(household);
+  const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+  const expenseCategories = categories
+    .filter(category => category.type === 'expense')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const detectedCategory = categories.find(category => category.id === detectedCategoryId);
+  const detectedSubcategories = subcategories
+    .filter(subcategory => subcategory.category_id === detectedCategoryId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const ensureExpenseCategory = async (name: string) => {
+    if (!household) return null;
+
+    const existingCategory = categories.find(category => (
+      normalizeSearchText(category.name) === normalizeSearchText(name)
+    ));
+
+    if (existingCategory) return existingCategory;
+
+    const { data, error } = await supabase
+      .from('categories')
+      .insert([{
+        household_id: household.id,
+        name,
+        type: 'expense',
+        sort_order: 100,
+      }])
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('Errore creazione categoria OCR:', error);
+      return null;
+    }
+
+    await refreshData();
+    return data;
+  };
 
   // Draw crop to canvas to extract just the cropped portion
   const getCroppedImg = async (imageElement: HTMLImageElement, pixelCrop: PixelCrop): Promise<string> => {
@@ -117,33 +149,14 @@ export const ScanReceiptPage: React.FC = () => {
     setStatus('scanning');
     
     try {
-      const result = await Tesseract.recognize(targetImageSrc, 'ita', {
+      const result = await Tesseract.recognize(targetImageSrc, 'ita+eng', {
         logger: m => console.log(m)
       });
       const text = result.data.text;
       
       const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      
-      let foundAmount = '0.00';
-      
-      // Heuristic 1: The Total is usually the LARGEST currency amount on the receipt.
-      const amountRegex = /\d+[\.,]\d{2}/g;
-      const allMatches = text.match(amountRegex);
-      
-      let maxAmount = 0;
-      if (allMatches) {
-        allMatches.forEach(m => {
-          const val = parseFloat(m.replace(',', '.'));
-          // Ignore suspiciously large numbers
-          if (val > maxAmount && val < 10000) {
-            maxAmount = val;
-          }
-        });
-      }
-      
-      if (maxAmount > 0) {
-         foundAmount = maxAmount.toFixed(2);
-      }
+      const totalResult = extractReceiptTotal(text);
+      const foundAmount = totalResult.amount ? totalResult.amount.toFixed(2) : '0.00';
 
       // Heuristic 2: Merchant is usually the first non-empty line containing text
       let foundMerchant = lines.find(l => /[a-zA-Z]{4,}/.test(l)) || (lines.length > 0 ? lines[0] : '');
@@ -153,10 +166,13 @@ export const ScanReceiptPage: React.FC = () => {
       setMerchant(cleanMerchant || 'Esercente Sconosciuto');
 
       // Auto categorization
-      const fullTextLower = text.toLowerCase();
+      const fullTextLower = normalizeSearchText(text);
       let matchedCategoryId = '';
       let matchedSubcategoryId = '';
       let matchFoundInDb = false;
+      let detectedKeyword = '';
+      let suggestedCategoryName = '';
+      let categoriesForItemMatching = categories;
 
       // 1. Try DB Classification Rules
       if (household) {
@@ -170,8 +186,8 @@ export const ScanReceiptPage: React.FC = () => {
 
         if (rules && rules.length > 0) {
           // First try to match the exact merchant
-          const merchantLower = cleanMerchant.toLowerCase();
-          const merchantMatch = rules.find(r => r.match_text.toLowerCase() === merchantLower);
+          const merchantLower = normalizeSearchText(cleanMerchant);
+          const merchantMatch = rules.find(r => normalizeSearchText(r.match_text) === merchantLower);
           
           if (merchantMatch) {
             matchedCategoryId = merchantMatch.category_id;
@@ -180,7 +196,7 @@ export const ScanReceiptPage: React.FC = () => {
           } else {
             // Then try to find any rule keyword in the full text
             for (const rule of rules) {
-              if (fullTextLower.includes(rule.match_text.toLowerCase())) {
+              if (fullTextLower.includes(normalizeSearchText(rule.match_text))) {
                 matchedCategoryId = rule.category_id;
                 matchedSubcategoryId = rule.subcategory_id || '';
                 matchFoundInDb = true;
@@ -191,31 +207,51 @@ export const ScanReceiptPage: React.FC = () => {
         }
       }
 
-      // 2. Fallback to hardcoded keywords if no DB match
+      // 2. Fallback to saved category/subcategory names and curated keywords
       if (!matchFoundInDb) {
-        let matchedCategoryName = '';
-        for (const [catName, keywords] of Object.entries(categoryKeywords)) {
-          if (keywords.some(kw => fullTextLower.includes(kw))) {
-            matchedCategoryName = catName;
-            break;
+        const categoryMatch = classifyReceiptText(text, categories, subcategories);
+        matchedCategoryId = categoryMatch.categoryId;
+        matchedSubcategoryId = categoryMatch.subcategoryId;
+        detectedKeyword = categoryMatch.matchedKeyword || '';
+        suggestedCategoryName = categoryMatch.suggestedCategoryName || '';
+
+        if (!matchedCategoryId && suggestedCategoryName) {
+          const createdCategory = await ensureExpenseCategory(suggestedCategoryName);
+          if (createdCategory) {
+            matchedCategoryId = createdCategory.id;
+            categoriesForItemMatching = [...categories, createdCategory];
+          }
+        }
+      }
+
+      const extractedItems = extractReceiptItems(text, categoriesForItemMatching, subcategories);
+      const editableItems: EditableReceiptItem[] = [];
+
+      for (const item of extractedItems) {
+        let itemCategoryId = item.categoryId;
+
+        if (!itemCategoryId && item.suggestedCategoryName) {
+          const createdCategory = await ensureExpenseCategory(item.suggestedCategoryName);
+          if (createdCategory) {
+            itemCategoryId = createdCategory.id;
+            categoriesForItemMatching = [...categoriesForItemMatching, createdCategory];
           }
         }
 
-        if (matchedCategoryName) {
-           // Case insensitive matching with DB categories
-           const foundCat = categories.find(c => c.name.toLowerCase() === matchedCategoryName.toLowerCase());
-           if (foundCat) {
-             matchedCategoryId = foundCat.id;
-           } else {
-             // Fallback: try to find a partial match
-             const partialMatch = categories.find(c => c.name.toLowerCase().includes(matchedCategoryName.toLowerCase()));
-             if (partialMatch) matchedCategoryId = partialMatch.id;
-           }
-        }
+        editableItems.push({
+          ...item,
+          categoryId: itemCategoryId,
+          amountText: item.amount.toFixed(2),
+        });
       }
 
       setDetectedCategoryId(matchedCategoryId);
       setDetectedSubcategoryId(matchedSubcategoryId);
+      setReceiptItems(editableItems);
+      setOcrHint([
+        totalResult.sourceLine ? `Totale letto da: "${totalResult.sourceLine}" (${totalResult.confidence})` : '',
+        suggestedCategoryName ? `Categoria suggerita: ${suggestedCategoryName}${detectedKeyword ? ` da "${detectedKeyword}"` : ''}` : '',
+      ].filter(Boolean).join(' - ') || null);
 
       if (household && image) {
         try {
@@ -223,12 +259,13 @@ export const ScanReceiptPage: React.FC = () => {
           const archiveFile = await dataUrlToFile(image, `scontrino-${Date.now()}.jpg`);
           const document = await uploadArchiveDocument({
             householdId: household.id,
+            household,
             uploadedBy: user?.id || null,
             file: archiveFile,
             type: 'receipt',
             documentDate: date,
             vendorName: cleanMerchant || 'Scontrino',
-            totalAmount: maxAmount > 0 ? maxAmount : null,
+            totalAmount: totalResult.amount,
           });
 
           await supabase.from('ocr_jobs').insert([{
@@ -237,13 +274,27 @@ export const ScanReceiptPage: React.FC = () => {
             provider: 'tesseract',
             status: 'completed',
             extracted_text: text,
-            extracted_json: { source: 'scan_receipt' },
+            extracted_json: {
+              source: 'scan_receipt',
+              total: totalResult,
+              detected_category_id: matchedCategoryId || null,
+              detected_subcategory_id: matchedSubcategoryId || null,
+              detected_keyword: detectedKeyword || null,
+              items: editableItems.map(item => ({
+                description: item.description,
+                amount: Number(item.amountText.replace(',', '.')),
+                category_id: item.categoryId || null,
+                subcategory_id: item.subcategoryId || null,
+                raw_line: item.rawLine,
+              })),
+            },
             confidence: result.data.confidence,
             started_at: new Date().toISOString(),
             completed_at: new Date().toISOString(),
           }]);
 
           setArchivedDocumentId(document.id);
+          setArchivedOnGoogleDrive(document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:'));
         } catch (documentError) {
           setArchiveError(documentError instanceof Error ? documentError.message : 'Documento non archiviato');
         }
@@ -265,6 +316,15 @@ export const ScanReceiptPage: React.FC = () => {
       reader.onloadend = () => {
         if (reader.result) {
           setImage(reader.result as string);
+          setAmount('');
+          setMerchant('');
+          setDetectedCategoryId('');
+          setDetectedSubcategoryId('');
+          setArchivedDocumentId('');
+          setArchivedOnGoogleDrive(false);
+          setArchiveError(null);
+          setOcrHint(null);
+          setReceiptItems([]);
           setStatus('cropping');
         }
       };
@@ -276,11 +336,39 @@ export const ScanReceiptPage: React.FC = () => {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (imageSrc) {
       setImage(imageSrc);
+      setAmount('');
+      setMerchant('');
+      setDetectedCategoryId('');
+      setDetectedSubcategoryId('');
+      setArchivedDocumentId('');
+      setArchivedOnGoogleDrive(false);
+      setArchiveError(null);
+      setOcrHint(null);
+      setReceiptItems([]);
       setStatus('cropping');
     }
   }, [webcamRef]);
 
+  const updateReceiptItem = (id: string, updates: Partial<EditableReceiptItem>) => {
+    setReceiptItems(prev => prev.map(item => (
+      item.id === id ? { ...item, ...updates } : item
+    )));
+  };
+
+  const removeReceiptItem = (id: string) => {
+    setReceiptItems(prev => prev.filter(item => item.id !== id));
+  };
+
   const handleConfirm = () => {
+    const items = receiptItems
+      .map(item => ({
+        description: item.description.trim(),
+        amount: Number(item.amountText.replace(',', '.')),
+        categoryId: item.categoryId || detectedCategoryId || '',
+        subcategoryId: item.subcategoryId || '',
+      }))
+      .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0);
+
     navigate('/transazioni/nuova', { 
       state: { 
         amount, 
@@ -290,7 +378,8 @@ export const ScanReceiptPage: React.FC = () => {
         type: 'expense',
         categoryId: detectedCategoryId,
         subcategoryId: detectedSubcategoryId,
-        documentId: archivedDocumentId
+        documentId: archivedDocumentId,
+        items,
       } 
     });
   };
@@ -413,6 +502,45 @@ export const ScanReceiptPage: React.FC = () => {
               <label>Data</label>
               <input type="date" className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
             </div>
+            {ocrHint && (
+              <p className="text-muted fs-sm text-center mb-4">{ocrHint}</p>
+            )}
+            <div className={styles.formGroup}>
+              <label>Categoria dello scontrino</label>
+              <select
+                className={styles.input}
+                value={detectedCategoryId}
+                onChange={event => {
+                  setDetectedCategoryId(event.target.value);
+                  setDetectedSubcategoryId('');
+                }}
+              >
+                <option value="">Seleziona categoria...</option>
+                {expenseCategories.map(category => (
+                  <option key={category.id} value={category.id}>{category.name}</option>
+                ))}
+              </select>
+              {detectedCategory && (
+                <span className="text-success fs-sm">Rilevata: {detectedCategory.name}</span>
+              )}
+            </div>
+
+            {detectedSubcategories.length > 0 && (
+              <div className={styles.formGroup}>
+                <label>Sottocategoria</label>
+                <select
+                  className={styles.input}
+                  value={detectedSubcategoryId}
+                  onChange={event => setDetectedSubcategoryId(event.target.value)}
+                >
+                  <option value="">Nessuna sottocategoria</option>
+                  {detectedSubcategories.map(subcategory => (
+                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {detectedCategoryId ? (
                <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
                  <p className="text-success fs-sm">✨ Categoria trovata automaticamente!</p>
@@ -423,8 +551,76 @@ export const ScanReceiptPage: React.FC = () => {
             ) : (
                <p className="text-warning fs-sm text-center mb-4">⚠️ Nessuna categoria abbinata automaticamente.</p>
             )}
+            {receiptItems.length > 0 && (
+              <div className={styles.itemsReview}>
+                <h4>Articoli rilevati</h4>
+                <p className="text-muted fs-sm">
+                  Se lo scontrino contiene spese diverse, correggi categoria e importo per ogni riga.
+                </p>
+
+                {receiptItems.map(item => {
+                  const itemSubcategories = subcategories
+                    .filter(subcategory => subcategory.category_id === item.categoryId)
+                    .sort((a, b) => a.name.localeCompare(b.name));
+
+                  return (
+                    <div key={item.id} className={styles.itemRow}>
+                      <input
+                        className={styles.itemDescription}
+                        value={item.description}
+                        onChange={event => updateReceiptItem(item.id, { description: event.target.value })}
+                        aria-label="Descrizione articolo"
+                      />
+                      <input
+                        className={styles.itemAmount}
+                        value={item.amountText}
+                        onChange={event => updateReceiptItem(item.id, { amountText: event.target.value })}
+                        aria-label="Importo articolo"
+                      />
+                      <select
+                        className={styles.itemSelect}
+                        value={item.categoryId}
+                        onChange={event => updateReceiptItem(item.id, { categoryId: event.target.value, subcategoryId: '' })}
+                        aria-label="Categoria articolo"
+                      >
+                        <option value="">Categoria...</option>
+                        {expenseCategories.map(category => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
+                        ))}
+                      </select>
+                      <select
+                        className={styles.itemSelect}
+                        value={item.subcategoryId}
+                        onChange={event => updateReceiptItem(item.id, { subcategoryId: event.target.value })}
+                        aria-label="Sottocategoria articolo"
+                        disabled={!item.categoryId || itemSubcategories.length === 0}
+                      >
+                        <option value="">Sottocategoria...</option>
+                        {itemSubcategories.map(subcategory => (
+                          <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className={styles.removeItemButton}
+                        onClick={() => removeReceiptItem(item.id)}
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {archivedDocumentId && (
-              <p className="text-success fs-sm text-center mb-2">Documento salvato nell'archivio.</p>
+              <p className="text-success fs-sm text-center mb-2">
+                {archivedOnGoogleDrive
+                  ? 'Documento salvato su Google Drive.'
+                  : drivePending
+                  ? "Documento salvato nell'archivio interno provvisorio. Google Drive e' ancora da collegare."
+                  : "Documento salvato nell'archivio."}
+              </p>
             )}
             {archiveError && (
               <p className="text-warning fs-sm text-center mb-2">OCR completato, ma archivio non salvato: {archiveError}</p>

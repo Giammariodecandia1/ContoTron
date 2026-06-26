@@ -26,6 +26,11 @@ export const DashboardPage: React.FC = () => {
   const today = new Date();
   const budgetYear = today.getFullYear();
   const budgetMonth = today.getMonth() + 1;
+  const uploaderLabel = (tx: any) => {
+    const profile = tx.inserted_by_profile;
+    const name = profile?.display_name || profile?.email || 'Sconosciuto';
+    return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
+  };
 
   useEffect(() => {
     if (household) {
@@ -261,7 +266,7 @@ export const DashboardPage: React.FC = () => {
                     <div>
                       <div><strong>{tx.description}</strong></div>
                       <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'}</div>
-                      <div className="text-muted fs-sm">Inserita da {tx.inserted_by_profile?.display_name || 'Sconosciuto'}</div>
+                      <div className="text-muted fs-sm">Caricata da account: {uploaderLabel(tx)}</div>
                     </div>
                     <div style={{color: tx.type === 'expense' ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 'bold', display: 'flex', alignItems: 'center'}}>
                       {tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}

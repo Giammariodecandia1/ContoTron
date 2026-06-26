@@ -66,3 +66,15 @@
 .table tr:hover td {
   background-color: var(--color-gray-50);
 }
+
+@media (max-width: 640px) {
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .header button {
+    width: 100%;
+  }
+}

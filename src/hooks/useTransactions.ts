@@ -65,7 +65,7 @@ export const useTransactions = () => {
           accounts!transactions_account_id_fkey(name),
           categories(name),
           subcategories(name),
-          inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)
+          inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)
         `)
         .eq('household_id', household.id)
         .order('transaction_date', { ascending: false });

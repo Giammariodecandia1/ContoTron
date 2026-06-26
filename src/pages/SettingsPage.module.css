@@ -13,3 +13,124 @@
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-4);
 }
+
+.themeToggle {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.themeToggle button {
+  align-items: center;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-600);
+  display: inline-flex;
+  gap: var(--space-2);
+  justify-content: center;
+  padding: var(--space-2);
+}
+
+.themeToggle button:hover {
+  background: var(--color-gray-100);
+}
+
+.themeToggle .themeActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.storageOptions {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.storageOptions button {
+  align-items: flex-start;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.storageOptions button:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.storageOptions button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.storageOptions strong,
+.storageOptions small {
+  display: block;
+}
+
+.storageOptions small {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  margin-top: var(--space-1);
+}
+
+.storageOptions .storageActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.driveActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.feedback {
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+}
+
+.success {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-success);
+}
+
+.error {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--color-danger);
+}
+
+@media (max-width: 520px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .themeToggle {
+    grid-template-columns: 1fr;
+  }
+
+  .storageOptions button {
+    padding: var(--space-3);
+  }
+
+  .driveActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

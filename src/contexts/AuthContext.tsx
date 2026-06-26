@@ -91,18 +91,34 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     localStorage.removeItem('familyledger_profile');
 
     let isMounted = true;
+    let initialSessionHandled = false;
 
-    supabase.auth.getUser().then(({ data }) => {
-      if (isMounted) {
-        loadSessionUser(data.user);
-      }
-    });
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted) {
+      if (event === 'INITIAL_SESSION') {
+        initialSessionHandled = true;
         loadSessionUser(session?.user || null);
+        return;
       }
+
+      loadSessionUser(session?.user || null);
     });
+
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        if (isMounted && !initialSessionHandled) {
+          initialSessionHandled = true;
+          loadSessionUser(data.session?.user || null);
+        }
+      })
+      .catch(error => {
+        console.error('Errore caricamento sessione iniziale:', error);
+        if (isMounted && !initialSessionHandled) {
+          initialSessionHandled = true;
+          loadSessionUser(null);
+        }
+      });
 
     return () => {
       isMounted = false;

@@ -65,7 +65,7 @@
   width: 100%;
   padding: var(--space-3);
   background-color: var(--color-primary);
-  color: var(--color-white);
+  color: var(--color-on-primary);
   border-radius: var(--border-radius-md);
   font-weight: 500;
   transition: background-color 0.2s;
@@ -165,7 +165,7 @@
 
   .mobileTopBar {
     align-items: center;
-    background: rgba(255, 255, 255, 0.96);
+    background: color-mix(in srgb, var(--bg-card) 94%, transparent);
     border-bottom: 1px solid var(--color-gray-200);
     display: flex;
     height: calc(58px + env(safe-area-inset-top));
@@ -193,7 +193,7 @@
   }
 
   .mobileNav {
-    background: rgba(255, 255, 255, 0.98);
+    background: color-mix(in srgb, var(--bg-card) 96%, transparent);
     border-top: 1px solid var(--color-gray-200);
     bottom: 0;
     box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.08);

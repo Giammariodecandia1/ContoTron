@@ -172,6 +172,11 @@
   color: var(--color-danger);
 }
 
+.warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-warning);
+}
+
 .empty {
   color: var(--color-gray-500);
   padding: var(--space-6);
@@ -188,4 +193,3 @@
     grid-template-columns: 1fr;
   }
 }
-

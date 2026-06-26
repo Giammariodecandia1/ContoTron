@@ -1,10 +1,13 @@
 import { supabase } from './supabaseClient';
-import type { Document, DocumentType } from '../types/database';
+import { getDocumentStorageProvider, getDocumentStorageStatus } from './documentStoragePreference';
+import { GoogleDriveAuthError, uploadFileToGoogleDrive } from './googleDriveStorage';
+import type { Document, DocumentType, Household } from '../types/database';
 
 export const DOCUMENT_BUCKET = 'documents';
 
 interface UploadArchiveDocumentParams {
   householdId: string;
+  household?: Household | null;
   uploadedBy?: string | null;
   file: File;
   type: DocumentType;
@@ -34,6 +37,13 @@ const safeFilename = (filename: string) => {
 
   return extension ? `${safeBase}.${extension}` : safeBase;
 };
+
+const isSchemaMissingError = (error: any) => (
+  error?.code === '42703'
+  || String(error?.message || '').toLowerCase().includes('storage_provider')
+  || String(error?.message || '').toLowerCase().includes('external_file_id')
+  || String(error?.message || '').toLowerCase().includes('external_url')
+);
 
 const replaceExtension = (filename: string, extension: string) => {
   return `${filename.replace(/\.[^.]+$/, '')}.${extension}`;
@@ -141,6 +151,7 @@ export const dataUrlToFile = async (dataUrl: string, filename: string): Promise<
 
 export const uploadArchiveDocument = async ({
   householdId,
+  household,
   uploadedBy,
   file,
   type,
@@ -152,6 +163,65 @@ export const uploadArchiveDocument = async ({
   const [year, month] = date.split('-');
   const storageFile = await optimizeArchiveFile(file);
   const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${safeFilename(storageFile.name)}`;
+  const desiredProvider = getDocumentStorageProvider(household);
+  const storageStatus = getDocumentStorageStatus(household);
+  const canUseGoogleDrive = desiredProvider === 'google_drive' && storageStatus === 'ready' && !!household;
+
+  if (canUseGoogleDrive) {
+    try {
+      const driveFile = await uploadFileToGoogleDrive({
+        household,
+        userId: uploadedBy,
+        file: storageFile,
+        documentDate: date,
+        filename: safeFilename(storageFile.name),
+      });
+
+      const payload = {
+        household_id: householdId,
+        uploaded_by: uploadedBy || null,
+        type,
+        original_filename: file.name,
+        storage_path: `google_drive:${driveFile.id}`,
+        storage_provider: 'google_drive',
+        external_file_id: driveFile.id,
+        external_url: driveFile.webViewLink || null,
+        mime_type: storageFile.type || null,
+        file_size_bytes: storageFile.size,
+        document_date: date,
+        vendor_name: vendorName?.trim() || null,
+        total_amount: totalAmount ?? null,
+        status: 'archived',
+      };
+
+      const { data, error } = await supabase
+        .from('documents')
+        .insert([payload])
+        .select()
+        .single();
+
+      if (!error) return data as Document;
+
+      if (!isSchemaMissingError(error)) throw error;
+
+      const legacyPayload = { ...payload } as Record<string, unknown>;
+      delete legacyPayload.storage_provider;
+      delete legacyPayload.external_file_id;
+      delete legacyPayload.external_url;
+      const { data: legacyData, error: legacyError } = await supabase
+        .from('documents')
+        .insert([legacyPayload])
+        .select()
+        .single();
+
+      if (legacyError) throw legacyError;
+      return legacyData as Document;
+    } catch (driveError) {
+      if (!(driveError instanceof GoogleDriveAuthError)) {
+        console.warn('Google Drive non disponibile, uso archivio interno:', driveError);
+      }
+    }
+  }
 
   const { error: uploadError } = await supabase.storage
     .from(DOCUMENT_BUCKET)
@@ -166,29 +236,59 @@ export const uploadArchiveDocument = async ({
     );
   }
 
+  const payload = {
+    household_id: householdId,
+    uploaded_by: uploadedBy || null,
+    type,
+    original_filename: file.name,
+    storage_path: storagePath,
+    storage_provider: 'supabase',
+    external_file_id: null,
+    external_url: null,
+    mime_type: storageFile.type || null,
+    file_size_bytes: storageFile.size,
+    document_date: date,
+    vendor_name: vendorName?.trim() || null,
+    total_amount: totalAmount ?? null,
+    status: canUseGoogleDrive ? 'archived_drive_fallback' : 'archived',
+  };
+
   const { data, error } = await supabase
     .from('documents')
-    .insert([{
-      household_id: householdId,
-      uploaded_by: uploadedBy || null,
-      type,
-      original_filename: file.name,
-      storage_path: storagePath,
-      mime_type: storageFile.type || null,
-      file_size_bytes: storageFile.size,
-      document_date: date,
-      vendor_name: vendorName?.trim() || null,
-      total_amount: totalAmount ?? null,
-      status: 'archived',
-    }])
+    .insert([payload])
     .select()
     .single();
 
-  if (error) throw error;
-  return data as Document;
+  if (!error) return data as Document;
+
+  if (!isSchemaMissingError(error)) throw error;
+
+  const legacyPayload = { ...payload } as Record<string, unknown>;
+  delete legacyPayload.storage_provider;
+  delete legacyPayload.external_file_id;
+  delete legacyPayload.external_url;
+  const { data: legacyData, error: legacyError } = await supabase
+    .from('documents')
+    .insert([legacyPayload])
+    .select()
+    .single();
+
+  if (legacyError) throw legacyError;
+  return legacyData as Document;
 };
 
-export const getDocumentUrl = async (storagePath: string) => {
+export const getDocumentUrl = async (
+  storagePath: string,
+  storageProvider?: string | null,
+  externalUrl?: string | null,
+) => {
+  if (storageProvider === 'google_drive' || storagePath.startsWith('google_drive:')) {
+    if (externalUrl) return externalUrl;
+
+    const fileId = storagePath.replace(/^google_drive:/, '');
+    return fileId ? `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view` : '';
+  }
+
   const { data, error } = await supabase.storage
     .from(DOCUMENT_BUCKET)
     .createSignedUrl(storagePath, 60 * 60);

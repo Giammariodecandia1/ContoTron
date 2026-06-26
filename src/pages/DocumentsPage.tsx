@@ -13,6 +13,11 @@ import {
   uploadArchiveDocument,
   type DocumentWithUrl,
 } from '../lib/documentArchive';
+import {
+  documentStorageLabels,
+  getDocumentStorageProvider,
+  getDocumentStorageStatus,
+} from '../lib/documentStoragePreference';
 import type { DocumentType, OcrJob } from '../types/database';
 import styles from './DocumentsPage.module.css';
 
@@ -61,6 +66,10 @@ export const DocumentsPage: React.FC = () => {
   const [selectedType, setSelectedType] = useState<DocumentType | 'all'>('all');
   const [searchText, setSearchText] = useState('');
 
+  const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
+  const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
+  const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+
   const fetchDocuments = useCallback(async () => {
     if (!household) return;
 
@@ -108,7 +117,7 @@ export const DocumentsPage: React.FC = () => {
       const withUrls = await Promise.all(
         documentRows.map(async doc => ({
           ...doc,
-          url: await getDocumentUrl(doc.storage_path),
+          url: await getDocumentUrl(doc.storage_path, doc.storage_provider, doc.external_url),
           ocr_text: ocrByDocumentId[doc.id] || null,
         })),
       );
@@ -168,6 +177,7 @@ export const DocumentsPage: React.FC = () => {
       const parsedAmount = totalAmount ? Number(totalAmount.replace(',', '.')) : null;
       const document = await uploadArchiveDocument({
         householdId: household.id,
+        household,
         uploadedBy: user?.id || null,
         file,
         type: documentType,
@@ -208,7 +218,17 @@ export const DocumentsPage: React.FC = () => {
         }
       }
 
-      setMessage('Documento archiviato correttamente.');
+      const usedGoogleDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
+      let uploadMessage = 'Documento archiviato correttamente.';
+      if (drivePending) {
+        uploadMessage = "Documento archiviato nell'archivio interno provvisorio. Google Drive e' ancora da collegare.";
+      } else if (documentStorageProvider === 'google_drive' && !usedGoogleDrive) {
+        uploadMessage = "Google Drive non e' disponibile ora: documento salvato nell'archivio interno provvisorio.";
+      } else if (usedGoogleDrive) {
+        uploadMessage = 'Documento archiviato su Google Drive.';
+      }
+
+      setMessage(uploadMessage);
       setFile(null);
       setVendorName('');
       setTotalAmount('');
@@ -235,6 +255,11 @@ export const DocumentsPage: React.FC = () => {
           <form onSubmit={handleUpload} className={styles.form}>
             {message && <div className={`${styles.message} ${styles.success}`}>{message}</div>}
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
+            {drivePending && (
+              <div className={`${styles.message} ${styles.warning}`}>
+                Formula scelta: {documentStorageLabels.google_drive}. Il collegamento Drive non e' ancora attivo, quindi i nuovi file vengono salvati temporaneamente nell'archivio interno.
+              </div>
+            )}
 
             <div className={styles.formGroup}>
               <label>File</label>
@@ -377,4 +402,3 @@ export const DocumentsPage: React.FC = () => {
     </div>
   );
 };
-

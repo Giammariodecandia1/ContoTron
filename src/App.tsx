@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage';
 import { MonthlyBudgetPage } from './pages/MonthlyBudgetPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { CategoriesPage } from './pages/CategoriesPage';
+import { HouseholdMembersPage } from './pages/HouseholdMembersPage';
 import { ScanReceiptPage } from './pages/ScanReceiptPage';
 import { NewTransactionPage } from './pages/NewTransactionPage';
 import { DocumentsPage } from './pages/DocumentsPage';
@@ -29,7 +30,7 @@ function App() {
       <BrowserRouter>
         <RouterRoutes>
           <RouterRoute path="/login" element={<LoginPage />} />
-          <RouterRoute path="*" element={<RouterNavigate to="/login" replace />} />
+          <RouterRoute path="*" element={<LoginPage />} />
         </RouterRoutes>
       </BrowserRouter>
     );
@@ -61,6 +62,7 @@ function App() {
           <RouterRoute path="/scan" element={<ScanReceiptPage />} />
           <RouterRoute path="/impostazioni" element={<SettingsPage />} />
           <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
+          <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
           <RouterRoute path="*" element={<RouterNavigate to="/" replace />} />
         </RouterRoutes>
       </AppLayout>

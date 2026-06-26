@@ -32,6 +32,27 @@ export const LoginPage: React.FC = () => {
     navigate('/');
   };
 
+  const handleGoogleLogin = async () => {
+    resetFeedback();
+    setLoading(true);
+
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: `${window.location.origin}/login`,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'select_account',
+        },
+      },
+    });
+
+    if (oauthError) {
+      setError(oauthError.message);
+      setLoading(false);
+    }
+  };
+
   const handleRegister = async () => {
     const cleanName = displayName.trim();
     if (!cleanName) {
@@ -104,6 +125,20 @@ export const LoginPage: React.FC = () => {
       </div>
 
       <Card className={styles.loginCard}>
+        <button
+          type="button"
+          className={styles.googleButton}
+          onClick={handleGoogleLogin}
+          disabled={loading}
+        >
+          <span className={styles.googleIcon}>G</span>
+          Continua con Google
+        </button>
+
+        <div className={styles.divider}>
+          <span>oppure</span>
+        </div>
+
         <div className={styles.modeSwitch}>
           <button
             type="button"

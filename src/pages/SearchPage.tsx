@@ -68,6 +68,8 @@ interface DocumentResult {
   document_date: string | null;
   total_amount: number | null;
   storage_path: string;
+  storage_provider?: string | null;
+  external_url?: string | null;
   url?: string;
   ocr_text?: string | null;
 }
@@ -188,7 +190,7 @@ export const SearchPage: React.FC = () => {
       const documentsWithUrls = await Promise.all(((docRows || []) as DocumentResult[]).map(async doc => ({
         ...doc,
         ocr_text: ocrByDocument[doc.id] || null,
-        url: await getDocumentUrl(doc.storage_path),
+        url: await getDocumentUrl(doc.storage_path, doc.storage_provider, doc.external_url),
       })));
 
       setTransactions((txRows || []) as TransactionResult[]);

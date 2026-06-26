@@ -15,6 +15,12 @@ interface TransactionFormState {
   merchant?: string;
   description?: string;
   documentId?: string;
+  items?: Array<{
+    description: string;
+    amount: number;
+    categoryId?: string;
+    subcategoryId?: string;
+  }>;
 }
 
 export const NewTransactionPage: React.FC = () => {
@@ -112,6 +118,31 @@ export const NewTransactionPage: React.FC = () => {
           document_id: initialState.documentId || null,
           source: initialState.documentId ? 'receipt_ocr' : 'manual'
         });
+
+    if (res && !isEditMode && initialState.items?.length && household) {
+      const itemRows = initialState.items
+        .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0)
+        .map(item => ({
+          household_id: household.id,
+          transaction_id: res.id,
+          description: item.description,
+          amount: item.amount,
+          category_id: item.categoryId || categoryId || null,
+          subcategory_id: item.subcategoryId || null,
+          is_confirmed: false,
+        }));
+
+      if (itemRows.length > 0) {
+        const { error: itemError } = await supabase
+          .from('transaction_items')
+          .insert(itemRows);
+
+        if (itemError) {
+          setError(`Transazione salvata, ma articoli non salvati: ${itemError.message}`);
+          return;
+        }
+      }
+    }
 
     if (res) {
       navigate('/transazioni');

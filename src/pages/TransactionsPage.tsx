@@ -29,6 +29,12 @@ export const TransactionsPage: React.FC = () => {
     }
   };
 
+  const uploaderLabel = (tx: any) => {
+    const profile = tx.inserted_by_profile;
+    const name = profile?.display_name || profile?.email || 'Sconosciuto';
+    return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -59,10 +65,10 @@ export const TransactionsPage: React.FC = () => {
                 <div>
                   <div style={{ fontWeight: '600' }}>{tx.description}</div>
                   <div className="text-muted fs-sm">
-                    {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'} - {tx.accounts?.name || 'Conto'}
+                    {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'} - Conto: {tx.accounts?.name || 'Conto'}
                   </div>
                   <div className="text-muted fs-sm">
-                    Inserita da {tx.inserted_by_profile?.display_name || 'Sconosciuto'}
+                    Caricata da account: {uploaderLabel(tx)}
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>

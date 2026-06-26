@@ -62,6 +62,8 @@ export const CategoriesPage: React.FC = () => {
   };
 
   const handleDeleteCategory = async (id: string, name: string) => {
+    if (!household) return;
+
     if (!window.confirm(`Sei sicuro di voler eliminare la categoria "${name}"? Le transazioni associate potrebbero perdere il riferimento.`)) {
       return;
     }
@@ -74,7 +76,8 @@ export const CategoriesPage: React.FC = () => {
       const { error } = await supabase
         .from('categories')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('household_id', household.id);
 
       if (error) throw error;
       await refreshData();
@@ -124,6 +127,8 @@ export const CategoriesPage: React.FC = () => {
   };
 
   const handleDeleteSubcategory = async (id: string, name: string) => {
+    if (!household) return;
+
     if (!window.confirm(`Sei sicuro di voler eliminare la sottocategoria "${name}"? Le transazioni associate potrebbero perdere il riferimento.`)) {
       return;
     }
@@ -136,7 +141,8 @@ export const CategoriesPage: React.FC = () => {
       const { error } = await supabase
         .from('subcategories')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('household_id', household.id);
 
       if (error) throw error;
       await refreshData();

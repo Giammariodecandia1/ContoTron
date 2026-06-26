@@ -9,7 +9,7 @@
 }
 
 .scanCard {
-  max-width: 600px;
+  max-width: 880px;
   margin: 0 auto;
   min-height: 400px;
   display: flex;
@@ -71,4 +71,66 @@
   border: 1px solid var(--color-gray-300);
   border-radius: var(--border-radius-md);
   font-size: var(--text-base);
+  background: var(--color-white);
+  color: var(--color-gray-900);
+}
+
+.itemsReview {
+  width: 100%;
+  margin: var(--space-4) 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  background: var(--color-gray-50);
+  text-align: left;
+}
+
+.itemsReview h4 {
+  margin: 0 0 var(--space-2) 0;
+  color: var(--color-gray-900);
+}
+
+.itemRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) 96px minmax(140px, 1fr) minmax(140px, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-3);
+}
+
+.itemDescription,
+.itemAmount,
+.itemSelect {
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  background: var(--color-white);
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+}
+
+.itemAmount {
+  text-align: right;
+}
+
+.removeItemButton {
+  padding: var(--space-2);
+  border-radius: var(--border-radius-md);
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+}
+
+.removeItemButton:hover {
+  background: var(--color-danger-bg);
+}
+
+@media (max-width: 760px) {
+  .itemRow {
+    grid-template-columns: 1fr;
+  }
+
+  .itemAmount {
+    text-align: left;
+  }
 }

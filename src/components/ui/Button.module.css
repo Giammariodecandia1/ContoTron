@@ -16,7 +16,7 @@
 /* Variants */
 .btn-primary {
   background-color: var(--color-primary);
-  color: var(--color-white);
+  color: var(--color-on-primary);
 }
 
 .btn-primary:hover:not(:disabled) {
@@ -35,7 +35,7 @@
 
 .btn-danger {
   background-color: var(--color-danger);
-  color: var(--color-white);
+  color: var(--color-on-primary);
 }
 
 .btn-danger:hover:not(:disabled) {
