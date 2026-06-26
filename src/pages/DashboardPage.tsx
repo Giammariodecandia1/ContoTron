@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { PlusCircle, Wallet } from 'lucide-react';
+import { Camera, PlusCircle, Wallet } from 'lucide-react';
 import { useHousehold, useTransactions } from '../hooks';
 import { ExpenseCharts } from '../components/dashboard/ExpenseCharts';
 import { Link, useNavigate } from 'react-router-dom';
@@ -150,6 +150,16 @@ export const DashboardPage: React.FC = () => {
         <h1 className={styles.title}>Dashboard</h1>
         <p className="text-muted">Benvenuto nel tuo FamilyLedger, {household?.name}!</p>
       </header>
+
+      <Link to="/scan" className={styles.mobileScanCard}>
+        <span className={styles.mobileScanIcon}>
+          <Camera size={24} />
+        </span>
+        <span>
+          <strong>Scansiona scontrino</strong>
+          <small>Foto rapida, OCR e transazione automatica</small>
+        </span>
+      </Link>
       
       <div className={styles.mainGrid}>
         {/* Left Column */}
