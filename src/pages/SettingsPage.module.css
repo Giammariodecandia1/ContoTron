@@ -116,6 +116,11 @@
   color: var(--color-danger);
 }
 
+.warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-warning);
+}
+
 @media (max-width: 520px) {
   .grid {
     grid-template-columns: 1fr;

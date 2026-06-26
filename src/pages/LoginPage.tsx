@@ -40,6 +40,7 @@ export const LoginPage: React.FC = () => {
       provider: 'google',
       options: {
         redirectTo: `${window.location.origin}/login`,
+        scopes: 'openid email profile',
         queryParams: {
           access_type: 'offline',
           prompt: 'select_account',

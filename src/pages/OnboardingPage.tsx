@@ -8,7 +8,6 @@ import {
   documentStorageLabels,
   saveDocumentStoragePreference,
 } from '../lib/documentStoragePreference';
-import { requestGoogleDriveConnection } from '../lib/googleDriveStorage';
 import type { DocumentStorageProvider } from '../types/database';
 import styles from './OnboardingPage.module.css';
 
@@ -84,8 +83,7 @@ export const OnboardingPage: React.FC = () => {
       }
 
       if (documentStorageProvider === 'google_drive') {
-        const { error: driveOAuthError } = await requestGoogleDriveConnection(`${window.location.origin}/impostazioni?connectDrive=1`);
-        if (driveOAuthError) throw driveOAuthError;
+        window.location.href = '/impostazioni?driveSetup=1';
         return;
       }
 

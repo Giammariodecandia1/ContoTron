@@ -32,6 +32,7 @@ export const SettingsPage: React.FC = () => {
 
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
   const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
+  const fromDriveSetup = useMemo(() => new URLSearchParams(location.search).get('driveSetup') === '1', [location.search]);
 
   const handleStorageChange = async (provider: DocumentStorageProvider) => {
     if (!household || storageSaving || provider === documentStorageProvider) return;
@@ -117,6 +118,11 @@ export const SettingsPage: React.FC = () => {
             Formula attiva: {documentStorageLabels[documentStorageProvider]}.
             {documentStorageStatus === 'pending_connection' && " Google Drive e' ancora da collegare."}
           </p>
+          {fromDriveSetup && documentStorageProvider === 'google_drive' && (
+            <div className={`${styles.feedback} ${styles.warning}`}>
+              Hai scelto Google Drive per questa famiglia. Puoi usare Contotron subito; collega Drive da qui quando l'account e' abilitato come tester Google.
+            </div>
+          )}
           {storageMessage && <div className={`${styles.feedback} ${styles.success}`}>{storageMessage}</div>}
           {storageError && <div className={`${styles.feedback} ${styles.error}`}>{storageError}</div>}
           <div className={styles.storageOptions}>
