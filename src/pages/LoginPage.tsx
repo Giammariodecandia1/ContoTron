@@ -122,7 +122,10 @@ export const LoginPage: React.FC = () => {
     <div className={styles.loginContainer}>
       <div className={styles.brand}>
         <h1>Contotron</h1>
-        <p>Gestione familiare, report e documenti in un unico posto.</p>
+        <p>
+          Gestionale per finanze familiari: spese, scontrini, bollette, budget,
+          report e documenti del tuo nucleo in un unico posto.
+        </p>
       </div>
 
       <Card className={styles.loginCard}>
@@ -210,9 +213,15 @@ export const LoginPage: React.FC = () => {
         <p className={styles.footer}>
           {mode === 'login'
             ? 'Ogni famiglia vede solo i propri dati dopo il login.'
-            : 'Dopo la registrazione creerai il tuo primo gruppo famiglia.'}
+            : 'Dopo la registrazione potrai creare un nucleo o entrare in uno esistente.'}
         </p>
       </Card>
+
+      <section className={styles.infoBox} aria-label="Informazioni Contotron">
+        <strong>Info</strong>
+        <span>Creatore: Giammario de Candia</span>
+        <span>Versione V1 - rilascio 27/06/2026</span>
+      </section>
     </div>
   );
 };

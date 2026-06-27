@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Cloud, Database, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
+import { Cloud, Database, Info, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold, useTheme } from '../hooks';
 import {
@@ -25,6 +25,7 @@ export const SettingsPage: React.FC = () => {
   const { mode, resolvedTheme, setMode } = useTheme();
   const { household, refreshData } = useHousehold();
   const { user } = useAuth();
+  const userId = user?.id || null;
   const [storageSaving, setStorageSaving] = useState(false);
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
@@ -62,7 +63,7 @@ export const SettingsPage: React.FC = () => {
     setStorageError(null);
 
     try {
-      const folder = await ensureHouseholdDriveFolder(household, user?.id || null);
+      const folder = await ensureHouseholdDriveFolder(household, userId);
       await refreshData();
       setStorageMessage(`Google Drive collegato. Cartella famiglia: ${folder.name}.`);
       if (location.search.includes('connectDrive=1')) {
@@ -82,7 +83,7 @@ export const SettingsPage: React.FC = () => {
     } finally {
       setDriveConnecting(false);
     }
-  }, [driveConnecting, household, location.search, navigate, refreshData, user?.id]);
+  }, [driveConnecting, household, location.search, navigate, refreshData, userId]);
 
   useEffect(() => {
     const shouldConnectDrive = new URLSearchParams(location.search).get('connectDrive') === '1';
@@ -93,7 +94,11 @@ export const SettingsPage: React.FC = () => {
       && documentStorageStatus !== 'ready'
       && !driveConnecting
     ) {
-      void connectGoogleDrive(false);
+      const connectTimer = window.setTimeout(() => {
+        void connectGoogleDrive(false);
+      }, 0);
+
+      return () => window.clearTimeout(connectTimer);
     }
   }, [connectGoogleDrive, documentStorageProvider, documentStorageStatus, driveConnecting, household, location.search]);
 
@@ -106,7 +111,13 @@ export const SettingsPage: React.FC = () => {
 
       <div className={styles.grid}>
         <Card title="Nucleo Familiare" icon={<Users size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/nucleo')}>Gestisci</Button>}>
-          <p className="text-muted fs-sm">Invita altri membri della tua famiglia per condividere spese e budget.</p>
+          <div className={styles.nucleusPreview}>
+            <strong>{household?.name || 'Nucleo Contotron'}</strong>
+            <span>Codice invito: {household?.invite_code || 'da attivare'}</span>
+          </div>
+          <p className="text-muted fs-sm">
+            Invita altri membri della tua famiglia per condividere spese e budget. Ogni account puo appartenere a un solo nucleo alla volta.
+          </p>
         </Card>
 
         <Card title="Gestione Categorie" icon={<Tag size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/categorie')}>Gestisci</Button>}>
@@ -171,6 +182,11 @@ export const SettingsPage: React.FC = () => {
               )}
             </div>
           )}
+          {documentStorageProvider === 'google_drive' && (
+            <div className={`${styles.feedback} ${styles.warning}`}>
+              Nota: per far salvare tutti direttamente nel Drive del proprietario servira una funzione backend sicura. Dal browser non conserveremo token Google di altri account.
+            </div>
+          )}
         </Card>
 
         <Card title="Preferenze" icon={<SettingsIcon size={20} />}>
@@ -200,6 +216,23 @@ export const SettingsPage: React.FC = () => {
               <Monitor size={16} />
               Sistema
             </button>
+          </div>
+        </Card>
+
+        <Card title="Info Contotron" icon={<Info size={20} />}>
+          <div className={styles.infoList}>
+            <div>
+              <span>Creatore</span>
+              <strong>Giammario de Candia</strong>
+            </div>
+            <div>
+              <span>Versione</span>
+              <strong>V1</strong>
+            </div>
+            <div>
+              <span>Data rilascio</span>
+              <strong>27/06/2026</strong>
+            </div>
           </div>
         </Card>
       </div>

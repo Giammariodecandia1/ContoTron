@@ -17,7 +17,7 @@ export const documentStorageLabels: Record<DocumentStorageProvider, string> = {
 
 export const documentStorageDescriptions: Record<DocumentStorageProvider, string> = {
   supabase: 'Soluzione semplice e subito attiva. I documenti ottimizzati restano nello storage privato collegato al database.',
-  google_drive: 'Pensata per usare lo spazio Drive del creatore famiglia. Richiede il collegamento Google Drive prima degli upload reali.',
+  google_drive: 'Pensata per usare una cartella Drive del nucleo. Il Drive unico del proprietario richiede un collegamento backend sicuro.',
 };
 
 const storageKey = (householdId: string) => `contotron_document_storage_${householdId}`;

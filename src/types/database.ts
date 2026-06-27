@@ -61,6 +61,7 @@ export interface Household {
   name: string;
   currency: string;
   budget_month_start_day: number;
+  invite_code?: string | null;
   document_storage_provider?: DocumentStorageProvider | null;
   document_storage_status?: DocumentStorageStatus | null;
   document_storage_config?: Record<string, unknown> | null;

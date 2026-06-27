@@ -148,7 +148,7 @@ export const DashboardPage: React.FC = () => {
     <div className={styles.dashboard}>
       <header className={styles.header}>
         <h1 className={styles.title}>Dashboard</h1>
-        <p className="text-muted">Benvenuto nel tuo FamilyLedger, {household?.name}!</p>
+        <p className="text-muted">Benvenuto in Contotron, {household?.name}!</p>
       </header>
 
       <Link to="/scan" className={styles.mobileScanCard}>

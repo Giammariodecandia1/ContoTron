@@ -43,6 +43,46 @@
   font-weight: 700;
 }
 
+.nucleusPreview {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+.nucleusPreview strong {
+  color: var(--color-gray-900);
+}
+
+.nucleusPreview span {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.infoList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.infoList span {
+  color: var(--color-gray-500);
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+}
+
+.infoList strong {
+  color: var(--color-gray-900);
+}
+
 .storageOptions {
   display: grid;
   gap: var(--space-3);

@@ -1,17 +1,24 @@
 import React, { useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Trash2, Plus, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import styles from './CategoriesPage.module.css';
+
+type EditingValue = {
+  id: string;
+  name: string;
+};
 
 export const CategoriesPage: React.FC = () => {
   const navigate = useNavigate();
   const { household, categories, subcategories, refreshData } = useHousehold();
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newSubcategoryMap, setNewSubcategoryMap] = useState<Record<string, string>>({});
+  const [editingCategory, setEditingCategory] = useState<EditingValue | null>(null);
+  const [editingSubcategory, setEditingSubcategory] = useState<EditingValue | null>(null);
   const [loading, setLoading] = useState(false);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
@@ -90,6 +97,35 @@ export const CategoriesPage: React.FC = () => {
     }
   };
 
+  const handleUpdateCategory = async (id: string) => {
+    if (!household || editingCategory?.id !== id) return;
+
+    const name = editingCategory.name.trim();
+    if (!name) return;
+
+    setLoading(true);
+    setSaveMessage(null);
+    setSaveError(null);
+
+    try {
+      const { error } = await supabase
+        .from('categories')
+        .update({ name })
+        .eq('id', id)
+        .eq('household_id', household.id);
+
+      if (error) throw error;
+      setEditingCategory(null);
+      await refreshData();
+      setSaveMessage(`Categoria "${name}" aggiornata nel database.`);
+    } catch (err) {
+      console.error('Errore durante modifica categoria:', err);
+      setSaveError("Impossibile modificare la categoria. Assicurati che non esista gia'.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAddSubcategory = async (categoryId: string) => {
     if (!household) return;
 
@@ -155,6 +191,35 @@ export const CategoriesPage: React.FC = () => {
     }
   };
 
+  const handleUpdateSubcategory = async (id: string) => {
+    if (!household || editingSubcategory?.id !== id) return;
+
+    const name = editingSubcategory.name.trim();
+    if (!name) return;
+
+    setLoading(true);
+    setSaveMessage(null);
+    setSaveError(null);
+
+    try {
+      const { error } = await supabase
+        .from('subcategories')
+        .update({ name })
+        .eq('id', id)
+        .eq('household_id', household.id);
+
+      if (error) throw error;
+      setEditingSubcategory(null);
+      await refreshData();
+      setSaveMessage(`Sottocategoria "${name}" aggiornata nel database.`);
+    } catch (err) {
+      console.error('Errore durante modifica sottocategoria:', err);
+      setSaveError("Impossibile modificare la sottocategoria. Assicurati che non esista gia'.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -195,21 +260,69 @@ export const CategoriesPage: React.FC = () => {
                     >
                       <div className={styles.categoryNameContainer}>
                         {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
-                        <span>{cat.name}</span>
-                        {catSubcategories.length > 0 && (
-                          <span className={styles.badge}>{catSubcategories.length}</span>
+                        {editingCategory?.id === cat.id ? (
+                          <div className={styles.editInline} onClick={e => e.stopPropagation()}>
+                            <input
+                              className={styles.editInput}
+                              value={editingCategory.name}
+                              disabled={loading}
+                              onChange={e => setEditingCategory({ id: cat.id, name: e.target.value })}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') void handleUpdateCategory(cat.id);
+                                if (e.key === 'Escape') setEditingCategory(null);
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              className={styles.confirmBtn}
+                              onClick={() => handleUpdateCategory(cat.id)}
+                              disabled={loading || !editingCategory.name.trim()}
+                              title="Salva categoria"
+                            >
+                              <Check size={15} />
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.cancelBtn}
+                              onClick={() => setEditingCategory(null)}
+                              disabled={loading}
+                              title="Annulla modifica"
+                            >
+                              <X size={15} />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <span>{cat.name}</span>
+                            {catSubcategories.length > 0 && (
+                              <span className={styles.badge}>{catSubcategories.length}</span>
+                            )}
+                          </>
                         )}
                       </div>
-                      <button
-                        className={styles.deleteBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteCategory(cat.id, cat.name);
-                        }}
-                        title="Elimina categoria"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className={styles.rowActions}>
+                        <button
+                          className={styles.editBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCategory({ id: cat.id, name: cat.name });
+                          }}
+                          title="Modifica categoria"
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          className={styles.deleteBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteCategory(cat.id, cat.name);
+                          }}
+                          title="Elimina categoria"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
 
                     {isExpanded && (
@@ -219,14 +332,57 @@ export const CategoriesPage: React.FC = () => {
                         ) : (
                           catSubcategories.map(sub => (
                             <div key={sub.id} className={styles.subcategoryItem}>
-                              <span>{sub.name}</span>
-                              <button
-                                className={styles.deleteBtnSmall}
-                                onClick={() => handleDeleteSubcategory(sub.id, sub.name)}
-                                title="Elimina sottocategoria"
-                              >
-                                <Trash2 size={14} />
-                              </button>
+                              {editingSubcategory?.id === sub.id ? (
+                                <div className={styles.editInline}>
+                                  <input
+                                    className={styles.editInput}
+                                    value={editingSubcategory.name}
+                                    disabled={loading}
+                                    onChange={e => setEditingSubcategory({ id: sub.id, name: e.target.value })}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') void handleUpdateSubcategory(sub.id);
+                                      if (e.key === 'Escape') setEditingSubcategory(null);
+                                    }}
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    className={styles.confirmBtn}
+                                    onClick={() => handleUpdateSubcategory(sub.id)}
+                                    disabled={loading || !editingSubcategory.name.trim()}
+                                    title="Salva sottocategoria"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={styles.cancelBtn}
+                                    onClick={() => setEditingSubcategory(null)}
+                                    disabled={loading}
+                                    title="Annulla modifica"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span>{sub.name}</span>
+                              )}
+                              <div className={styles.rowActions}>
+                                <button
+                                  className={styles.editBtnSmall}
+                                  onClick={() => setEditingSubcategory({ id: sub.id, name: sub.name })}
+                                  title="Modifica sottocategoria"
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  className={styles.deleteBtnSmall}
+                                  onClick={() => handleDeleteSubcategory(sub.id, sub.name)}
+                                  title="Elimina sottocategoria"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
                             </div>
                           ))
                         )}

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 import type { Household, Account, Category, Subcategory } from '../types/database';
@@ -30,7 +30,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [loading, setLoading] = useState(true);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
-  const fetchHouseholdData = async () => {
+  const fetchHouseholdData = useCallback(async () => {
     if (!user) {
       setHousehold(null);
       setAccounts([]);
@@ -48,7 +48,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .from('household_members')
         .select('household_id')
         .eq('user_id', user.id)
-        .order('created_at', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
@@ -115,13 +115,12 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           { household_id: hhData.id, name: 'Trasporti', type: 'expense', sort_order: 4 },
           { household_id: hhData.id, name: 'Abbigliamento', type: 'expense', sort_order: 5 },
           { household_id: hhData.id, name: 'Tempo libero', type: 'expense', sort_order: 6 },
-          { household_id: hhData.id, name: 'Figli', type: 'expense', sort_order: 7 },
-          { household_id: hhData.id, name: 'Cura della persona', type: 'expense', sort_order: 8 },
-          { household_id: hhData.id, name: 'Assicurazione', type: 'expense', sort_order: 9 },
-          { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 10 },
-          { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 11 },
-          { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 12 },
-          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 13 }
+          { household_id: hhData.id, name: 'Cura della persona', type: 'expense', sort_order: 7 },
+          { household_id: hhData.id, name: 'Assicurazione', type: 'expense', sort_order: 8 },
+          { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 9 },
+          { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 10 },
+          { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 11 },
+          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 12 }
         ];
         
         const { data: insertedCats } = await supabase.from('categories').insert(defaultCats).select();
@@ -150,11 +149,45 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
       setLoading(false);
     }
-  };
+  }, [user]);
 
   useEffect(() => {
-    fetchHouseholdData();
-  }, [user]);
+    const loadTimer = window.setTimeout(() => {
+      void fetchHouseholdData();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
+  }, [fetchHouseholdData]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const refreshCurrentMembership = () => {
+      void fetchHouseholdData();
+    };
+
+    window.addEventListener('focus', refreshCurrentMembership);
+    const refreshTimer = window.setInterval(refreshCurrentMembership, 15000);
+    const channel = supabase
+      .channel(`household-membership-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'household_members',
+          filter: `user_id=eq.${user.id}`,
+        },
+        refreshCurrentMembership,
+      )
+      .subscribe();
+
+    return () => {
+      window.removeEventListener('focus', refreshCurrentMembership);
+      window.clearInterval(refreshTimer);
+      void supabase.removeChannel(channel);
+    };
+  }, [fetchHouseholdData, user?.id]);
 
   const effectiveLoading = loading || (!!user && loadedUserId !== user.id);
 

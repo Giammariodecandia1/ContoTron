@@ -21,6 +21,15 @@ import {
 import type { DocumentType, OcrJob } from '../types/database';
 import styles from './DocumentsPage.module.css';
 
+type DocumentUploaderProfile = {
+  display_name: string | null;
+  email: string | null;
+};
+
+type ArchiveDocument = DocumentWithUrl & {
+  uploaded_by_profile?: DocumentUploaderProfile | null;
+};
+
 const documentTypes: Array<{ value: DocumentType; label: string }> = [
   { value: 'receipt', label: 'Scontrino' },
   { value: 'bill', label: 'Bolletta' },
@@ -47,7 +56,7 @@ export const DocumentsPage: React.FC = () => {
   const { user } = useAuth();
   const today = new Date();
 
-  const [documents, setDocuments] = useState<DocumentWithUrl[]>([]);
+  const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [ocrProgress, setOcrProgress] = useState('');
@@ -69,6 +78,14 @@ export const DocumentsPage: React.FC = () => {
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
   const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
   const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+  const uploaderLabel = (doc: ArchiveDocument) => {
+    const profile = doc.uploaded_by_profile;
+    const name = profile?.display_name || profile?.email || 'Sconosciuto';
+    return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
+  };
+  const isGoogleDriveDocument = (doc: ArchiveDocument) => (
+    doc.storage_provider === 'google_drive' || doc.storage_path.startsWith('google_drive:')
+  );
 
   const fetchDocuments = useCallback(async () => {
     if (!household) return;
@@ -79,7 +96,13 @@ export const DocumentsPage: React.FC = () => {
     try {
       let query = supabase
         .from('documents')
-        .select('*')
+        .select(`
+          *,
+          uploaded_by_profile:profiles!documents_uploaded_by_fkey (
+            display_name,
+            email
+          )
+        `)
         .eq('household_id', household.id)
         .order('document_date', { ascending: false })
         .order('created_at', { ascending: false });
@@ -122,7 +145,7 @@ export const DocumentsPage: React.FC = () => {
         })),
       );
 
-      setDocuments(withUrls as DocumentWithUrl[]);
+      setDocuments(withUrls as ArchiveDocument[]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Errore durante il caricamento documenti';
       setError(message);
@@ -132,7 +155,11 @@ export const DocumentsPage: React.FC = () => {
   }, [household, selectedMonth, selectedType, selectedYear]);
 
   useEffect(() => {
-    fetchDocuments();
+    const loadTimer = window.setTimeout(() => {
+      void fetchDocuments();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
   }, [fetchDocuments]);
 
   const filteredDocuments = useMemo(() => {
@@ -145,6 +172,9 @@ export const DocumentsPage: React.FC = () => {
         doc.vendor_name,
         doc.type,
         doc.status,
+        doc.uploaded_by_profile?.display_name,
+        doc.uploaded_by_profile?.email,
+        doc.storage_provider === 'google_drive' ? 'google drive' : 'archivio interno',
         doc.ocr_text,
       ].filter(Boolean).join(' ').toLowerCase();
 
@@ -153,7 +183,7 @@ export const DocumentsPage: React.FC = () => {
   }, [documents, searchText]);
 
   const groupedDocuments = useMemo(() => {
-    return filteredDocuments.reduce<Record<string, DocumentWithUrl[]>>((acc, doc) => {
+    return filteredDocuments.reduce<Record<string, ArchiveDocument[]>>((acc, doc) => {
       const key = getMonthKey(doc.document_date);
       acc[key] = acc[key] || [];
       acc[key].push(doc);
@@ -225,7 +255,7 @@ export const DocumentsPage: React.FC = () => {
       } else if (documentStorageProvider === 'google_drive' && !usedGoogleDrive) {
         uploadMessage = "Google Drive non e' disponibile ora: documento salvato nell'archivio interno provvisorio.";
       } else if (usedGoogleDrive) {
-        uploadMessage = 'Documento archiviato su Google Drive.';
+        uploadMessage = 'Documento archiviato nel tuo Google Drive. Gli altri membri vedranno dati, OCR e chi lo ha caricato.';
       }
 
       setMessage(uploadMessage);
@@ -247,6 +277,9 @@ export const DocumentsPage: React.FC = () => {
         <div>
           <h1 className={styles.title}>Archivio Documenti</h1>
           <p className="text-muted">Scontrini, bollette e ricevute ordinati per mese e ricercabili nel tempo.</p>
+          <p className="text-muted fs-sm">
+            Con Google Drive ogni membro salva i file nel proprio Drive; il nucleo vede sempre scheda, importo, OCR e autore del caricamento.
+          </p>
         </div>
       </header>
 
@@ -379,6 +412,17 @@ export const DocumentsPage: React.FC = () => {
                         <span className={styles.typePill}>{getTypeLabel(doc.type)}</span>
                         <div className={styles.documentTitle}>{doc.vendor_name || doc.original_filename}</div>
                         <div className={styles.meta}>{doc.document_date || 'Senza data'} - {doc.original_filename}</div>
+                        <div className={styles.uploaderMeta}>
+                          Caricato da: <strong>{uploaderLabel(doc)}</strong>
+                        </div>
+                        <div className={styles.storageMeta}>
+                          {isGoogleDriveDocument(doc) ? 'Google Drive personale' : 'Archivio interno Contotron'}
+                        </div>
+                        {isGoogleDriveDocument(doc) && doc.uploaded_by !== user?.id && (
+                          <div className={styles.accessNote}>
+                            File nel Drive di un altro membro: puoi vedere dati e OCR; il link potrebbe richiedere permessi Google.
+                          </div>
+                        )}
                         {doc.total_amount !== null && doc.total_amount !== undefined && (
                           <div className="fw-bold">{doc.total_amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
                         )}

@@ -79,6 +79,57 @@
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
 }
 
+.modeGrid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: 1fr 1fr;
+  margin-top: var(--space-5);
+}
+
+.modeCard {
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.modeCard:hover {
+  border-color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+
+.modeCard strong {
+  color: var(--color-gray-900);
+}
+
+.modeCard span {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.modeCardActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.joinNotice {
+  background: var(--color-primary-light);
+  border-radius: var(--border-radius-md);
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  line-height: 1.5;
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+}
+
 .options {
   display: flex;
   flex-direction: column;
@@ -125,5 +176,9 @@
 
   .stepLine {
     width: 34px;
+  }
+
+  .modeGrid {
+    grid-template-columns: 1fr;
   }
 }

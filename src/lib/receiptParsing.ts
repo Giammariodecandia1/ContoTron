@@ -66,6 +66,7 @@ const categoryKeywords: Record<string, string[]> = {
     'forno',
     'pane',
     'ortofrutta',
+    'mensa',
   ],
   Trasporti: [
     'benzina',
@@ -111,8 +112,8 @@ const categoryKeywords: Record<string, string[]> = {
     'sushi',
     'mcdonald',
     'palestra',
+    'giocattoli',
   ],
-  Figli: ['scuola', 'asilo', 'bambini', 'giocattoli', 'pannolini', 'pediatra', 'mensa'],
   'Cura della persona': [
     'farmacia',
     'dott',
@@ -124,6 +125,8 @@ const categoryKeywords: Record<string, string[]> = {
     'parrucchiere',
     'estetista',
     'profumeria',
+    'pannolini',
+    'pediatra',
   ],
   Assicurazione: ['assicurazione', 'polizza', 'unipol', 'genertel', 'allianz', 'axa', 'prima'],
   Imposte: ['tasse', 'f24', 'imu', 'tari', 'bollo', 'agenzia entrate', 'inps'],
@@ -166,7 +169,7 @@ const normalizeMoneyText = (value: string) => (
 
 const parseAmountsFromLine = (line: string) => {
   const normalized = normalizeMoneyText(line);
-  const regex = /(?:EUR|EURO|€)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,\.]\s*(\d{2})/gi;
+  const regex = /(?:EUR|EURO|€)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,.]\s*(\d{2})/gi;
   const amounts: number[] = [];
   let match: RegExpExecArray | null;
 
@@ -364,7 +367,7 @@ const itemRejectWords = [
 
 const cleanupItemDescription = (line: string) => (
   normalizeMoneyText(line)
-    .replace(/(?:EUR|EURO)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,\.]\s*\d{2}/gi, ' ')
+    .replace(/(?:EUR|EURO)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,.]\s*\d{2}/gi, ' ')
     .replace(/\b\d{6,}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')

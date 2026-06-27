@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Plus, ShieldCheck, Trash2, Users } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Copy, Plus, RefreshCw, ShieldCheck, Trash2, Users } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui/Badge';
 import { Button } from '../components/ui/Button';
@@ -50,7 +50,7 @@ const getErrorMessage = (error: unknown) => {
 export const HouseholdMembersPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { household } = useHousehold();
+  const { household, refreshData } = useHousehold();
   const [members, setMembers] = useState<MemberWithProfile[]>([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<RoleOption>('editor');
@@ -64,8 +64,9 @@ export const HouseholdMembersPage: React.FC = () => {
     [members, user?.id],
   );
   const isOwner = currentMember?.role === 'owner';
+  const inviteCode = household?.invite_code || '';
 
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     if (!household) return;
 
     setLoading(true);
@@ -95,11 +96,15 @@ export const HouseholdMembersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [household]);
 
   useEffect(() => {
-    loadMembers();
-  }, [household?.id]);
+    const loadTimer = window.setTimeout(() => {
+      void loadMembers();
+    }, 0);
+
+    return () => window.clearTimeout(loadTimer);
+  }, [loadMembers]);
 
   const handleAddMember = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -121,17 +126,33 @@ export const HouseholdMembersPage: React.FC = () => {
       setEmail('');
       setRole('editor');
       await loadMembers();
-      setMessage('Membro aggiunto al nucleo familiare.');
+      await refreshData();
+      setMessage('Account associato a questo nucleo. Se era in un altro nucleo, verra spostato qui.');
     } catch (err) {
       console.error('Errore aggiunta membro nucleo:', err);
       const detail = getErrorMessage(err);
       if (detail.includes('function') || detail.includes('schema cache')) {
-        setErrorMessage('La funzione database per aggiungere membri non e ancora attiva. Applica la migration 009 su Supabase.');
+        setErrorMessage('La funzione database per aggiungere e spostare membri non e ancora attiva. Applica la migration 011 su Supabase.');
       } else {
         setErrorMessage(detail || 'Non riesco ad aggiungere questo account. Verifica che sia gia registrato a Contotron.');
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleCopyInviteCode = async () => {
+    if (!inviteCode) {
+      setErrorMessage('Il codice invito non e ancora disponibile. Applica la migration 011 su Supabase.');
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(inviteCode);
+      setMessage('Codice invito copiato.');
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage(`Codice invito: ${inviteCode}`);
     }
   };
 
@@ -207,69 +228,112 @@ export const HouseholdMembersPage: React.FC = () => {
       </header>
 
       <div className={styles.grid}>
-        <Card title="Membri" icon={<Users size={20} />}>
-          {message && <div className={`${styles.banner} ${styles.success}`}>{message}</div>}
-          {errorMessage && <div className={`${styles.banner} ${styles.error}`}>{errorMessage}</div>}
+        <div className={styles.mainStack}>
+          <Card title="Nucleo attivo" icon={<Users size={20} />}>
+            {message && <div className={`${styles.banner} ${styles.success}`}>{message}</div>}
+            {errorMessage && <div className={`${styles.banner} ${styles.error}`}>{errorMessage}</div>}
 
-          {loading ? (
-            <p className="text-muted fs-sm">Caricamento membri...</p>
-          ) : (
-            <div className={styles.memberList}>
-              {members.map(member => {
-                const isCurrentUser = member.user_id === user?.id;
-                const displayName = member.profiles?.display_name || 'Utente Contotron';
-                const emailLabel = member.profiles?.email || 'Email non disponibile';
-                const canManageMember = isOwner && !isCurrentUser && member.role !== 'owner';
-
-                return (
-                  <div key={member.id} className={styles.memberRow}>
-                    <div className={styles.memberIdentity}>
-                      <div className={styles.avatar}>
-                        {(displayName || emailLabel).charAt(0).toUpperCase()}
-                      </div>
-                      <div className={styles.memberText}>
-                        <div className={styles.memberName}>
-                          {displayName}
-                          {isCurrentUser && <span className={styles.youLabel}>Tu</span>}
-                        </div>
-                        <div className={styles.memberEmail}>{emailLabel}</div>
-                        <div className={styles.roleHint}>{roleHelp[member.role]}</div>
-                      </div>
-                    </div>
-
-                    <div className={styles.memberActions}>
-                      <Badge variant={roleVariant[member.role]}>{roleLabels[member.role]}</Badge>
-
-                      {canManageMember && (
-                        <>
-                          <select
-                            className={styles.select}
-                            value={member.role}
-                            disabled={saving}
-                            onChange={event => handleRoleChange(member, event.target.value as RoleOption)}
-                            aria-label={`Cambia ruolo di ${displayName}`}
-                          >
-                            <option value="editor">Editor</option>
-                            <option value="viewer">Solo lettura</option>
-                          </select>
-                          <button
-                            className={styles.iconButton}
-                            onClick={() => handleRemoveMember(member)}
-                            disabled={saving}
-                            title="Rimuovi membro"
-                            type="button"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+            <div className={styles.householdSummary}>
+              <div>
+                <span>Nome nucleo</span>
+                <strong>{household?.name || 'Nucleo Contotron'}</strong>
+              </div>
+              <div>
+                <span>Membri</span>
+                <strong>{loading ? '...' : members.length}</strong>
+              </div>
+              <div>
+                <span>Codice invito</span>
+                <div className={styles.inviteCodeRow}>
+                  <strong>{inviteCode || 'Da attivare'}</strong>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    onClick={handleCopyInviteCode}
+                    title="Copia codice invito"
+                  >
+                    <Copy size={16} />
+                  </button>
+                </div>
+              </div>
             </div>
-          )}
-        </Card>
+
+            <p className={styles.ruleText}>
+              Ogni account puo essere collegato a un solo nucleo alla volta. Se un account entra qui, viene scollegato dal nucleo precedente.
+            </p>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<RefreshCw size={16} />}
+              onClick={loadMembers}
+              disabled={loading}
+            >
+              Aggiorna membri
+            </Button>
+          </Card>
+
+          <Card title="Membri" icon={<Users size={20} />}>
+            {loading ? (
+              <p className="text-muted fs-sm">Caricamento membri...</p>
+            ) : (
+              <div className={styles.memberList}>
+                {members.map(member => {
+                  const isCurrentUser = member.user_id === user?.id;
+                  const displayName = member.profiles?.display_name || 'Utente Contotron';
+                  const emailLabel = member.profiles?.email || 'Email non disponibile';
+                  const canManageMember = isOwner && !isCurrentUser && member.role !== 'owner';
+
+                  return (
+                    <div key={member.id} className={styles.memberRow}>
+                      <div className={styles.memberIdentity}>
+                        <div className={styles.avatar}>
+                          {(displayName || emailLabel).charAt(0).toUpperCase()}
+                        </div>
+                        <div className={styles.memberText}>
+                          <div className={styles.memberName}>
+                            {displayName}
+                            {isCurrentUser && <span className={styles.youLabel}>Tu</span>}
+                          </div>
+                          <div className={styles.memberEmail}>{emailLabel}</div>
+                          <div className={styles.roleHint}>{roleHelp[member.role]}</div>
+                        </div>
+                      </div>
+
+                      <div className={styles.memberActions}>
+                        <Badge variant={roleVariant[member.role]}>{roleLabels[member.role]}</Badge>
+
+                        {canManageMember && (
+                          <>
+                            <select
+                              className={styles.select}
+                              value={member.role}
+                              disabled={saving}
+                              onChange={event => handleRoleChange(member, event.target.value as RoleOption)}
+                              aria-label={`Cambia ruolo di ${displayName}`}
+                            >
+                              <option value="editor">Editor</option>
+                              <option value="viewer">Solo lettura</option>
+                            </select>
+                            <button
+                              className={styles.iconButton}
+                              onClick={() => handleRemoveMember(member)}
+                              disabled={saving}
+                              title="Rimuovi membro"
+                              type="button"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </div>
 
         <div className={styles.sideStack}>
           <Card title="Aggiungi membro" icon={<Plus size={20} />}>
@@ -299,7 +363,7 @@ export const HouseholdMembersPage: React.FC = () => {
                 </select>
 
                 <p className="text-muted fs-sm">
-                  La persona deve prima registrarsi a Contotron con questa email. Dopo l'aggiunta vedra lo stesso nucleo, gli stessi conti e gli stessi documenti.
+                  La persona deve prima registrarsi a Contotron con questa email. Dopo l'aggiunta verra associata a questo nucleo e vedra conti, documenti e report condivisi.
                 </p>
 
                 <Button type="submit" icon={<Plus size={16} />} disabled={saving || !email.trim()}>
@@ -316,6 +380,7 @@ export const HouseholdMembersPage: React.FC = () => {
           <Card title="Privacy del nucleo" icon={<ShieldCheck size={20} />}>
             <ul className={styles.privacyList}>
               <li>Ogni nucleo vede solo i propri conti, transazioni, documenti e report.</li>
+              <li>Categorie e sottocategorie sono indipendenti per ogni nucleo.</li>
               <li>Gli editor possono lavorare sulle spese condivise.</li>
               <li>I membri in sola lettura possono controllare i dati senza modificarli.</li>
             </ul>
