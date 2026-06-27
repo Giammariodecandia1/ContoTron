@@ -54,6 +54,7 @@ export const HouseholdMembersPage: React.FC = () => {
   const [members, setMembers] = useState<MemberWithProfile[]>([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<RoleOption>('editor');
+  const [householdName, setHouseholdName] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -65,6 +66,14 @@ export const HouseholdMembersPage: React.FC = () => {
   );
   const isOwner = currentMember?.role === 'owner';
   const inviteCode = household?.invite_code || '';
+
+  useEffect(() => {
+    const syncTimer = window.setTimeout(() => {
+      setHouseholdName(household?.name || '');
+    }, 0);
+
+    return () => window.clearTimeout(syncTimer);
+  }, [household?.name]);
 
   const loadMembers = useCallback(async () => {
     if (!household) return;
@@ -153,6 +162,47 @@ export const HouseholdMembersPage: React.FC = () => {
       setErrorMessage(null);
     } catch {
       setErrorMessage(`Codice invito: ${inviteCode}`);
+    }
+  };
+
+  const handleUpdateHouseholdName = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!household || !isOwner) return;
+
+    const nextName = householdName.trim();
+    if (!nextName) {
+      setErrorMessage('Inserisci un nome valido per il nucleo.');
+      setMessage(null);
+      return;
+    }
+
+    if (nextName === household.name) {
+      setMessage('Nome nucleo gia aggiornato.');
+      setErrorMessage(null);
+      return;
+    }
+
+    setSaving(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const { error } = await supabase
+        .from('households')
+        .update({
+          name: nextName,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', household.id);
+
+      if (error) throw error;
+      await refreshData();
+      setMessage('Nome nucleo aggiornato.');
+    } catch (err) {
+      console.error('Errore aggiornamento nome nucleo:', err);
+      setErrorMessage(getErrorMessage(err) || 'Non riesco ad aggiornare il nome del nucleo.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -257,6 +307,29 @@ export const HouseholdMembersPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {isOwner && (
+              <form className={styles.nameForm} onSubmit={handleUpdateHouseholdName}>
+                <label className={styles.label} htmlFor="household-name">Modifica nome nucleo</label>
+                <div className={styles.nameInputRow}>
+                  <input
+                    id="household-name"
+                    className={styles.input}
+                    value={householdName}
+                    disabled={saving}
+                    onChange={event => setHouseholdName(event.target.value)}
+                    placeholder="Nome nucleo"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={saving || !householdName.trim()}
+                  >
+                    Salva nome
+                  </Button>
+                </div>
+              </form>
+            )}
 
             <p className={styles.ruleText}>
               Ogni account puo essere collegato a un solo nucleo alla volta. Se un account entra qui, viene scollegato dal nucleo precedente.
