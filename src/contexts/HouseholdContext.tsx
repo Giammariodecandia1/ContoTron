@@ -3,6 +3,10 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 import type { Household, Account, Category, Subcategory } from '../types/database';
 
+type FetchHouseholdOptions = {
+  silent?: boolean;
+};
+
 interface HouseholdContextType {
   household: Household | null;
   accounts: Account[];
@@ -30,7 +34,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [loading, setLoading] = useState(true);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
-  const fetchHouseholdData = useCallback(async () => {
+  const fetchHouseholdData = useCallback(async (options: FetchHouseholdOptions = {}) => {
+    const silent = options.silent === true;
+
     if (!user) {
       setHousehold(null);
       setAccounts([]);
@@ -41,7 +47,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       return;
     }
 
-    setLoading(true);
+    if (!silent) {
+      setLoading(true);
+    }
 
     try {
       const { data: membership } = await supabase
@@ -58,7 +66,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setCategories([]);
         setSubcategories([]);
         setLoadedUserId(user.id);
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
         return;
       }
 
@@ -69,7 +79,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .single();
 
       if (!hhData) {
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
         return;
       }
 
@@ -147,7 +159,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (user) {
         setLoadedUserId(user.id);
       }
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [user]);
 
@@ -163,7 +177,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     if (!user?.id) return;
 
     const refreshCurrentMembership = () => {
-      void fetchHouseholdData();
+      void fetchHouseholdData({ silent: true });
     };
 
     window.addEventListener('focus', refreshCurrentMembership);
@@ -198,7 +212,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       categories, 
       subcategories, 
       loading: effectiveLoading,
-      refreshData: fetchHouseholdData
+      refreshData: () => fetchHouseholdData({ silent: true })
     }}>
       {children}
     </HouseholdContext.Provider>
