@@ -20,6 +20,7 @@ import { useAuth, useHousehold } from './hooks';
 
 const DEBUG_BUILD = 'loading-debug-2026-06-30';
 const DEBUG_STORAGE_KEY = 'contotron_debug_loading_enabled';
+const FORCE_LOADING_DEBUG = true;
 
 type LoadingDebugPanelProps = {
   authLoading: boolean;
@@ -36,6 +37,8 @@ const getSessionNumber = (key: string) => {
 };
 
 const getDebugLoadingEnabled = () => {
+  if (FORCE_LOADING_DEBUG) return true;
+
   const params = new URLSearchParams(window.location.search);
   const debugParam = params.get('debugLoading');
 
