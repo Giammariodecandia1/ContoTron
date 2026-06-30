@@ -110,10 +110,27 @@ function App() {
   const { user, loading: authLoading } = useAuth();
   const { household, loading: householdLoading } = useHousehold();
   const initialRouteResolved = useRef(false);
+  const lastUserRef = useRef(user);
+  const lastHouseholdRef = useRef(household);
   const debugLoading = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugLoading');
   const isAuthBootstrapping = authLoading && !user;
   const isHouseholdBootstrapping = !!user && householdLoading && !household;
   const isBootstrapping = isAuthBootstrapping || isHouseholdBootstrapping;
+
+  if (user) {
+    lastUserRef.current = user;
+  } else if (!authLoading) {
+    lastUserRef.current = null;
+  }
+
+  if (household) {
+    lastHouseholdRef.current = household;
+  } else if (!householdLoading) {
+    lastHouseholdRef.current = null;
+  }
+
+  const stableUser = user || (authLoading ? lastUserRef.current : null);
+  const stableHousehold = household || (householdLoading ? lastHouseholdRef.current : null);
 
   useEffect(() => {
     if (!isBootstrapping) {
@@ -124,66 +141,45 @@ function App() {
   const debugPanel = debugLoading ? (
     <LoadingDebugPanel
       authLoading={authLoading}
-      hasUser={!!user}
+      hasUser={!!stableUser}
       householdLoading={householdLoading}
-      hasHousehold={!!household}
+      hasHousehold={!!stableHousehold}
       isBootstrapping={isBootstrapping}
       initialRouteResolved={initialRouteResolved.current}
     />
   ) : null;
 
-  if (!initialRouteResolved.current && isBootstrapping) {
-    return (
-      <>
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Caricamento...</div>
-        {debugPanel}
-      </>
-    );
-  }
-
-  if (!user) {
-    return (
-      <BrowserRouter>
+  return (
+    <BrowserRouter>
+      {!stableUser ? (
         <RouterRoutes>
           <RouterRoute path="/login" element={<LoginPage />} />
           <RouterRoute path="*" element={<LoginPage />} />
         </RouterRoutes>
-        {debugPanel}
-      </BrowserRouter>
-    );
-  }
-
-  if (!household) {
-    return (
-      <BrowserRouter>
+      ) : !stableHousehold ? (
         <RouterRoutes>
           <RouterRoute path="/onboarding" element={<OnboardingPage />} />
           <RouterRoute path="*" element={<RouterNavigate to="/onboarding" replace />} />
         </RouterRoutes>
-        {debugPanel}
-      </BrowserRouter>
-    );
-  }
-
-  return (
-    <BrowserRouter>
-      <AppLayout>
-        <RouterRoutes>
-          <RouterRoute path="/" element={<DashboardPage />} />
-          <RouterRoute path="/transazioni" element={<TransactionsPage />} />
-          <RouterRoute path="/transazioni/nuova" element={<NewTransactionPage />} />
-          <RouterRoute path="/transazioni/:transactionId/modifica" element={<NewTransactionPage />} />
-          <RouterRoute path="/mensile" element={<MonthlyBudgetPage />} />
-          <RouterRoute path="/documenti" element={<DocumentsPage />} />
-          <RouterRoute path="/ricerca" element={<SearchPage />} />
-          <RouterRoute path="/report" element={<ReportsPage />} />
-          <RouterRoute path="/scan" element={<ScanReceiptPage />} />
-          <RouterRoute path="/impostazioni" element={<SettingsPage />} />
-          <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
-          <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
-          <RouterRoute path="*" element={<RouterNavigate to="/" replace />} />
-        </RouterRoutes>
-      </AppLayout>
+      ) : (
+        <AppLayout>
+          <RouterRoutes>
+            <RouterRoute path="/" element={<DashboardPage />} />
+            <RouterRoute path="/transazioni" element={<TransactionsPage />} />
+            <RouterRoute path="/transazioni/nuova" element={<NewTransactionPage />} />
+            <RouterRoute path="/transazioni/:transactionId/modifica" element={<NewTransactionPage />} />
+            <RouterRoute path="/mensile" element={<MonthlyBudgetPage />} />
+            <RouterRoute path="/documenti" element={<DocumentsPage />} />
+            <RouterRoute path="/ricerca" element={<SearchPage />} />
+            <RouterRoute path="/report" element={<ReportsPage />} />
+            <RouterRoute path="/scan" element={<ScanReceiptPage />} />
+            <RouterRoute path="/impostazioni" element={<SettingsPage />} />
+            <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
+            <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
+            <RouterRoute path="*" element={<RouterNavigate to="/" replace />} />
+          </RouterRoutes>
+        </AppLayout>
+      )}
       {debugPanel}
     </BrowserRouter>
   );
