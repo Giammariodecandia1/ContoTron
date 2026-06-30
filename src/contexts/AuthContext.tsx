@@ -30,6 +30,34 @@ const getDisplayName = (authUser: SupabaseUser) => {
   return 'Utente';
 };
 
+const readHashParams = () => new URLSearchParams(window.location.hash.replace(/^#/, ''));
+
+const hasAuthCallbackInUrl = () => {
+  const url = new URL(window.location.href);
+  const hashParams = readHashParams();
+  return Boolean(
+    url.searchParams.get('code')
+    || url.searchParams.get('error')
+    || hashParams.get('access_token')
+    || hashParams.get('error')
+  );
+};
+
+const cleanAuthCallbackUrl = () => {
+  const url = new URL(window.location.href);
+  [
+    'code',
+    'state',
+    'error',
+    'error_code',
+    'error_description',
+    'type',
+  ].forEach(param => url.searchParams.delete(param));
+
+  url.hash = '';
+  window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}`);
+};
+
 const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
   const { data: existingProfile } = await supabase
     .from('profiles')
@@ -122,18 +150,52 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
     let isMounted = true;
 
-    supabase.auth.getSession()
-      .then(({ data }) => {
+    const loadInitialSession = async () => {
+      const url = new URL(window.location.href);
+      const hashParams = readHashParams();
+      const code = url.searchParams.get('code');
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      const callbackInUrl = hasAuthCallbackInUrl();
+
+      try {
+        const callbackError = url.searchParams.get('error_description')
+          || url.searchParams.get('error')
+          || hashParams.get('error_description')
+          || hashParams.get('error');
+
+        if (callbackError) {
+          throw new Error(callbackError);
+        }
+
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (error) throw error;
+        } else if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+        }
+
+        const { data } = await supabase.auth.getSession();
         if (isMounted) {
           loadSessionUser(data.session?.user || null);
         }
-      })
-      .catch(error => {
+      } catch (error) {
         console.error('Errore caricamento sessione iniziale:', error);
         if (isMounted) {
           loadSessionUser(null);
         }
-      });
+      } finally {
+        if (callbackInUrl) {
+          cleanAuthCallbackUrl();
+        }
+      }
+    };
+
+    void loadInitialSession();
 
     return () => {
       isMounted = false;

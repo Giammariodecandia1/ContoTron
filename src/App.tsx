@@ -19,6 +19,7 @@ import { ReportsPage } from './pages/ReportsPage';
 import { useAuth, useHousehold } from './hooks';
 
 const DEBUG_BUILD = 'loading-debug-2026-06-30';
+const DEBUG_STORAGE_KEY = 'contotron_debug_loading_enabled';
 
 type LoadingDebugPanelProps = {
   authLoading: boolean;
@@ -32,6 +33,23 @@ type LoadingDebugPanelProps = {
 const getSessionNumber = (key: string) => {
   const value = Number(window.sessionStorage.getItem(key) || '0');
   return Number.isFinite(value) ? value : 0;
+};
+
+const getDebugLoadingEnabled = () => {
+  const params = new URLSearchParams(window.location.search);
+  const debugParam = params.get('debugLoading');
+
+  if (debugParam === '0') {
+    window.localStorage.removeItem(DEBUG_STORAGE_KEY);
+    return false;
+  }
+
+  if (params.has('debugLoading')) {
+    window.localStorage.setItem(DEBUG_STORAGE_KEY, '1');
+    return true;
+  }
+
+  return window.localStorage.getItem(DEBUG_STORAGE_KEY) === '1';
 };
 
 const LoadingDebugPanel = ({
@@ -112,7 +130,7 @@ function App() {
   const initialRouteResolved = useRef(false);
   const lastUserRef = useRef(user);
   const lastHouseholdRef = useRef(household);
-  const debugLoading = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debugLoading');
+  const [debugLoading] = useState(() => getDebugLoadingEnabled());
   const isAuthBootstrapping = authLoading && !user;
   const isHouseholdBootstrapping = !!user && householdLoading && !household;
   const isBootstrapping = isAuthBootstrapping || isHouseholdBootstrapping;

@@ -24,6 +24,20 @@ export const LoginPage: React.FC = () => {
     setMessage(null);
   };
 
+  const getAuthRedirectUrl = () => {
+    const redirectUrl = new URL('/login', window.location.origin);
+    const currentParams = new URLSearchParams(window.location.search);
+
+    if (
+      currentParams.has('debugLoading')
+      || window.localStorage.getItem('contotron_debug_loading_enabled') === '1'
+    ) {
+      redirectUrl.searchParams.set('debugLoading', '1');
+    }
+
+    return redirectUrl.toString();
+  };
+
   const handleLogin = async () => {
     const { error: loginError } = await supabase.auth.signInWithPassword({
       email,
@@ -42,7 +56,7 @@ export const LoginPage: React.FC = () => {
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/login`,
+        redirectTo: getAuthRedirectUrl(),
         scopes: 'openid email profile',
         queryParams: {
           access_type: 'offline',
@@ -64,7 +78,7 @@ export const LoginPage: React.FC = () => {
       return;
     }
 
-    const redirectTo = `${window.location.origin}/login`;
+    const redirectTo = getAuthRedirectUrl();
 
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
