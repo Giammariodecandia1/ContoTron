@@ -20,7 +20,7 @@ import { useAuth, useHousehold } from './hooks';
 
 const DEBUG_BUILD = 'loading-debug-2026-06-30';
 const DEBUG_STORAGE_KEY = 'contotron_debug_loading_enabled';
-const FORCE_LOADING_DEBUG = true;
+const FORCE_LOADING_DEBUG = false;
 
 type LoadingDebugPanelProps = {
   authLoading: boolean;
