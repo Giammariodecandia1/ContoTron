@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, ArrowLeftRight, Search, BarChart3 } from 'lucide-react';
+import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3 } from 'lucide-react';
 import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
@@ -50,8 +50,9 @@ export const Sidebar: React.FC = () => {
               </div>
               <span className={styles.userName}>{user.display_name}</span>
             </div>
-            <button onClick={logout} className={styles.logoutBtn} title="Cambia utente">
-              <ArrowLeftRight size={18} />
+            <button onClick={logout} className={styles.logoutBtn} title="Esci dall'account">
+              <LogOut size={18} />
+              <span>Esci</span>
             </button>
           </div>
         )}

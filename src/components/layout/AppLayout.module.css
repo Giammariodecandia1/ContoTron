@@ -118,8 +118,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-1);
   border-radius: var(--border-radius-sm);
   transition: all 0.2s;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .logoutBtn:hover {

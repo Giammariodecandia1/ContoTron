@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Cloud, Database, Info, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
+import { Cloud, Database, Info, LogOut, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold, useTheme } from '../hooks';
 import {
@@ -24,7 +24,7 @@ export const SettingsPage: React.FC = () => {
   const location = useLocation();
   const { mode, resolvedTheme, setMode } = useTheme();
   const { household, refreshData } = useHousehold();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const userId = user?.id || null;
   const [storageSaving, setStorageSaving] = useState(false);
   const [driveConnecting, setDriveConnecting] = useState(false);
@@ -216,6 +216,17 @@ export const SettingsPage: React.FC = () => {
               <Monitor size={16} />
               Sistema
             </button>
+          </div>
+        </Card>
+
+        <Card title="Account" icon={<LogOut size={20} />}>
+          <div className={styles.accountBox}>
+            <p className="text-muted fs-sm">
+              Sei collegato come <strong>{user?.display_name || user?.email || 'utente Contotron'}</strong>.
+            </p>
+            <Button variant="secondary" onClick={logout}>
+              Esci dall'account
+            </Button>
           </div>
         </Card>
 
