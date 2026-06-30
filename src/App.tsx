@@ -37,7 +37,10 @@ const getSessionNumber = (key: string) => {
 };
 
 const getDebugLoadingEnabled = () => {
-  if (FORCE_LOADING_DEBUG) return true;
+  if (!FORCE_LOADING_DEBUG) {
+    window.localStorage.removeItem(DEBUG_STORAGE_KEY);
+    return false;
+  }
 
   const params = new URLSearchParams(window.location.search);
   const debugParam = params.get('debugLoading');
