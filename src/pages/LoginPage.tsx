@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
+import { useAuth } from '../hooks';
 import styles from './LoginPage.module.css';
 
 type AuthMode = 'login' | 'register';
@@ -16,6 +17,7 @@ export const LoginPage: React.FC = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { refreshUser } = useAuth();
 
   const resetFeedback = () => {
     setError(null);
@@ -29,6 +31,7 @@ export const LoginPage: React.FC = () => {
     });
 
     if (loginError) throw loginError;
+    await refreshUser();
     navigate('/');
   };
 
@@ -86,6 +89,7 @@ export const LoginPage: React.FC = () => {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'id' });
 
+      await refreshUser();
       navigate('/onboarding');
       return;
     }
