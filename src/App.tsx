@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 // Removed bad react-dom import
 import { BrowserRouter, Routes as RouterRoutes, Route as RouterRoute, Navigate as RouterNavigate } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
@@ -20,10 +21,18 @@ import { useAuth, useHousehold } from './hooks';
 function App() {
   const { user, loading: authLoading } = useAuth();
   const { household, loading: householdLoading } = useHousehold();
+  const initialRouteResolved = useRef(false);
   const isAuthBootstrapping = authLoading && !user;
   const isHouseholdBootstrapping = !!user && householdLoading && !household;
+  const isBootstrapping = isAuthBootstrapping || isHouseholdBootstrapping;
 
-  if (isAuthBootstrapping || isHouseholdBootstrapping) {
+  useEffect(() => {
+    if (!isBootstrapping) {
+      initialRouteResolved.current = true;
+    }
+  }, [isBootstrapping]);
+
+  if (!initialRouteResolved.current && isBootstrapping) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Caricamento...</div>;
   }
 

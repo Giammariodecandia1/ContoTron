@@ -62,6 +62,8 @@ const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
   const userRef = useRef<AppUser | null>(null);
+  const clearUserTimerRef = useRef<number | null>(null);
+  const logoutRequestedRef = useRef(false);
   const [loading, setLoading] = useState(true);
 
   const setCurrentUser = (nextUser: AppUser | null) => {
@@ -69,14 +71,45 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     setUser(nextUser);
   };
 
+  const cancelPendingUserClear = () => {
+    if (clearUserTimerRef.current !== null) {
+      window.clearTimeout(clearUserTimerRef.current);
+      clearUserTimerRef.current = null;
+    }
+  };
+
+  const clearCurrentUser = () => {
+    cancelPendingUserClear();
+    setCurrentUser(null);
+    setLoading(false);
+  };
+
+  const scheduleCurrentUserClear = () => {
+    cancelPendingUserClear();
+
+    if (!userRef.current) {
+      clearCurrentUser();
+      return;
+    }
+
+    clearUserTimerRef.current = window.setTimeout(() => {
+      clearUserTimerRef.current = null;
+      setCurrentUser(null);
+      setLoading(false);
+    }, 1500);
+  };
+
   const loadSessionUser = async (authUser: SupabaseUser | null, clearMissing = true) => {
     if (!authUser) {
       if (clearMissing) {
-        setCurrentUser(null);
+        scheduleCurrentUserClear();
       }
       setLoading(false);
       return;
     }
+
+    cancelPendingUserClear();
+    logoutRequestedRef.current = false;
 
     try {
       const profile = await ensureProfile(authUser);
@@ -118,27 +151,38 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     let isMounted = true;
     let initialSessionHandled = false;
 
+    const handleAuthSession = (event: string, sessionUser: SupabaseUser | null) => {
+      window.setTimeout(() => {
+        if (!isMounted) return;
+
+        if (event === 'INITIAL_SESSION') {
+          initialSessionHandled = true;
+          loadSessionUser(sessionUser);
+          return;
+        }
+
+        if (event === 'SIGNED_OUT') {
+          if (logoutRequestedRef.current) {
+            clearCurrentUser();
+            return;
+          }
+
+          loadSessionUser(null, true);
+          return;
+        }
+
+        if (sessionUser) {
+          loadSessionUser(sessionUser, false);
+          return;
+        }
+
+        setLoading(false);
+      }, 0);
+    };
+
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
-
-      if (event === 'INITIAL_SESSION') {
-        initialSessionHandled = true;
-        loadSessionUser(session?.user || null);
-        return;
-      }
-
-      if (event === 'SIGNED_OUT') {
-        setCurrentUser(null);
-        setLoading(false);
-        return;
-      }
-
-      if (session?.user) {
-        loadSessionUser(session.user, false);
-        return;
-      }
-
-      setLoading(false);
+      handleAuthSession(event, session?.user || null);
     });
 
     supabase.auth.getSession()
@@ -158,6 +202,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
     return () => {
       isMounted = false;
+      cancelPendingUserClear();
       listener.subscription.unsubscribe();
     };
   }, []);
@@ -168,8 +213,9 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
 
   const logout = async () => {
     localStorage.removeItem('familyledger_profile');
+    logoutRequestedRef.current = true;
     await supabase.auth.signOut();
-    setCurrentUser(null);
+    clearCurrentUser();
   };
 
   return (
