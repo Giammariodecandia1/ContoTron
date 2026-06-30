@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabaseClient';
 import type { Profile } from '../types/database';
@@ -61,28 +61,53 @@ const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
 
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [user, setUser] = useState<AppUser | null>(null);
+  const userRef = useRef<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadSessionUser = async (authUser: SupabaseUser | null) => {
+  const setCurrentUser = (nextUser: AppUser | null) => {
+    userRef.current = nextUser;
+    setUser(nextUser);
+  };
+
+  const loadSessionUser = async (authUser: SupabaseUser | null, clearMissing = true) => {
     if (!authUser) {
-      setUser(null);
+      if (clearMissing) {
+        setCurrentUser(null);
+      }
       setLoading(false);
       return;
     }
 
     try {
       const profile = await ensureProfile(authUser);
-      setUser(profile);
+      const currentUser = userRef.current;
+
+      if (
+        currentUser
+        && currentUser.id === profile.id
+        && currentUser.display_name === profile.display_name
+        && currentUser.email === profile.email
+      ) {
+        userRef.current = { ...currentUser, auth_user: authUser };
+        setLoading(false);
+        return;
+      }
+
+      setCurrentUser(profile);
     } catch (error) {
       console.error('Errore caricamento profilo autenticato:', error);
-      setUser(null);
+      if (!userRef.current) {
+        setCurrentUser(null);
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const refreshUser = async () => {
-    setLoading(true);
+    if (!userRef.current) {
+      setLoading(true);
+    }
     const { data } = await supabase.auth.getUser();
     await loadSessionUser(data.user);
   };
@@ -102,7 +127,18 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         return;
       }
 
-      loadSessionUser(session?.user || null);
+      if (event === 'SIGNED_OUT') {
+        setCurrentUser(null);
+        setLoading(false);
+        return;
+      }
+
+      if (session?.user) {
+        loadSessionUser(session.user, false);
+        return;
+      }
+
+      setLoading(false);
     });
 
     supabase.auth.getSession()
@@ -127,13 +163,13 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   }, []);
 
   const loginAs = (profile: AppUser) => {
-    setUser(profile);
+    setCurrentUser(profile);
   };
 
   const logout = async () => {
     localStorage.removeItem('familyledger_profile');
     await supabase.auth.signOut();
-    setUser(null);
+    setCurrentUser(null);
   };
 
   return (

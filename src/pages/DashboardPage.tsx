@@ -134,7 +134,7 @@ export const DashboardPage: React.FC = () => {
     setIsEditingBudget(false);
   };
 
-  if (hhLoading) return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: '2rem'}}>Caricamento dashboard...</div>;
+  if (hhLoading && !household) return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: '2rem'}}>Caricamento dashboard...</div>;
 
   const remainingBudget = monthlyBudget - monthlyExpense;
   const budgetPercentage = monthlyBudget > 0 ? (monthlyExpense / monthlyBudget) * 100 : 0;
