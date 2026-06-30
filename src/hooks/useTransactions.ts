@@ -7,17 +7,19 @@ import type { Transaction } from '../types/database';
 export const useTransactions = () => {
   const { household } = useHousehold();
   const { user } = useAuth();
+  const householdId = household?.id || null;
+  const budgetMonthStartDay = household?.budget_month_start_day || 1;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const saveClassificationRule = async (transaction: Partial<Transaction>) => {
-    if (!household || !transaction.merchant || !transaction.category_id) return;
+  const saveClassificationRule = useCallback(async (transaction: Partial<Transaction>) => {
+    if (!householdId || !transaction.merchant || !transaction.category_id) return;
 
     const merchantLower = transaction.merchant.trim().toLowerCase();
     const { data: existingRule } = await supabase
       .from('classification_rules')
       .select('id, use_count')
-      .eq('household_id', household.id)
+      .eq('household_id', householdId)
       .eq('match_text', merchantLower)
       .single();
 
@@ -35,7 +37,7 @@ export const useTransactions = () => {
       await supabase
         .from('classification_rules')
         .insert([{
-          household_id: household.id,
+          household_id: householdId,
           match_text: merchantLower,
           merchant: transaction.merchant.trim(),
           category_id: transaction.category_id,
@@ -46,14 +48,14 @@ export const useTransactions = () => {
           last_used_at: new Date().toISOString()
         }]);
     }
-  };
+  }, [householdId, user?.id]);
 
   const fetchTransactions = useCallback(async (
     month?: number,
     year?: number,
     categoryId?: string
   ): Promise<Transaction[]> => {
-    if (!household) return [];
+    if (!householdId) return [];
     
     setLoading(true);
     setError(null);
@@ -67,12 +69,12 @@ export const useTransactions = () => {
           subcategories(name),
           inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)
         `)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .order('transaction_date', { ascending: false });
 
       if (year && month) {
         // Construct date range for the month
-        const startDay = household.budget_month_start_day || 1;
+        const startDay = budgetMonthStartDay;
         // Basic month filtering (can be improved based on budget_month_start_day)
         const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
         const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
@@ -95,10 +97,10 @@ export const useTransactions = () => {
     } finally {
       setLoading(false);
     }
-  }, [household]);
+  }, [budgetMonthStartDay, householdId]);
 
   const addTransaction = async (transaction: Partial<Transaction>) => {
-    if (!household) return null;
+    if (!householdId) return null;
     
     setLoading(true);
     setError(null);
@@ -107,7 +109,7 @@ export const useTransactions = () => {
         .from('transactions')
         .insert([{
           ...transaction,
-          household_id: household.id,
+          household_id: householdId,
           inserted_by: transaction.inserted_by || user?.id || null
         }])
         .select()
@@ -135,7 +137,7 @@ export const useTransactions = () => {
   };
 
   const updateTransaction = async (id: string, transaction: Partial<Transaction>) => {
-    if (!household) return null;
+    if (!householdId) return null;
 
     setLoading(true);
     setError(null);
@@ -147,7 +149,7 @@ export const useTransactions = () => {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .select()
         .single();
 
@@ -165,7 +167,7 @@ export const useTransactions = () => {
   };
 
   const deleteTransaction = async (id: string) => {
-    if (!household) return false;
+    if (!householdId) return false;
     
     setLoading(true);
     setError(null);
@@ -174,7 +176,7 @@ export const useTransactions = () => {
         .from('transactions')
         .delete()
         .eq('id', id)
-        .eq('household_id', household.id);
+        .eq('household_id', householdId);
 
       if (deleteError) throw deleteError;
       return true;

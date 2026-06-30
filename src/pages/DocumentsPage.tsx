@@ -55,6 +55,7 @@ export const DocumentsPage: React.FC = () => {
   const { household } = useHousehold();
   const { user } = useAuth();
   const today = new Date();
+  const householdId = household?.id || null;
 
   const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,7 +89,7 @@ export const DocumentsPage: React.FC = () => {
   );
 
   const fetchDocuments = useCallback(async () => {
-    if (!household) return;
+    if (!householdId) return;
 
     setLoading(true);
     setError(null);
@@ -103,7 +104,7 @@ export const DocumentsPage: React.FC = () => {
             email
           )
         `)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .order('document_date', { ascending: false })
         .order('created_at', { ascending: false });
 
@@ -152,7 +153,7 @@ export const DocumentsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [household, selectedMonth, selectedType, selectedYear]);
+  }, [householdId, selectedMonth, selectedType, selectedYear]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {

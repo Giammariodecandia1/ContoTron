@@ -21,6 +21,7 @@ export const DashboardPage: React.FC = () => {
   const [newBudgetValue, setNewBudgetValue] = useState('');
   const [budgetError, setBudgetError] = useState<string | null>(null);
   const [budgetSavedMessage, setBudgetSavedMessage] = useState<string | null>(null);
+  const householdId = household?.id || null;
 
   const hasTransactions = transactions.length > 0;
   const today = new Date();
@@ -33,7 +34,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (household) {
+    if (householdId) {
       // Fetch latest transactions for the recent list
       fetchTransactions().then(data => {
         setTransactions(data.slice(0, 5));
@@ -58,7 +59,7 @@ export const DashboardPage: React.FC = () => {
       supabase
         .from('budget_targets')
         .select('id, planned_amount')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .eq('year', budgetYear)
         .eq('month', budgetMonth)
         .is('category_id', null)
@@ -83,7 +84,7 @@ export const DashboardPage: React.FC = () => {
           }
         });
     }
-  }, [budgetMonth, budgetYear, household, fetchTransactions]);
+  }, [budgetMonth, budgetYear, fetchTransactions, householdId]);
 
   const handleSaveBudget = async () => {
     if (!household) return;

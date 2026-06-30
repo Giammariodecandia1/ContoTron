@@ -155,6 +155,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 export const ReportsPage: React.FC = () => {
   const { household, categories, subcategories } = useHousehold();
   const today = new Date();
+  const householdId = household?.id || null;
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
   const [transactions, setTransactions] = useState<ReportTransaction[]>([]);
@@ -181,7 +182,7 @@ export const ReportsPage: React.FC = () => {
   }, [subcategories]);
 
   const loadReportData = useCallback(async () => {
-    if (!household) return;
+    if (!householdId) return;
 
     setLoading(true);
     setError(null);
@@ -196,7 +197,7 @@ export const ReportsPage: React.FC = () => {
           subcategories(name),
           inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)
         `)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .gte('transaction_date', range.start)
         .lte('transaction_date', range.end)
         .neq('status', 'deleted')
@@ -207,7 +208,7 @@ export const ReportsPage: React.FC = () => {
       const { data: docRows, error: docError } = await supabase
         .from('documents')
         .select('id, type, original_filename, vendor_name, document_date, total_amount')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .gte('document_date', range.start)
         .lte('document_date', range.end)
         .order('document_date', { ascending: true });
@@ -217,7 +218,7 @@ export const ReportsPage: React.FC = () => {
       const { data: budgetRows, error: budgetError } = await supabase
         .from('budget_targets')
         .select('id, category_id, subcategory_id, planned_amount')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .eq('year', year)
         .eq('month', month);
 
@@ -226,7 +227,7 @@ export const ReportsPage: React.FC = () => {
       const { data: itemRows, error: itemError } = await supabase
         .from('transaction_items')
         .select('id, description, amount, transactions!inner(transaction_date, merchant, description)')
-        .eq('household_id', household.id);
+        .eq('household_id', householdId);
 
       if (itemError) throw itemError;
 
@@ -244,7 +245,7 @@ export const ReportsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [household, month, range.end, range.start, year]);
+  }, [householdId, month, range.end, range.start, year]);
 
   useEffect(() => {
     loadReportData();

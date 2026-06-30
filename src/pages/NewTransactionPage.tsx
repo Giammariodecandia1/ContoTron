@@ -31,6 +31,7 @@ export const NewTransactionPage: React.FC = () => {
   const { addTransaction, updateTransaction, loading } = useTransactions();
   const initialState = (location.state || {}) as TransactionFormState;
   const isEditMode = Boolean(transactionId);
+  const householdId = household?.id || null;
 
   const [amount, setAmount] = useState(initialState.amount || '');
   const [date, setDate] = useState(initialState.date || new Date().toISOString().split('T')[0]);
@@ -46,7 +47,7 @@ export const NewTransactionPage: React.FC = () => {
   const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
 
   useEffect(() => {
-    if (!isEditMode || !transactionId || !household) return;
+    if (!isEditMode || !transactionId || !householdId) return;
 
     const loadTransaction = async () => {
       setEditLoading(true);
@@ -56,7 +57,7 @@ export const NewTransactionPage: React.FC = () => {
         .from('transactions')
         .select('*')
         .eq('id', transactionId)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .single();
 
       if (fetchError || !data) {
@@ -76,7 +77,7 @@ export const NewTransactionPage: React.FC = () => {
     };
 
     loadTransaction();
-  }, [household, isEditMode, transactionId]);
+  }, [householdId, isEditMode, transactionId]);
 
   useEffect(() => {
     if (!accountId && accounts.length > 0) {

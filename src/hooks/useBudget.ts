@@ -5,11 +5,12 @@ import type { BudgetTarget } from '../types/database';
 
 export const useBudget = () => {
   const { household } = useHousehold();
+  const householdId = household?.id || null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchBudgetTargets = useCallback(async (year: number, month: number): Promise<BudgetTarget[]> => {
-    if (!household) return [];
+    if (!householdId) return [];
     
     setLoading(true);
     setError(null);
@@ -18,7 +19,7 @@ export const useBudget = () => {
       const { data, error: fetchError } = await supabase
         .from('budget_targets')
         .select('*')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .eq('year', year)
         .eq('month', month);
 
@@ -37,7 +38,7 @@ export const useBudget = () => {
       const { data: prevData, error: prevError } = await supabase
         .from('budget_targets')
         .select('*')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .eq('year', prevYear)
         .eq('month', prevMonth);
 
@@ -49,7 +50,7 @@ export const useBudget = () => {
       if (prevData && prevData.length > 0) {
         // Cloniamo i dati per il mese corrente
         const newTargets = prevData.map(t => ({
-          household_id: household.id,
+          household_id: householdId,
           year,
           month,
           category_id: t.category_id,
@@ -77,10 +78,10 @@ export const useBudget = () => {
     } finally {
       setLoading(false);
     }
-  }, [household]);
+  }, [householdId]);
 
   const upsertBudgetTarget = async (categoryId: string, amount: number, year: number, month: number) => {
-    if (!household) return null;
+    if (!householdId) return null;
     
     // Non settare loading a true qui, altrimenti l'UI scatta ad ogni tasto
     try {
@@ -88,7 +89,7 @@ export const useBudget = () => {
       const { data, error: upsertError } = await supabase
         .from('budget_targets')
         .upsert({
-          household_id: household.id,
+          household_id: householdId,
           year,
           month,
           category_id: categoryId,
@@ -106,7 +107,7 @@ export const useBudget = () => {
         // Cerca se esiste
         const { data: existing } = await supabase.from('budget_targets')
           .select('id')
-          .eq('household_id', household.id).eq('year', year).eq('month', month).eq('category_id', categoryId)
+          .eq('household_id', householdId).eq('year', year).eq('month', month).eq('category_id', categoryId)
           .single();
           
         if (existing) {
@@ -115,7 +116,7 @@ export const useBudget = () => {
           return updated;
         } else {
           const { data: inserted } = await supabase.from('budget_targets')
-            .insert({ household_id: household.id, year, month, category_id: categoryId, planned_amount: amount }).select().single();
+            .insert({ household_id: householdId, year, month, category_id: categoryId, planned_amount: amount }).select().single();
           return inserted;
         }
       } catch (fallbackErr) {

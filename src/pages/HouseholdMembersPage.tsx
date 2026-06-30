@@ -51,10 +51,12 @@ export const HouseholdMembersPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { household, refreshData } = useHousehold();
+  const householdId = household?.id || null;
   const [members, setMembers] = useState<MemberWithProfile[]>([]);
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<RoleOption>('editor');
   const [householdName, setHouseholdName] = useState('');
+  const [householdNameDirty, setHouseholdNameDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -68,15 +70,17 @@ export const HouseholdMembersPage: React.FC = () => {
   const inviteCode = household?.invite_code || '';
 
   useEffect(() => {
+    if (householdNameDirty) return;
+
     const syncTimer = window.setTimeout(() => {
       setHouseholdName(household?.name || '');
     }, 0);
 
     return () => window.clearTimeout(syncTimer);
-  }, [household?.name]);
+  }, [household?.name, householdNameDirty]);
 
   const loadMembers = useCallback(async () => {
-    if (!household) return;
+    if (!householdId) return;
 
     setLoading(true);
     setErrorMessage(null);
@@ -94,7 +98,7 @@ export const HouseholdMembersPage: React.FC = () => {
             email
           )
         `)
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -105,7 +109,7 @@ export const HouseholdMembersPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [household]);
+  }, [householdId]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
@@ -197,6 +201,7 @@ export const HouseholdMembersPage: React.FC = () => {
 
       if (error) throw error;
       await refreshData();
+      setHouseholdNameDirty(false);
       setMessage('Nome nucleo aggiornato.');
     } catch (err) {
       console.error('Errore aggiornamento nome nucleo:', err);
@@ -317,7 +322,10 @@ export const HouseholdMembersPage: React.FC = () => {
                     className={styles.input}
                     value={householdName}
                     disabled={saving}
-                    onChange={event => setHouseholdName(event.target.value)}
+                    onChange={event => {
+                      setHouseholdNameDirty(true);
+                      setHouseholdName(event.target.value);
+                    }}
                     placeholder="Nome nucleo"
                   />
                   <Button

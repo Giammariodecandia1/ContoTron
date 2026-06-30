@@ -3,10 +3,6 @@ import { supabase } from '../lib/supabaseClient';
 import { useAuth } from './AuthContext';
 import type { Household, Account, Category, Subcategory } from '../types/database';
 
-type FetchHouseholdOptions = {
-  silent?: boolean;
-};
-
 interface HouseholdContextType {
   household: Household | null;
   accounts: Account[];
@@ -34,7 +30,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
-  const fetchHouseholdData = useCallback(async (_options: FetchHouseholdOptions = {}) => {
+  const fetchHouseholdData = useCallback(async () => {
     if (!userId) {
       setHousehold(null);
       setAccounts([]);
@@ -72,7 +68,19 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return;
       }
 
-      setHousehold(hhData);
+      setHousehold(current => {
+        if (
+          current
+          && current.id === hhData.id
+          && current.name === hhData.name
+          && current.updated_at === hhData.updated_at
+          && current.invite_code === hhData.invite_code
+        ) {
+          return current;
+        }
+
+        return hhData;
+      });
 
       // Fetch accounts
       const { data: accData } = await supabase
@@ -157,34 +165,6 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return () => window.clearTimeout(loadTimer);
   }, [fetchHouseholdData]);
 
-  useEffect(() => {
-    if (!userId) return;
-
-    const refreshCurrentMembership = () => {
-      void fetchHouseholdData({ silent: true });
-    };
-
-    window.addEventListener('focus', refreshCurrentMembership);
-    const channel = supabase
-      .channel(`household-membership-${userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'household_members',
-          filter: `user_id=eq.${userId}`,
-        },
-        refreshCurrentMembership,
-      )
-      .subscribe();
-
-    return () => {
-      window.removeEventListener('focus', refreshCurrentMembership);
-      void supabase.removeChannel(channel);
-    };
-  }, [fetchHouseholdData, userId]);
-
   const effectiveLoading = !!userId && loadedUserId !== userId;
 
   return (
@@ -194,7 +174,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       categories, 
       subcategories, 
       loading: effectiveLoading,
-      refreshData: () => fetchHouseholdData({ silent: true })
+      refreshData: fetchHouseholdData
     }}>
       {children}
     </HouseholdContext.Provider>

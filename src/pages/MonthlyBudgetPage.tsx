@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHousehold, useTransactions } from '../hooks';
@@ -14,13 +14,16 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const householdId = household?.id || null;
 
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth() + 1;
 
   const monthNames = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!householdId) return;
+
     setLoading(true);
     // 1. Fetch transactions for the current month
     const txs = await fetchTransactions(month, year);
@@ -37,13 +40,13 @@ export const MonthlyBudgetPage: React.FC = () => {
     });
     setBudgets(budgetMap);
     setLoading(false);
-  };
+  }, [fetchBudgetTargets, fetchTransactions, householdId, month, year]);
 
   useEffect(() => {
-    if (household) {
+    if (householdId) {
       loadData();
     }
-  }, [household, month, year]);
+  }, [householdId, loadData]);
 
   const handlePrevMonth = () => {
     setCurrentDate(new Date(year, month - 2, 1));

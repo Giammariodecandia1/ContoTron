@@ -129,6 +129,7 @@ const sortDocuments = (items: DocumentResult[], sortMode: SortMode) => {
 export const SearchPage: React.FC = () => {
   const { household, categories } = useHousehold();
   const currentYear = new Date().getFullYear();
+  const householdId = household?.id || null;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -150,7 +151,7 @@ export const SearchPage: React.FC = () => {
   const [sortMode, setSortMode] = useState<SortMode>('date_desc');
 
   const loadData = useCallback(async () => {
-    if (!household) return;
+    if (!householdId) return;
 
     setLoading(true);
     setError(null);
@@ -159,7 +160,7 @@ export const SearchPage: React.FC = () => {
       const { data: txRows, error: txError } = await supabase
         .from('transactions')
         .select('*, categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .neq('status', 'deleted')
         .order('transaction_date', { ascending: false });
       if (txError) throw txError;
@@ -167,13 +168,13 @@ export const SearchPage: React.FC = () => {
       const { data: itemRows } = await supabase
         .from('transaction_items')
         .select('*, transactions!inner(*), categories(name), subcategories(name)')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .order('created_at', { ascending: false });
 
       const { data: docRows, error: docError } = await supabase
         .from('documents')
         .select('*')
-        .eq('household_id', household.id)
+        .eq('household_id', householdId)
         .order('document_date', { ascending: false });
       if (docError) throw docError;
 
@@ -201,7 +202,7 @@ export const SearchPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [household]);
+  }, [householdId]);
 
   useEffect(() => {
     loadData();
