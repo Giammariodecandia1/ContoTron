@@ -3,6 +3,12 @@ setlocal
 
 set "PROJECT_DIR=%~dp0"
 set "LOCAL_URL=http://localhost:5173/"
+set "LAN_IP="
+
+for /f "tokens=2 delims=:" %%A in ('ipconfig ^| findstr /R /C:"IPv4"') do (
+  if not defined LAN_IP set "LAN_IP=%%A"
+)
+set "LAN_IP=%LAN_IP: =%"
 
 title Contotron - Avvio locale
 
@@ -35,13 +41,16 @@ if not exist "node_modules" (
 )
 
 echo Avvio Contotron su %LOCAL_URL%
+if defined LAN_IP (
+  echo Da smartphone sulla stessa Wi-Fi prova: http://%LAN_IP%:5173/
+)
 echo.
 echo Lascia aperta questa finestra mentre testi il tool.
 echo Per fermare il server premi CTRL+C.
 echo.
 
 start "" "%LOCAL_URL%"
-call npm run dev -- --host 127.0.0.1 --port 5173
+call npm run dev -- --host 0.0.0.0 --port 5173
 
 echo.
 echo Server locale fermato.

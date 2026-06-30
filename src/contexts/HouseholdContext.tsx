@@ -27,6 +27,7 @@ const HouseholdContext = createContext<HouseholdContextType>({
 
 export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [household, setHousehold] = useState<Household | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -37,7 +38,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const fetchHouseholdData = useCallback(async (options: FetchHouseholdOptions = {}) => {
     const silent = options.silent === true;
 
-    if (!user) {
+    if (!userId) {
       setHousehold(null);
       setAccounts([]);
       setCategories([]);
@@ -55,7 +56,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const { data: membership } = await supabase
         .from('household_members')
         .select('household_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -65,7 +66,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setAccounts([]);
         setCategories([]);
         setSubcategories([]);
-        setLoadedUserId(user.id);
+        setLoadedUserId(userId);
         if (!silent) {
           setLoading(false);
         }
@@ -156,14 +157,14 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     } catch (error) {
       console.error("Errore caricamento dati household:", error);
     } finally {
-      if (user) {
-        setLoadedUserId(user.id);
+      if (userId) {
+        setLoadedUserId(userId);
       }
       if (!silent) {
         setLoading(false);
       }
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
@@ -174,23 +175,22 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [fetchHouseholdData]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!userId) return;
 
     const refreshCurrentMembership = () => {
       void fetchHouseholdData({ silent: true });
     };
 
     window.addEventListener('focus', refreshCurrentMembership);
-    const refreshTimer = window.setInterval(refreshCurrentMembership, 15000);
     const channel = supabase
-      .channel(`household-membership-${user.id}`)
+      .channel(`household-membership-${userId}`)
       .on(
         'postgres_changes',
         {
           event: '*',
           schema: 'public',
           table: 'household_members',
-          filter: `user_id=eq.${user.id}`,
+          filter: `user_id=eq.${userId}`,
         },
         refreshCurrentMembership,
       )
@@ -198,12 +198,11 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
     return () => {
       window.removeEventListener('focus', refreshCurrentMembership);
-      window.clearInterval(refreshTimer);
       void supabase.removeChannel(channel);
     };
-  }, [fetchHouseholdData, user?.id]);
+  }, [fetchHouseholdData, userId]);
 
-  const effectiveLoading = loading || (!!user && loadedUserId !== user.id);
+  const effectiveLoading = loading || (!!userId && loadedUserId !== userId);
 
   return (
     <HouseholdContext.Provider value={{ 

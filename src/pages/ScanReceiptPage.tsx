@@ -18,9 +18,15 @@ type EditableReceiptItem = ReceiptItemResult & {
   amountText: string;
 };
 
+const isSupportedImageFile = (file: File) => (
+  file.type.startsWith('image/')
+  || /\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(file.name)
+);
+
 export const ScanReceiptPage: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'webcam' | 'cropping' | 'scanning' | 'done'>('idle');
   const [image, setImage] = useState<string | null>(null);
+  const [imageReady, setImageReady] = useState(false);
   
   // Crop state
   const [crop, setCrop] = useState<Crop>();
@@ -40,8 +46,6 @@ export const ScanReceiptPage: React.FC = () => {
 
   const webcamRef = useRef<Webcam>(null);
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const { household, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
   const documentStorageProvider = getDocumentStorageProvider(household);
@@ -137,7 +141,15 @@ export const ScanReceiptPage: React.FC = () => {
   };
 
   const processImage = async () => {
-    if (!image || !imgRef.current) return;
+    if (!image) {
+      setArchiveError('Carica o scatta una foto dello scontrino prima di avviare OCR.');
+      return;
+    }
+
+    if (!imgRef.current || !imageReady) {
+      setArchiveError("Sto ancora caricando l'immagine. Riprova tra un secondo.");
+      return;
+    }
     
     let targetImageSrc = image;
     
@@ -159,8 +171,8 @@ export const ScanReceiptPage: React.FC = () => {
       const foundAmount = totalResult.amount ? totalResult.amount.toFixed(2) : '0.00';
 
       // Heuristic 2: Merchant is usually the first non-empty line containing text
-      let foundMerchant = lines.find(l => /[a-zA-Z]{4,}/.test(l)) || (lines.length > 0 ? lines[0] : '');
-      const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s\.\-&]/g, '').substring(0, 30).trim();
+      const foundMerchant = lines.find(l => /[a-zA-Z]{4,}/.test(l)) || (lines.length > 0 ? lines[0] : '');
+      const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s.&-]/g, '').substring(0, 30).trim();
       
       setAmount(foundAmount);
       setMerchant(cleanMerchant || 'Esercente Sconosciuto');
@@ -312,9 +324,18 @@ export const ScanReceiptPage: React.FC = () => {
   const onImageLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (!isSupportedImageFile(file)) {
+        setArchiveError('Per ora la scansione OCR accetta foto o immagini. I PDF puoi archiviarli dalla pagina Documenti.');
+        e.target.value = '';
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = () => {
         if (reader.result) {
+          setImageReady(false);
+          setCrop(undefined);
+          setCompletedCrop(undefined);
           setImage(reader.result as string);
           setAmount('');
           setMerchant('');
@@ -328,13 +349,20 @@ export const ScanReceiptPage: React.FC = () => {
           setStatus('cropping');
         }
       };
+      reader.onerror = () => {
+        setArchiveError('Non riesco a leggere questa immagine. Prova a scattarla di nuovo.');
+      };
       reader.readAsDataURL(file);
+      e.target.value = '';
     }
   };
 
   const captureWebcam = useCallback(() => {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (imageSrc) {
+      setImageReady(false);
+      setCrop(undefined);
+      setCompletedCrop(undefined);
       setImage(imageSrc);
       setAmount('');
       setMerchant('');
@@ -398,23 +426,21 @@ export const ScanReceiptPage: React.FC = () => {
               <Camera size={32} />
             </div>
             <p>Scegli come vuoi acquisire lo scontrino:</p>
+            {archiveError && <p className="text-warning fs-sm">{archiveError}</p>}
             
             <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '2rem', width: '100%', maxWidth: '300px'}}>
               <input 
                 type="file" 
                 accept="image/*" 
                 capture="environment" 
-                style={{display: 'none'}} 
-                ref={cameraInputRef}
+                id="receipt-camera-input"
+                className={styles.fileInput}
                 onChange={onImageLoad}
               />
-              <Button 
-                icon={<Smartphone size={18} />} 
-                onClick={() => cameraInputRef.current?.click()}
-                className="w-full"
-              >
+              <label className={`${styles.fileButton} ${styles.fileButtonPrimary}`} htmlFor="receipt-camera-input">
+                <Smartphone size={18} />
                 Fotocamera Telefono
-              </Button>
+              </label>
 
               <Button 
                 variant="secondary"
@@ -427,19 +453,15 @@ export const ScanReceiptPage: React.FC = () => {
 
               <input 
                 type="file" 
-                accept="image/*" 
-                style={{display: 'none'}} 
-                ref={fileInputRef}
+                accept="image/*"
+                id="receipt-file-input"
+                className={styles.fileInput}
                 onChange={onImageLoad}
               />
-              <Button 
-                variant="ghost" 
-                icon={<UploadCloud size={18} />} 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full"
-              >
-                Carica Immagine/PDF
-              </Button>
+              <label className={`${styles.fileButton} ${styles.fileButtonGhost}`} htmlFor="receipt-file-input">
+                <UploadCloud size={18} />
+                Carica Immagine
+              </label>
             </div>
           </div>
         )}
@@ -468,13 +490,23 @@ export const ScanReceiptPage: React.FC = () => {
              <div style={{maxWidth: '100%', maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--color-gray-200)', borderRadius: '4px', marginBottom: '1rem'}}>
                {image && (
                  <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)}>
-                   <img ref={imgRef} src={image} alt="Scontrino" style={{maxWidth: '100%'}} />
+                   <img
+                     ref={imgRef}
+                     src={image}
+                     alt="Scontrino"
+                     style={{maxWidth: '100%'}}
+                     onLoad={() => setImageReady(true)}
+                     onError={() => setArchiveError('Non riesco a mostrare questa immagine. Prova a scattarla di nuovo.')}
+                   />
                  </ReactCrop>
                )}
              </div>
+             {archiveError && <p className="text-warning fs-sm mb-4">{archiveError}</p>}
              <div style={{display: 'flex', gap: '1rem'}}>
               <Button variant="secondary" onClick={() => setStatus('idle')}>Annulla</Button>
-              <Button onClick={processImage} icon={<CropIcon size={18} />}>Conferma e Leggi OCR</Button>
+              <Button onClick={processImage} icon={<CropIcon size={18} />} disabled={!imageReady}>
+                {imageReady ? 'Conferma e Leggi OCR' : 'Caricamento immagine...'}
+              </Button>
             </div>
           </div>
         )}
@@ -491,7 +523,7 @@ export const ScanReceiptPage: React.FC = () => {
             <h3 className="text-success mb-4">Dati Estratti!</h3>
             
             <div className={styles.formGroup}>
-              <label>Importo Totale (€)</label>
+              <label>Importo totale</label>
               <input type="text" className={styles.input} value={amount} onChange={e => setAmount(e.target.value)} />
             </div>
             <div className={styles.formGroup}>

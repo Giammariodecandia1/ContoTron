@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
-import { useAuth } from '../hooks';
+import { useAuth, useHousehold } from '../hooks';
 import {
   documentStorageDescriptions,
   documentStorageLabels,
@@ -21,6 +22,7 @@ const getErrorMessage = (error: unknown) => {
 };
 
 export const OnboardingPage: React.FC = () => {
+  const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [setupMode, setSetupMode] = useState<SetupMode>('create');
   const [groupName, setGroupName] = useState('');
@@ -33,6 +35,7 @@ export const OnboardingPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const { user } = useAuth();
+  const { refreshData } = useHousehold();
 
   const handleJoinHousehold = async () => {
     if (!user) {
@@ -56,7 +59,8 @@ export const OnboardingPage: React.FC = () => {
 
       if (joinError) throw joinError;
 
-      window.location.href = '/';
+      await refreshData();
+      navigate('/', { replace: true });
     } catch (err) {
       console.error(err);
       const detail = getErrorMessage(err);
@@ -128,12 +132,13 @@ export const OnboardingPage: React.FC = () => {
       }
 
       if (documentStorageProvider === 'google_drive') {
-        window.location.href = '/impostazioni?driveSetup=1';
+        await refreshData();
+        navigate('/impostazioni?driveSetup=1', { replace: true });
         return;
       }
 
-      // Reload to let HouseholdProvider fetch data
-      window.location.href = '/';
+      await refreshData();
+      navigate('/', { replace: true });
 
     } catch (err) {
       console.error(err);
