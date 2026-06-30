@@ -32,24 +32,16 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
 
-  const fetchHouseholdData = useCallback(async (options: FetchHouseholdOptions = {}) => {
-    const silent = options.silent === true;
-
+  const fetchHouseholdData = useCallback(async (_options: FetchHouseholdOptions = {}) => {
     if (!userId) {
       setHousehold(null);
       setAccounts([]);
       setCategories([]);
       setSubcategories([]);
       setLoadedUserId(null);
-      setLoading(false);
       return;
-    }
-
-    if (!silent) {
-      setLoading(true);
     }
 
     try {
@@ -67,9 +59,6 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setCategories([]);
         setSubcategories([]);
         setLoadedUserId(userId);
-        if (!silent) {
-          setLoading(false);
-        }
         return;
       }
 
@@ -80,9 +69,6 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         .single();
 
       if (!hhData) {
-        if (!silent) {
-          setLoading(false);
-        }
         return;
       }
 
@@ -160,9 +146,6 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       if (userId) {
         setLoadedUserId(userId);
       }
-      if (!silent) {
-        setLoading(false);
-      }
     }
   }, [userId]);
 
@@ -202,7 +185,7 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [fetchHouseholdData, userId]);
 
-  const effectiveLoading = loading || (!!userId && loadedUserId !== userId);
+  const effectiveLoading = !!userId && loadedUserId !== userId;
 
   return (
     <HouseholdContext.Provider value={{ 

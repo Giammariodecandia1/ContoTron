@@ -20,8 +20,10 @@ import { useAuth, useHousehold } from './hooks';
 function App() {
   const { user, loading: authLoading } = useAuth();
   const { household, loading: householdLoading } = useHousehold();
+  const isAuthBootstrapping = authLoading && !user;
+  const isHouseholdBootstrapping = !!user && householdLoading && !household;
 
-  if (authLoading || (user && householdLoading)) {
+  if (isAuthBootstrapping || isHouseholdBootstrapping) {
     return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Caricamento...</div>;
   }
 
