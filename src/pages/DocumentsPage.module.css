@@ -176,6 +176,11 @@
   padding: var(--space-2);
 }
 
+.deleteDocumentButton {
+  align-self: flex-start;
+  margin-top: var(--space-1);
+}
+
 .typePill {
   align-self: flex-start;
   border-radius: 999px;
@@ -222,5 +227,9 @@
   .filters,
   .stats {
     grid-template-columns: 1fr;
+  }
+
+  .deleteDocumentButton {
+    align-self: stretch;
   }
 }

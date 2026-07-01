@@ -21,6 +21,13 @@ export interface DocumentWithUrl extends Document {
   ocr_text?: string | null;
 }
 
+export interface DeleteArchiveDocumentResult {
+  deletedDocument: boolean;
+  deletedInternalFile: boolean;
+  externalFileKept: boolean;
+  storageError?: string | null;
+}
+
 const extensionFromFile = (file: File) => {
   const nameParts = file.name.split('.');
   return nameParts.length > 1 ? nameParts.pop()?.toLowerCase() : undefined;
@@ -275,6 +282,42 @@ export const uploadArchiveDocument = async ({
 
   if (legacyError) throw legacyError;
   return legacyData as Document;
+};
+
+export const deleteArchiveDocument = async (document: Document): Promise<DeleteArchiveDocumentResult> => {
+  const isGoogleDriveDocument = (
+    document.storage_provider === 'google_drive'
+    || document.storage_path.startsWith('google_drive:')
+  );
+  let deletedInternalFile = false;
+  let storageError: string | null = null;
+
+  if (!isGoogleDriveDocument && document.storage_path) {
+    const { error } = await supabase.storage
+      .from(DOCUMENT_BUCKET)
+      .remove([document.storage_path]);
+
+    if (error) {
+      storageError = error.message;
+    } else {
+      deletedInternalFile = true;
+    }
+  }
+
+  const { error } = await supabase
+    .from('documents')
+    .delete()
+    .eq('id', document.id)
+    .eq('household_id', document.household_id);
+
+  if (error) throw error;
+
+  return {
+    deletedDocument: true,
+    deletedInternalFile,
+    externalFileKept: isGoogleDriveDocument,
+    storageError,
+  };
 };
 
 export const getDocumentUrl = async (

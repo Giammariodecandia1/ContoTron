@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Tesseract from 'tesseract.js';
-import { ExternalLink, FileText, UploadCloud } from 'lucide-react';
+import { ExternalLink, FileText, Trash2, UploadCloud } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
 import { useAuth, useHousehold } from '../hooks';
 import {
   formatMonthKey,
+  deleteArchiveDocument,
   getDocumentUrl,
   getMonthKey,
   getMonthRange,
@@ -60,6 +61,7 @@ export const DocumentsPage: React.FC = () => {
   const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [ocrProgress, setOcrProgress] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -272,6 +274,35 @@ export const DocumentsPage: React.FC = () => {
     }
   };
 
+  const handleDeleteDocument = async (doc: ArchiveDocument) => {
+    const label = doc.vendor_name || doc.original_filename || 'questo documento';
+    const confirmed = window.confirm(
+      `Vuoi eliminare "${label}" dall'archivio documenti?\n\nLe transazioni gia create resteranno salvate.`,
+    );
+
+    if (!confirmed) return;
+
+    setDeletingId(doc.id);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const result = await deleteArchiveDocument(doc);
+      if (result.externalFileKept) {
+        setMessage('Documento rimosso da Contotron. Il file originale su Google Drive resta nel Drive del membro che lo ha caricato.');
+      } else if (result.storageError) {
+        setMessage(`Scheda documento eliminata. Attenzione: non sono riuscito a rimuovere il file interno (${result.storageError}).`);
+      } else {
+        setMessage("Documento eliminato dall'archivio. Le transazioni collegate restano salvate.");
+      }
+      await fetchDocuments();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Eliminazione documento non riuscita');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -435,6 +466,17 @@ export const DocumentsPage: React.FC = () => {
                             <ExternalLink size={14} /> Apri documento
                           </a>
                         )}
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          icon={<Trash2 size={14} />}
+                          className={styles.deleteDocumentButton}
+                          disabled={deletingId === doc.id}
+                          onClick={() => handleDeleteDocument(doc)}
+                        >
+                          {deletingId === doc.id ? 'Eliminazione...' : 'Elimina documento'}
+                        </Button>
                       </div>
                     </article>
                   ))}
