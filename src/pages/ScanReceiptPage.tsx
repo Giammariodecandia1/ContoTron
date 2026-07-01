@@ -18,10 +18,96 @@ type EditableReceiptItem = ReceiptItemResult & {
   amountText: string;
 };
 
+const MAX_SCAN_IMAGE_SIDE = 1800;
+const SCAN_JPEG_QUALITY = 0.86;
+
 const isSupportedImageFile = (file: File) => (
   file.type.startsWith('image/')
+  || (file.type === '' && file.size > 0)
   || /\.(jpe?g|png|webp|heic|heif|gif|bmp)$/i.test(file.name)
 );
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    if (typeof reader.result === 'string') {
+      resolve(reader.result);
+    } else {
+      reject(new Error('Risultato immagine non valido'));
+    }
+  };
+  reader.onerror = () => reject(new Error('Impossibile leggere il file immagine'));
+  reader.readAsDataURL(blob);
+});
+
+const canvasToJpegDataUrl = (canvas: HTMLCanvasElement) => canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
+
+const fitImageSize = (width: number, height: number) => {
+  const longestSide = Math.max(width, height);
+  if (longestSide <= MAX_SCAN_IMAGE_SIDE) {
+    return { width, height };
+  }
+
+  const ratio = MAX_SCAN_IMAGE_SIDE / longestSide;
+  return {
+    width: Math.round(width * ratio),
+    height: Math.round(height * ratio),
+  };
+};
+
+const normalizeImageFileForScan = async (file: File): Promise<string> => {
+  if ('createImageBitmap' in window) {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+      const { width, height } = fitImageSize(bitmap.width, bitmap.height);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      canvas.width = width;
+      canvas.height = height;
+
+      if (!context) {
+        bitmap.close();
+        throw new Error('Canvas non disponibile');
+      }
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(bitmap, 0, 0, width, height);
+      bitmap.close();
+
+      return canvasToJpegDataUrl(canvas);
+    } catch (error) {
+      console.warn('Normalizzazione immagine con createImageBitmap fallita:', error);
+    }
+  }
+
+  const originalDataUrl = await blobToDataUrl(file);
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      const { width, height } = fitImageSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+
+      canvas.width = width;
+      canvas.height = height;
+
+      if (!context) {
+        resolve(originalDataUrl);
+        return;
+      }
+
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, 0, 0, width, height);
+      resolve(canvasToJpegDataUrl(canvas));
+    };
+    image.onerror = () => resolve(originalDataUrl);
+    image.src = originalDataUrl;
+  });
+};
 
 export const ScanReceiptPage: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'webcam' | 'cropping' | 'scanning' | 'done'>('idle');
@@ -321,58 +407,50 @@ export const ScanReceiptPage: React.FC = () => {
     }
   };
 
-  const onImageLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const resetScanResult = () => {
+    setImageReady(false);
+    setCrop(undefined);
+    setCompletedCrop(undefined);
+    setAmount('');
+    setMerchant('');
+    setDetectedCategoryId('');
+    setDetectedSubcategoryId('');
+    setArchivedDocumentId('');
+    setArchivedOnGoogleDrive(false);
+    setArchiveError(null);
+    setOcrHint(null);
+    setReceiptItems([]);
+  };
+
+  const onImageLoad = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
+
     if (file) {
       if (!isSupportedImageFile(file)) {
         setArchiveError('Per ora la scansione OCR accetta foto o immagini. I PDF puoi archiviarli dalla pagina Documenti.');
-        e.target.value = '';
         return;
       }
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (reader.result) {
-          setImageReady(false);
-          setCrop(undefined);
-          setCompletedCrop(undefined);
-          setImage(reader.result as string);
-          setAmount('');
-          setMerchant('');
-          setDetectedCategoryId('');
-          setDetectedSubcategoryId('');
-          setArchivedDocumentId('');
-          setArchivedOnGoogleDrive(false);
-          setArchiveError(null);
-          setOcrHint(null);
-          setReceiptItems([]);
-          setStatus('cropping');
-        }
-      };
-      reader.onerror = () => {
-        setArchiveError('Non riesco a leggere questa immagine. Prova a scattarla di nuovo.');
-      };
-      reader.readAsDataURL(file);
-      e.target.value = '';
+      try {
+        resetScanResult();
+        setArchiveError('Preparazione foto per OCR...');
+        const normalizedImage = await normalizeImageFileForScan(file);
+        setImage(normalizedImage);
+        setArchiveError(null);
+        setStatus('cropping');
+      } catch (error) {
+        console.error('Errore lettura immagine:', error);
+        setArchiveError('Non riesco a leggere questa immagine. Se e uno scatto HEIC, prova a impostare la fotocamera su JPG e riprova.');
+      }
     }
   };
 
   const captureWebcam = useCallback(() => {
     const imageSrc = webcamRef.current?.getScreenshot();
     if (imageSrc) {
-      setImageReady(false);
-      setCrop(undefined);
-      setCompletedCrop(undefined);
+      resetScanResult();
       setImage(imageSrc);
-      setAmount('');
-      setMerchant('');
-      setDetectedCategoryId('');
-      setDetectedSubcategoryId('');
-      setArchivedDocumentId('');
-      setArchivedOnGoogleDrive(false);
-      setArchiveError(null);
-      setOcrHint(null);
-      setReceiptItems([]);
       setStatus('cropping');
     }
   }, [webcamRef]);
