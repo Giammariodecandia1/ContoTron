@@ -16,6 +16,7 @@ import { NewTransactionPage } from './pages/NewTransactionPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { SearchPage } from './pages/SearchPage';
 import { ReportsPage } from './pages/ReportsPage';
+import { RecurringRulesPage } from './pages/RecurringRulesPage';
 import { useAuth, useHousehold } from './hooks';
 
 const DEBUG_BUILD = 'loading-debug-2026-06-30';
@@ -200,6 +201,7 @@ function App() {
             <RouterRoute path="/impostazioni" element={<SettingsPage />} />
             <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
             <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
+            <RouterRoute path="/impostazioni/spese-fisse" element={<RecurringRulesPage />} />
             <RouterRoute path="*" element={<RouterNavigate to="/" replace />} />
           </RouterRoutes>
         </AppLayout>

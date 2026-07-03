@@ -5,6 +5,8 @@ import { ArrowLeft, Check, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } 
 import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
+import { spendingTypeOptions, getSpendingTypeLabel } from '../lib/spendingTypes';
+import type { SpendingType } from '../types/database';
 import styles from './CategoriesPage.module.css';
 
 type EditingValue = {
@@ -17,6 +19,7 @@ export const CategoriesPage: React.FC = () => {
   const { household, categories, subcategories, refreshData } = useHousehold();
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newSubcategoryMap, setNewSubcategoryMap] = useState<Record<string, string>>({});
+  const [newSubcategoryTypeMap, setNewSubcategoryTypeMap] = useState<Record<string, SpendingType>>({});
   const [editingCategory, setEditingCategory] = useState<EditingValue | null>(null);
   const [editingSubcategory, setEditingSubcategory] = useState<EditingValue | null>(null);
   const [loading, setLoading] = useState(false);
@@ -131,6 +134,7 @@ export const CategoriesPage: React.FC = () => {
 
     const name = newSubcategoryMap[categoryId]?.trim();
     if (!name) return;
+    const spendingType = newSubcategoryTypeMap[categoryId] || 'variable';
 
     setLoading(true);
     setSaveMessage(null);
@@ -143,6 +147,7 @@ export const CategoriesPage: React.FC = () => {
           household_id: household.id,
           category_id: categoryId,
           name,
+          spending_type: spendingType,
           sort_order: 100
         }])
         .select('id, name')
@@ -151,6 +156,7 @@ export const CategoriesPage: React.FC = () => {
       if (error) throw error;
 
       setNewSubcategoryMap(prev => ({ ...prev, [categoryId]: '' }));
+      setNewSubcategoryTypeMap(prev => ({ ...prev, [categoryId]: 'variable' }));
       setExpandedCategories(prev => ({ ...prev, [categoryId]: true }));
       await refreshData();
       setSaveMessage(`Sottocategoria "${data?.name || name}" salvata nel database.`);
@@ -215,6 +221,31 @@ export const CategoriesPage: React.FC = () => {
     } catch (err) {
       console.error('Errore durante modifica sottocategoria:', err);
       setSaveError("Impossibile modificare la sottocategoria. Assicurati che non esista gia'.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdateSubcategoryType = async (id: string, spendingType: SpendingType) => {
+    if (!household) return;
+
+    setLoading(true);
+    setSaveMessage(null);
+    setSaveError(null);
+
+    try {
+      const { error } = await supabase
+        .from('subcategories')
+        .update({ spending_type: spendingType })
+        .eq('id', id)
+        .eq('household_id', household.id);
+
+      if (error) throw error;
+      await refreshData();
+      setSaveMessage(`Tipo spesa aggiornato: ${getSpendingTypeLabel(spendingType)}.`);
+    } catch (err) {
+      console.error('Errore durante modifica tipo spesa:', err);
+      setSaveError('Impossibile salvare il tipo spesa. Applica la migrazione Supabase se il campo non esiste ancora.');
     } finally {
       setLoading(false);
     }
@@ -365,8 +396,22 @@ export const CategoriesPage: React.FC = () => {
                                   </button>
                                 </div>
                               ) : (
-                                <span>{sub.name}</span>
+                                <div className={styles.subcategoryText}>
+                                  <span>{sub.name}</span>
+                                  <small>{getSpendingTypeLabel(sub.spending_type)}</small>
+                                </div>
                               )}
+                              <select
+                                className={styles.spendingTypeSelect}
+                                value={sub.spending_type || 'variable'}
+                                onChange={event => handleUpdateSubcategoryType(sub.id, event.target.value as SpendingType)}
+                                disabled={loading}
+                                aria-label={`Tipo spesa per ${sub.name}`}
+                              >
+                                {spendingTypeOptions.map(option => (
+                                  <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                              </select>
                               <div className={styles.rowActions}>
                                 <button
                                   className={styles.editBtnSmall}
@@ -396,6 +441,17 @@ export const CategoriesPage: React.FC = () => {
                             className={styles.inputSmall}
                             disabled={loading}
                           />
+                          <select
+                            className={styles.inputSmall}
+                            value={newSubcategoryTypeMap[cat.id] || 'variable'}
+                            onChange={event => setNewSubcategoryTypeMap(prev => ({ ...prev, [cat.id]: event.target.value as SpendingType }))}
+                            disabled={loading}
+                            aria-label="Tipo spesa nuova sottocategoria"
+                          >
+                            {spendingTypeOptions.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
                           <Button
                             type="button"
                             size="sm"

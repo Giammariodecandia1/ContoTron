@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Cloud, Database, Info, LogOut, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
+import { CalendarClock, Cloud, Database, Info, LogOut, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold, useTheme } from '../hooks';
 import {
@@ -122,6 +122,12 @@ export const SettingsPage: React.FC = () => {
 
         <Card title="Gestione Categorie" icon={<Tag size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/categorie')}>Gestisci</Button>}>
           <p className="text-muted fs-sm">Aggiungi, modifica o rimuovi categorie e sottocategorie di spesa.</p>
+        </Card>
+
+        <Card title="Spese fisse" icon={<CalendarClock size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/spese-fisse')}>Gestisci</Button>}>
+          <p className="text-muted fs-sm">
+            Configura canoni, finanziamenti e uscite mensili che devono risultare gia impegnate all'apertura del mese.
+          </p>
         </Card>
 
         <Card title="Archivio documenti" icon={<Cloud size={20} />}>

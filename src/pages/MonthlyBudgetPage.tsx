@@ -3,10 +3,11 @@ import { Card } from '../components/ui/Card';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
+import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import styles from './MonthlyBudgetPage.module.css';
 
 export const MonthlyBudgetPage: React.FC = () => {
-  const { household, categories } = useHousehold();
+  const { household, accounts, categories } = useHousehold();
   const { fetchTransactions } = useTransactions();
   const { fetchBudgetTargets, upsertBudgetTarget, loading: budgetLoading } = useBudget();
 
@@ -14,6 +15,8 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [budgets, setBudgets] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
+  const [recurringMessage, setRecurringMessage] = useState<string | null>(null);
+  const [recurringError, setRecurringError] = useState<string | null>(null);
   const householdId = household?.id || null;
 
   const year = currentDate.getFullYear();
@@ -25,6 +28,25 @@ export const MonthlyBudgetPage: React.FC = () => {
     if (!householdId) return;
 
     setLoading(true);
+    setRecurringMessage(null);
+    setRecurringError(null);
+
+    try {
+      const result = await ensureMonthlyRecurringTransactions({
+        householdId,
+        accounts,
+        year,
+        month,
+      });
+
+      if (result.createdCount > 0) {
+        setRecurringMessage(`${result.createdCount} spese fisse generate automaticamente per questo mese.`);
+      }
+    } catch (error) {
+      console.error('Errore generazione spese fisse:', error);
+      setRecurringError(error instanceof Error ? error.message : 'Non riesco a generare le spese fisse del mese.');
+    }
+
     // 1. Fetch transactions for the current month
     const txs = await fetchTransactions(month, year);
     setTransactions(txs.filter(t => t.type === 'expense')); // Only expenses affect this budget view
@@ -40,7 +62,7 @@ export const MonthlyBudgetPage: React.FC = () => {
     });
     setBudgets(budgetMap);
     setLoading(false);
-  }, [fetchBudgetTargets, fetchTransactions, householdId, month, year]);
+  }, [accounts, fetchBudgetTargets, fetchTransactions, householdId, month, year]);
 
   useEffect(() => {
     if (householdId) {
@@ -99,6 +121,14 @@ export const MonthlyBudgetPage: React.FC = () => {
       </div>
 
       <Card>
+        {recurringMessage && (
+          <div className={`${styles.budgetNotice} ${styles.success}`}>{recurringMessage}</div>
+        )}
+        {recurringError && (
+          <div className={`${styles.budgetNotice} ${styles.warning}`}>
+            Spese fisse non generate: {recurringError}
+          </div>
+        )}
         {loading || budgetLoading ? (
           <div style={{ textAlign: 'center', padding: '2rem' }}>Caricamento e calcolo precompilazioni...</div>
         ) : (

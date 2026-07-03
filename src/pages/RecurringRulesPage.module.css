@@ -1,0 +1,147 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.title {
+  color: var(--color-gray-900);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-1);
+}
+
+.grid {
+  align-items: start;
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: minmax(280px, 380px) 1fr;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.formGroup label {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.input,
+.select,
+.textarea {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+  padding: var(--space-3);
+}
+
+.textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.message {
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  padding: var(--space-3);
+}
+
+.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.rulesList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.ruleCard {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.ruleHeader {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.ruleTitle {
+  color: var(--color-gray-900);
+  font-weight: 800;
+}
+
+.ruleMeta {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.ruleAmount {
+  color: var(--color-danger);
+  font-size: var(--text-lg);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.ruleActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.empty {
+  color: var(--color-gray-500);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .ruleHeader {
+    flex-direction: column;
+  }
+
+  .ruleAmount {
+    white-space: normal;
+  }
+}

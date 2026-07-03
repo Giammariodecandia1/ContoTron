@@ -56,6 +56,24 @@
   border-collapse: collapse;
 }
 
+.budgetNotice {
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-warning);
+}
+
 .budgetTable th {
   text-align: left;
   padding: var(--space-3);

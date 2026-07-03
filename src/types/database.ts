@@ -48,6 +48,12 @@ export type DocumentStorageStatus =
   | 'pending_connection'
   | 'connection_error';
 
+export type SpendingType =
+  | 'fixed'
+  | 'variable'
+  | 'necessary_variable'
+  | 'superfluous';
+
 export interface Profile {
   id: string;
   display_name: string | null;
@@ -111,6 +117,7 @@ export interface Subcategory {
   household_id: string;
   category_id: string;
   name: string;
+  spending_type?: SpendingType;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -122,6 +129,7 @@ export interface Transaction {
   account_id: string | null;
   destination_account_id: string | null;
   document_id: string | null;
+  recurring_rule_id?: string | null;
   type: TransactionType;
   status: TransactionStatus;
   source: TransactionSource;
