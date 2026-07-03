@@ -1,155 +1,263 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Camera, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Card } from '../components/ui/Card';
-import { EmptyState } from '../components/ui/EmptyState';
-import { Camera, PlusCircle, Wallet } from 'lucide-react';
-import { useHousehold, useTransactions } from '../hooks';
 import { ExpenseCharts } from '../components/dashboard/ExpenseCharts';
-import { Link, useNavigate } from 'react-router-dom';
+import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
-import { Button } from '../components/ui/Button';
 import styles from './DashboardPage.module.css';
 
+type IncomeTargetRow = {
+  id?: string;
+  month: number;
+  planned_income: number;
+};
+
+type AnnualRow = {
+  month: number;
+  label: string;
+  plannedIncome: number;
+  plannedExpense: number;
+  actualExpense: number;
+  actualIncome: number;
+};
+
+const monthNames = [
+  'Gennaio',
+  'Febbraio',
+  'Marzo',
+  'Aprile',
+  'Maggio',
+  'Giugno',
+  'Luglio',
+  'Agosto',
+  'Settembre',
+  'Ottobre',
+  'Novembre',
+  'Dicembre',
+];
+
+const currency = (value: number, currencyCode = 'EUR') => (
+  value.toLocaleString('it-IT', { style: 'currency', currency: currencyCode })
+);
+
 export const DashboardPage: React.FC = () => {
-  const navigate = useNavigate();
   const { household, loading: hhLoading } = useHousehold();
-  const { fetchTransactions } = useTransactions();
-  const [transactions, setTransactions] = useState<any[]>([]);
-  const [monthlyExpense, setMonthlyExpense] = useState(0);
-  const [monthlyBudget, setMonthlyBudget] = useState(0);
-  const [budgetId, setBudgetId] = useState<string | null>(null);
-  const [isEditingBudget, setIsEditingBudget] = useState(false);
-  const [newBudgetValue, setNewBudgetValue] = useState('');
-  const [budgetError, setBudgetError] = useState<string | null>(null);
-  const [budgetSavedMessage, setBudgetSavedMessage] = useState<string | null>(null);
   const householdId = household?.id || null;
+  const currencyCode = household?.currency || 'EUR';
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [incomeTargets, setIncomeTargets] = useState<Record<number, IncomeTargetRow>>({});
+  const [incomeDrafts, setIncomeDrafts] = useState<Record<number, string>>({});
+  const [plannedExpenses, setPlannedExpenses] = useState<Record<number, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [savingMonth, setSavingMonth] = useState<number | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const hasTransactions = transactions.length > 0;
-  const today = new Date();
-  const budgetYear = today.getFullYear();
-  const budgetMonth = today.getMonth() + 1;
-  const uploaderLabel = (tx: any) => {
-    const profile = tx.inserted_by_profile;
-    const name = profile?.display_name || profile?.email || 'Sconosciuto';
-    return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
-  };
+  const loadDashboard = useCallback(async () => {
+    if (!householdId) return;
 
-  useEffect(() => {
-    if (householdId) {
-      // Fetch latest transactions for the recent list
-      fetchTransactions().then(data => {
-        setTransactions(data.slice(0, 5));
-        
-        // Calculate basic monthly totals for the current month
-        const currentMonth = new Date().getMonth();
-        const currentYear = new Date().getFullYear();
-        
-        let expense = 0;
-        
-        data.forEach(tx => {
-          const txDate = new Date(tx.transaction_date);
-          if (txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear) {
-            if (tx.type === 'expense') expense += tx.amount;
-          }
-        });
-        
-        setMonthlyExpense(expense);
+    setLoading(true);
+    setMessage(null);
+    setError(null);
+
+    try {
+      const start = `${selectedYear}-01-01`;
+      const end = `${selectedYear}-12-31`;
+
+      const [txResult, budgetResult, incomeResult] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('*, categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)')
+          .eq('household_id', householdId)
+          .gte('transaction_date', start)
+          .lte('transaction_date', end)
+          .neq('status', 'deleted')
+          .order('transaction_date', { ascending: false }),
+        supabase
+          .from('budget_targets')
+          .select('month, planned_amount, category_id, subcategory_id')
+          .eq('household_id', householdId)
+          .eq('year', selectedYear),
+        supabase
+          .from('monthly_income_targets')
+          .select('id, month, planned_income')
+          .eq('household_id', householdId)
+          .eq('year', selectedYear),
+      ]);
+
+      if (txResult.error) throw txResult.error;
+      if (budgetResult.error) throw budgetResult.error;
+      if (incomeResult.error) throw incomeResult.error;
+
+      const expenseMap: Record<number, number> = {};
+      (budgetResult.data || []).forEach(row => {
+        if (!row.category_id) return;
+        expenseMap[row.month] = (expenseMap[row.month] || 0) + Number(row.planned_amount || 0);
       });
 
-      // Fetch global monthly budget. Global budget rows have no category/subcategory.
-      supabase
-        .from('budget_targets')
-        .select('id, planned_amount')
-        .eq('household_id', householdId)
-        .eq('year', budgetYear)
-        .eq('month', budgetMonth)
-        .is('category_id', null)
-        .is('subcategory_id', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .then(({ data, error }) => {
-          if (error) {
-            setBudgetError(error.message);
-            return;
-          }
+      const targetMap: Record<number, IncomeTargetRow> = {};
+      const draftMap: Record<number, string> = {};
+      (incomeResult.data || []).forEach(row => {
+        targetMap[row.month] = {
+          id: row.id,
+          month: row.month,
+          planned_income: Number(row.planned_income || 0),
+        };
+        draftMap[row.month] = String(Number(row.planned_income || 0));
+      });
 
-          const budgetRow = data?.[0];
-          if (budgetRow) {
-            setMonthlyBudget(budgetRow.planned_amount);
-            setBudgetId(budgetRow.id);
-            setNewBudgetValue(String(budgetRow.planned_amount));
-          } else {
-            setMonthlyBudget(0);
-            setBudgetId(null);
-            setNewBudgetValue('');
-          }
-        });
+      setTransactions(txResult.data || []);
+      setPlannedExpenses(expenseMap);
+      setIncomeTargets(targetMap);
+      setIncomeDrafts(draftMap);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Errore durante il caricamento dashboard.');
+    } finally {
+      setLoading(false);
     }
-  }, [budgetMonth, budgetYear, fetchTransactions, householdId]);
+  }, [householdId, selectedYear]);
 
-  const handleSaveBudget = async () => {
-    if (!household) return;
-    const amount = parseFloat(newBudgetValue.replace(',', '.'));
-    if (isNaN(amount) || amount < 0) {
-      setBudgetError('Inserisci un importo valido.');
+  useEffect(() => {
+    void loadDashboard();
+  }, [loadDashboard]);
+
+  const annualRows = useMemo<AnnualRow[]>(() => {
+    const actualExpenses: Record<number, number> = {};
+    const actualIncomes: Record<number, number> = {};
+
+    transactions.forEach(tx => {
+      const txDate = new Date(`${tx.transaction_date}T00:00:00`);
+      const month = txDate.getMonth() + 1;
+      if (tx.type === 'expense') {
+        actualExpenses[month] = (actualExpenses[month] || 0) + Number(tx.amount || 0);
+      } else if (tx.type === 'income') {
+        actualIncomes[month] = (actualIncomes[month] || 0) + Number(tx.amount || 0);
+      }
+    });
+
+    return monthNames.map((label, index) => {
+      const month = index + 1;
+      return {
+        month,
+        label,
+        plannedIncome: incomeTargets[month]?.planned_income || 0,
+        plannedExpense: plannedExpenses[month] || 0,
+        actualExpense: actualExpenses[month] || 0,
+        actualIncome: actualIncomes[month] || 0,
+      };
+    });
+  }, [incomeTargets, plannedExpenses, transactions]);
+
+  const totals = useMemo(() => {
+    const total = annualRows.reduce((acc, row) => ({
+      plannedIncome: acc.plannedIncome + row.plannedIncome,
+      plannedExpense: acc.plannedExpense + row.plannedExpense,
+      actualExpense: acc.actualExpense + row.actualExpense,
+      actualIncome: acc.actualIncome + row.actualIncome,
+    }), {
+      plannedIncome: 0,
+      plannedExpense: 0,
+      actualExpense: 0,
+      actualIncome: 0,
+    });
+
+    return {
+      ...total,
+      plannedDelta: total.plannedIncome - total.plannedExpense,
+      actualDelta: total.plannedIncome - total.actualExpense,
+      averagePlannedIncome: total.plannedIncome / 12,
+      averagePlannedExpense: total.plannedExpense / 12,
+      averageActualExpense: total.actualExpense / 12,
+    };
+  }, [annualRows]);
+
+  const handleIncomeChange = (month: number, value: string) => {
+    setIncomeDrafts(prev => ({ ...prev, [month]: value }));
+  };
+
+  const saveIncomeTarget = async (month: number) => {
+    if (!householdId) return;
+
+    const value = Number((incomeDrafts[month] || '').replace(',', '.'));
+    if (!Number.isFinite(value) || value < 0) {
+      setError('Inserisci una previsione entrate valida.');
       return;
     }
 
-    setBudgetError(null);
-    setBudgetSavedMessage(null);
+    setSavingMonth(month);
+    setError(null);
+    setMessage(null);
 
-    if (budgetId) {
-      const { error } = await supabase
-        .from('budget_targets')
-        .update({
-          planned_amount: amount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', budgetId)
-        .eq('household_id', household.id);
+    try {
+      const existing = incomeTargets[month];
+      if (existing?.id) {
+        const { error: updateError } = await supabase
+          .from('monthly_income_targets')
+          .update({ planned_income: value, updated_at: new Date().toISOString() })
+          .eq('id', existing.id)
+          .eq('household_id', householdId);
 
-      if (error) {
-        setBudgetError(error.message);
-        return;
+        if (updateError) throw updateError;
+      } else {
+        const { data, error: insertError } = await supabase
+          .from('monthly_income_targets')
+          .insert([{
+            household_id: householdId,
+            year: selectedYear,
+            month,
+            planned_income: value,
+          }])
+          .select('id, month, planned_income')
+          .single();
+
+        if (insertError) throw insertError;
+        if (data) {
+          setIncomeTargets(prev => ({
+            ...prev,
+            [month]: {
+              id: data.id,
+              month: data.month,
+              planned_income: Number(data.planned_income || 0),
+            },
+          }));
+        }
       }
-    } else {
-      const { data, error } = await supabase.from('budget_targets').insert([{
-        household_id: household.id,
-        year: budgetYear,
-        month: budgetMonth,
-        category_id: null,
-        subcategory_id: null,
-        planned_amount: amount
-      }]).select('id').single();
 
-      if (error) {
-        setBudgetError(error.message);
-        return;
-      }
-
-      if (data) setBudgetId(data.id);
+      setIncomeTargets(prev => ({
+        ...prev,
+        [month]: {
+          ...prev[month],
+          month,
+          planned_income: value,
+        },
+      }));
+      setMessage(`Entrata prevista di ${monthNames[month - 1]} salvata.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossibile salvare entrata prevista.');
+    } finally {
+      setSavingMonth(null);
     }
-
-    setMonthlyBudget(amount);
-    setNewBudgetValue(String(amount));
-    setBudgetSavedMessage('Budget salvato.');
-    setIsEditingBudget(false);
   };
 
-  if (hhLoading && !household) return <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: '2rem'}}>Caricamento dashboard...</div>;
-
-  const remainingBudget = monthlyBudget - monthlyExpense;
-  const budgetPercentage = monthlyBudget > 0 ? (monthlyExpense / monthlyBudget) * 100 : 0;
-  
-  // Colore in base alla % di utilizzo del budget
-  let budgetColor = 'var(--color-success)';
-  if (budgetPercentage > 90) budgetColor = 'var(--color-danger)';
-  else if (budgetPercentage > 75) budgetColor = 'var(--color-warning)';
+  if (hhLoading && !household) {
+    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', padding: '2rem' }}>Caricamento dashboard...</div>;
+  }
 
   return (
     <div className={styles.dashboard}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Dashboard</h1>
-        <p className="text-muted">Benvenuto in Contotron, {household?.name}!</p>
+        <div>
+          <h1 className={styles.title}>Dashboard</h1>
+          <p className="text-muted">Quadro annuale del nucleo {household?.name}.</p>
+        </div>
+        <select className={styles.yearSelect} value={selectedYear} onChange={event => setSelectedYear(Number(event.target.value))}>
+          {Array.from({ length: 5 }, (_, index) => currentYear - 2 + index).map(year => (
+            <option key={year} value={year}>{year}</option>
+          ))}
+        </select>
       </header>
 
       <Link to="/scan" className={styles.mobileScanCard}>
@@ -161,140 +269,108 @@ export const DashboardPage: React.FC = () => {
           <small>Foto rapida, OCR e transazione automatica</small>
         </span>
       </Link>
-      
-      <div className={styles.mainGrid}>
-        {/* Left Column */}
-        <div className={styles.leftCol}>
-          <Card className={styles.balanceCard}>
-            <div className={styles.balanceHeader}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--color-gray-500)' }}>
-                <Wallet size={18} />
-                <span>Budget Mensile {new Date().toLocaleString('it-IT', {month: 'long'})}</span>
-              </div>
-            </div>
 
-            {budgetError && (
-              <p style={{ color: 'var(--color-danger)', fontSize: '0.875rem', marginTop: '0.75rem' }}>
-                Errore salvataggio budget: {budgetError}
-              </p>
-            )}
-            {budgetSavedMessage && (
-              <p style={{ color: 'var(--color-success)', fontSize: '0.875rem', marginTop: '0.75rem' }}>
-                {budgetSavedMessage}
-              </p>
-            )}
-            
-            {isEditingBudget ? (
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', alignItems: 'center' }}>
-                <input 
-                  type="number" 
-                  step="0.01"
-                  value={newBudgetValue} 
-                  onChange={e => setNewBudgetValue(e.target.value)}
-                  style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid var(--color-gray-300)', width: '120px' }}
-                />
-                <Button size="sm" onClick={handleSaveBudget}>Salva</Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setNewBudgetValue(monthlyBudget ? String(monthlyBudget) : '');
-                    setIsEditingBudget(false);
-                  }}
-                >
-                  Annulla
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div
-                  className={styles.balanceAmount}
-                  style={{ cursor: 'pointer', display: 'inline-block' }}
-                  onClick={() => {
-                    setBudgetError(null);
-                    setBudgetSavedMessage(null);
-                    setNewBudgetValue(monthlyBudget ? String(monthlyBudget) : '');
-                    setIsEditingBudget(true);
-                  }}
-                  title="Clicca per modificare"
-                >
-                  {monthlyBudget.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
-                  <span style={{ fontSize: '1rem', color: 'var(--color-gray-400)', marginLeft: '0.5rem', fontWeight: 'normal' }}>Modifica</span>
-                </div>
-                
-                {monthlyBudget > 0 && (
-                  <div style={{ marginTop: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                      <span className="text-muted">Rimanente: <strong style={{color: remainingBudget < 0 ? 'var(--color-danger)' : 'inherit'}}>{remainingBudget.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</strong></span>
-                      <span className="text-muted">{Math.round(budgetPercentage)}% speso</span>
-                    </div>
-                    <div style={{ width: '100%', height: '8px', backgroundColor: 'var(--color-gray-200)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${Math.min(budgetPercentage, 100)}%`, height: '100%', backgroundColor: budgetColor, transition: 'width 0.3s ease' }}></div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
-          
-          <div className={styles.monthlyStats}>
-            <Card className={styles.statCard}>
-              <div className="fs-sm text-muted">Spese Totali (Mese in corso)</div>
-              <div style={{ color: 'var(--color-danger)', fontWeight: 'bold', fontSize: '1.25rem', marginTop: '0.5rem' }}>
-                {monthlyExpense.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
-              </div>
-            </Card>
+      <div className={styles.kpiGrid}>
+        <Card>
+          <div className={styles.kpiLabel}>Entrate previste anno</div>
+          <p className={styles.kpiValue}>{currency(totals.plannedIncome, currencyCode)}</p>
+        </Card>
+        <Card>
+          <div className={styles.kpiLabel}>Uscite previste anno</div>
+          <p className={styles.kpiValue}>{currency(totals.plannedExpense, currencyCode)}</p>
+        </Card>
+        <Card>
+          <div className={styles.kpiLabel}>Delta previsto</div>
+          <p className={`${styles.kpiValue} ${totals.plannedDelta >= 0 ? styles.positive : styles.negative}`}>
+            {currency(totals.plannedDelta, currencyCode)}
+          </p>
+          <div className={styles.kpiTrend}>
+            {totals.plannedDelta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            Media mensile: {currency(totals.plannedDelta / 12, currencyCode)}
           </div>
-          
-          <Card title="Avvisi Intelligenti" className="mt-4">
-            {budgetPercentage > 100 ? (
-              <p style={{color: 'var(--color-danger)', fontSize: '0.9rem', margin: 0}}>Attenzione: hai superato il tuo budget mensile di {(monthlyExpense - monthlyBudget).toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}!</p>
-            ) : budgetPercentage > 80 ? (
-              <p style={{color: 'var(--color-warning)', fontSize: '0.9rem', margin: 0}}>Attenzione: stai per esaurire il budget. Ti restano solo {remainingBudget.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}.</p>
-            ) : monthlyBudget > 0 ? (
-              <p style={{color: 'var(--color-success)', fontSize: '0.9rem', margin: 0}}>OK: sei perfettamente in linea con il tuo budget per questo mese.</p>
-            ) : (
-              <p className="text-muted fs-sm">Clicca su Modifica per impostare un budget mensile.</p>
-            )}
-          </Card>
-        </div>
-
-        {/* Right Column */}
-        <div className={styles.rightCol}>
-          <Card title="Ultime Transazioni">
-            {!hasTransactions ? (
-              <EmptyState 
-                icon={<PlusCircle />}
-                title="Nessuna transazione"
-                description="Non hai ancora inserito spese o entrate. Aggiungi il tuo primo movimento per iniziare."
-                actionText="Nuova Transazione"
-                onAction={() => navigate('/transazioni/nuova')}
-              />
-            ) : (
-              <div>
-                {transactions.map(tx => (
-                  <div key={tx.id} style={{display: 'flex', justifyContent: 'space-between', padding: '0.75rem 0', borderBottom: '1px solid var(--color-gray-100)'}}>
-                    <div>
-                      <div><strong>{tx.description}</strong></div>
-                      <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'}</div>
-                      <div className="text-muted fs-sm">Caricata da account: {uploaderLabel(tx)}</div>
-                    </div>
-                    <div style={{color: tx.type === 'expense' ? 'var(--color-danger)' : 'var(--color-success)', fontWeight: 'bold', display: 'flex', alignItems: 'center'}}>
-                      {tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
-                    </div>
-                  </div>
-                ))}
-                <div className="mt-4 text-center">
-                  <Link to="/transazioni" className="text-sm fw-medium" style={{color: 'var(--color-primary)'}}>Vedi tutte le transazioni &rarr;</Link>
-                </div>
-              </div>
-            )}
-          </Card>
-        </div>
+        </Card>
+        <Card>
+          <div className={styles.kpiLabel}>Uscite effettive anno</div>
+          <p className={styles.kpiValue}>{currency(totals.actualExpense, currencyCode)}</p>
+        </Card>
       </div>
-      
-      {/* Charts Section below the grid */}
-      {hasTransactions && (
+
+      <Card title="Previsione annuale" icon={<Wallet size={20} />}>
+        {message && <div className={`${styles.notice} ${styles.success}`}>{message}</div>}
+        {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
+        {loading ? (
+          <div className={styles.empty}>Caricamento quadro annuale...</div>
+        ) : (
+          <div className={styles.annualTableWrapper}>
+            <table className={styles.annualTable}>
+              <thead>
+                <tr>
+                  <th>Mese</th>
+                  <th>Entrate previste</th>
+                  <th>Uscite previste</th>
+                  <th>Delta previsto</th>
+                  <th>Uscite effettive</th>
+                  <th>Delta reale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {annualRows.map(row => {
+                  const plannedDelta = row.plannedIncome - row.plannedExpense;
+                  const actualDelta = row.plannedIncome - row.actualExpense;
+
+                  return (
+                    <tr key={row.month}>
+                      <td data-label="Mese">{row.label}</td>
+                      <td data-label="Entrate previste">
+                        <input
+                          className={styles.incomeInput}
+                          type="number"
+                          step="0.01"
+                          value={incomeDrafts[row.month] ?? ''}
+                          onChange={event => handleIncomeChange(row.month, event.target.value)}
+                          onBlur={() => saveIncomeTarget(row.month)}
+                          disabled={savingMonth === row.month}
+                          placeholder="0"
+                        />
+                      </td>
+                      <td data-label="Uscite previste">{currency(row.plannedExpense, currencyCode)}</td>
+                      <td data-label="Delta previsto" className={plannedDelta >= 0 ? styles.positive : styles.negative}>
+                        {currency(plannedDelta, currencyCode)}
+                      </td>
+                      <td data-label="Uscite effettive">{currency(row.actualExpense, currencyCode)}</td>
+                      <td data-label="Delta reale" className={actualDelta >= 0 ? styles.positive : styles.negative}>
+                        {currency(actualDelta, currencyCode)}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className={styles.totalRow}>
+                  <td data-label="Mese">Totale</td>
+                  <td data-label="Entrate previste">{currency(totals.plannedIncome, currencyCode)}</td>
+                  <td data-label="Uscite previste">{currency(totals.plannedExpense, currencyCode)}</td>
+                  <td data-label="Delta previsto" className={totals.plannedDelta >= 0 ? styles.positive : styles.negative}>
+                    {currency(totals.plannedDelta, currencyCode)}
+                  </td>
+                  <td data-label="Uscite effettive">{currency(totals.actualExpense, currencyCode)}</td>
+                  <td data-label="Delta reale" className={totals.actualDelta >= 0 ? styles.positive : styles.negative}>
+                    {currency(totals.actualDelta, currencyCode)}
+                  </td>
+                </tr>
+                <tr className={styles.averageRow}>
+                  <td data-label="Mese">Media mese</td>
+                  <td data-label="Entrate previste">{currency(totals.averagePlannedIncome, currencyCode)}</td>
+                  <td data-label="Uscite previste">{currency(totals.averagePlannedExpense, currencyCode)}</td>
+                  <td data-label="Delta previsto">{currency(totals.plannedDelta / 12, currencyCode)}</td>
+                  <td data-label="Uscite effettive">{currency(totals.averageActualExpense, currencyCode)}</td>
+                  <td data-label="Delta reale">{currency(totals.actualDelta / 12, currencyCode)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {transactions.length > 0 && (
         <ExpenseCharts transactions={transactions} />
       )}
     </div>
