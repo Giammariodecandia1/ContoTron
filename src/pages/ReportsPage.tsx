@@ -92,6 +92,12 @@ interface CategoryReportRow {
   count: number;
 }
 
+interface WeeklyFoodRow {
+  week: number;
+  label: string;
+  amount: number;
+}
+
 const toIsoDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -119,6 +125,15 @@ const addToSummary = (map: Map<string, SummaryRow>, name: string, amount: number
 const sortedRows = (map: Map<string, SummaryRow>) => (
   Array.from(map.values()).sort((a, b) => b.amount - a.amount)
 );
+
+const median = (values: number[]) => {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
+};
 
 const normalizeKey = (value: string) => (
   value
@@ -289,6 +304,34 @@ export const ReportsPage: React.FC = () => {
       .filter(row => row.actual > 0 || row.planned > 0)
       .sort((a, b) => b.actual - a.actual);
 
+    const weeksInMonth = Math.ceil(new Date(year, month, 0).getDate() / 7);
+    const foodWeeklyMap = new Map<number, number>();
+    Array.from({ length: weeksInMonth }, (_, index) => index + 1).forEach(week => {
+      foodWeeklyMap.set(week, 0);
+    });
+
+    expenses
+      .filter(tx => normalizeKey(tx.categories?.name || categoryNameById.get(tx.category_id || '') || '') === 'alimentari')
+      .forEach(tx => {
+        const date = new Date(`${tx.transaction_date}T00:00:00`);
+        const week = Math.floor((date.getDate() - 1) / 7) + 1;
+        foodWeeklyMap.set(week, (foodWeeklyMap.get(week) || 0) + tx.amount);
+      });
+
+    const foodWeeklyRows: WeeklyFoodRow[] = Array.from(foodWeeklyMap.entries()).map(([week, amount]) => {
+      const startDay = ((week - 1) * 7) + 1;
+      const endDay = Math.min(week * 7, new Date(year, month, 0).getDate());
+      return {
+        week,
+        label: `${startDay}-${endDay} ${monthLabel}`,
+        amount,
+      };
+    });
+    const foodWeeklyAmounts = foodWeeklyRows.map(row => row.amount);
+    const foodTotal = sumAmounts(foodWeeklyRows, row => row.amount);
+    const foodAverage = foodWeeklyRows.length > 0 ? foodTotal / foodWeeklyRows.length : 0;
+    const foodMedian = median(foodWeeklyAmounts);
+
     const merchantMap = new Map<string, SummaryRow>();
     const accountMap = new Map<string, SummaryRow>();
     const insertedByMap = new Map<string, SummaryRow>();
@@ -328,8 +371,12 @@ export const ReportsPage: React.FC = () => {
       documentRows: sortedRows(documentMap),
       itemRows: sortedRows(itemMap),
       documentTotal: sumAmounts(documents, document => document.total_amount || 0),
+      foodWeeklyRows,
+      foodTotal,
+      foodAverage,
+      foodMedian,
     };
-  }, [budgetTargets, categoryNameById, documents, items, transactions]);
+  }, [budgetTargets, categoryNameById, documents, items, month, monthLabel, transactions, year]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');
@@ -373,6 +420,15 @@ export const ReportsPage: React.FC = () => {
     lines.push({ text: tableLine(['Esercente', 'Spesa', 'N.'], [34, 14, 4], [1, 2]), mono: true, bold: true });
     report.merchantRows.slice(0, 12).forEach(row => {
       lines.push({ text: tableLine([row.name, money(row.amount), String(row.count)], [34, 14, 4], [1, 2]), mono: true });
+    });
+
+    lines.push({ text: '', gapAfter: 4 });
+    lines.push({ text: 'Alimentari - media e mediana settimanale', size: 14, bold: true });
+    lines.push({ text: `Totale alimentari: ${money(report.foodTotal)}` });
+    lines.push({ text: `Media settimanale: ${money(report.foodAverage)}` });
+    lines.push({ text: `Mediana settimanale: ${money(report.foodMedian)}` });
+    report.foodWeeklyRows.forEach(row => {
+      lines.push({ text: `Settimana ${row.week} (${row.label}): ${money(row.amount)}` });
     });
 
     lines.push({ text: '', gapAfter: 4 });
@@ -473,6 +529,18 @@ export const ReportsPage: React.FC = () => {
             row.planned - row.actual,
             row.count,
           ]),
+        ],
+      },
+      {
+        name: 'Alimentari settimanale',
+        rows: [
+          ['Indicatore', 'Valore'],
+          ['Totale alimentari', report.foodTotal],
+          ['Media settimanale', report.foodAverage],
+          ['Mediana settimanale', report.foodMedian],
+          [],
+          ['Settimana', 'Periodo', 'Spesa'],
+          ...report.foodWeeklyRows.map(row => [row.week, row.label, row.amount]),
         ],
       },
       {
@@ -677,6 +745,38 @@ export const ReportsPage: React.FC = () => {
                     <b>{formatCurrency(row.amount, currency)}</b>
                   </div>
                 ))}
+              </div>
+            </Card>
+
+            <Card title="Alimentari: media e mediana settimanale">
+              <div className={styles.foodSummary}>
+                <div>
+                  <span>Totale</span>
+                  <strong>{formatCurrency(report.foodTotal, currency)}</strong>
+                </div>
+                <div>
+                  <span>Media settimanale</span>
+                  <strong>{formatCurrency(report.foodAverage, currency)}</strong>
+                </div>
+                <div>
+                  <span>Mediana settimanale</span>
+                  <strong>{formatCurrency(report.foodMedian, currency)}</strong>
+                </div>
+              </div>
+              <div className={styles.weeklyBars}>
+                {report.foodWeeklyRows.map(row => {
+                  const maxAmount = Math.max(...report.foodWeeklyRows.map(item => item.amount), 1);
+                  const width = Math.max((row.amount / maxAmount) * 100, row.amount > 0 ? 8 : 0);
+                  return (
+                    <div key={row.week} className={styles.weeklyRow}>
+                      <span>Sett. {row.week}</span>
+                      <div className={styles.weeklyBarTrack}>
+                        <div className={styles.weeklyBar} style={{ width: `${width}%` }} />
+                      </div>
+                      <strong>{formatCurrency(row.amount, currency)}</strong>
+                    </div>
+                  );
+                })}
               </div>
             </Card>
 
