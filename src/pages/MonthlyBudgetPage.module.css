@@ -17,6 +17,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: var(--space-3);
   margin-bottom: var(--space-4);
   background: var(--color-white);
   padding: var(--space-3);
@@ -51,9 +52,40 @@
   text-align: center;
 }
 
+.directSelectors {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.select {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
 .budgetTable {
   width: 100%;
   border-collapse: collapse;
+}
+
+.periodBanner {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-100);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+}
+
+.periodBanner strong {
+  color: var(--color-gray-900);
 }
 
 .budgetNotice {
@@ -72,6 +104,11 @@
 .warning {
   background: rgba(245, 158, 11, 0.12);
   color: var(--color-warning);
+}
+
+.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .budgetTable th {
@@ -155,6 +192,27 @@
 
 /* Mobile responsive card list */
 @media (max-width: 768px) {
+  .controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .monthSelector,
+  .directSelectors {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .directSelectors {
+    align-items: stretch;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .directSelectors button {
+    grid-column: 1 / -1;
+  }
+
   .budgetTable thead {
     display: none;
   }
