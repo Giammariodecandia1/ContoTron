@@ -19,6 +19,13 @@ type EditableReceiptItem = ReceiptItemResult & {
   amountText: string;
 };
 
+const totalConfidenceLabels: Record<string, string> = {
+  high: 'affidabilita alta',
+  medium: 'affidabilita media',
+  low: 'affidabilita bassa: controlla importo e totale prima di salvare',
+  none: 'non rilevato',
+};
+
 const MAX_SCAN_IMAGE_SIDE = 1800;
 const SCAN_JPEG_QUALITY = 0.86;
 
@@ -350,7 +357,7 @@ export const ScanReceiptPage: React.FC = () => {
       setDetectedSubcategoryId(matchedSubcategoryId);
       setReceiptItems(editableItems);
       setOcrHint([
-        totalResult.sourceLine ? `Totale letto da: "${totalResult.sourceLine}" (${totalResult.confidence})` : '',
+        totalResult.sourceLine ? `Totale letto da: "${totalResult.sourceLine}" - ${totalConfidenceLabels[totalResult.confidence]}` : '',
         suggestedCategoryName ? `Categoria suggerita: ${suggestedCategoryName}${detectedKeyword ? ` da "${detectedKeyword}"` : ''}` : '',
       ].filter(Boolean).join(' - ') || null);
 
