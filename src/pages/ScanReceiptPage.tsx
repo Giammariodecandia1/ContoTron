@@ -5,13 +5,14 @@ import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Camera, UploadCloud, Monitor, Smartphone, Crop as CropIcon } from 'lucide-react';
+import { Camera, UploadCloud, Monitor, Smartphone, Crop as CropIcon, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
-import { dataUrlToFile, uploadArchiveDocument } from '../lib/documentArchive';
+import { dataUrlToFile, deleteArchiveDocument, uploadArchiveDocument } from '../lib/documentArchive';
 import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
 import { classifyReceiptText, extractReceiptItems, extractReceiptTotal, normalizeSearchText, type ReceiptItemResult } from '../lib/receiptParsing';
+import type { Document } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
 
 type EditableReceiptItem = ReceiptItemResult & {
@@ -125,7 +126,9 @@ export const ScanReceiptPage: React.FC = () => {
   const [detectedCategoryId, setDetectedCategoryId] = useState<string>('');
   const [detectedSubcategoryId, setDetectedSubcategoryId] = useState<string>('');
   const [archivedDocumentId, setArchivedDocumentId] = useState<string>('');
+  const [archivedDocument, setArchivedDocument] = useState<Document | null>(null);
   const [archivedOnGoogleDrive, setArchivedOnGoogleDrive] = useState(false);
+  const [deletingArchivedDocument, setDeletingArchivedDocument] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [ocrHint, setOcrHint] = useState<string | null>(null);
   const [receiptItems, setReceiptItems] = useState<EditableReceiptItem[]>([]);
@@ -392,6 +395,7 @@ export const ScanReceiptPage: React.FC = () => {
           }]);
 
           setArchivedDocumentId(document.id);
+          setArchivedDocument(document);
           setArchivedOnGoogleDrive(document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:'));
         } catch (documentError) {
           setArchiveError(documentError instanceof Error ? documentError.message : 'Documento non archiviato');
@@ -416,7 +420,9 @@ export const ScanReceiptPage: React.FC = () => {
     setDetectedCategoryId('');
     setDetectedSubcategoryId('');
     setArchivedDocumentId('');
+    setArchivedDocument(null);
     setArchivedOnGoogleDrive(false);
+    setDeletingArchivedDocument(false);
     setArchiveError(null);
     setOcrHint(null);
     setReceiptItems([]);
@@ -463,6 +469,34 @@ export const ScanReceiptPage: React.FC = () => {
 
   const removeReceiptItem = (id: string) => {
     setReceiptItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleDeleteArchivedDocument = async () => {
+    if (!archivedDocument) {
+      setStatus('idle');
+      resetScanResult();
+      setImage(null);
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Vuoi eliminare lo scontrino archiviato e annullare questa scansione?\n\nNessuna transazione verra salvata.',
+    );
+    if (!confirmed) return;
+
+    setDeletingArchivedDocument(true);
+    setArchiveError(null);
+
+    try {
+      await deleteArchiveDocument(archivedDocument);
+      setImage(null);
+      setStatus('idle');
+      resetScanResult();
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Non riesco a eliminare lo scontrino archiviato.');
+    } finally {
+      setDeletingArchivedDocument(false);
+    }
   };
 
   const handleConfirm = () => {
@@ -739,6 +773,19 @@ export const ScanReceiptPage: React.FC = () => {
                <Button variant="secondary" className="w-full" onClick={() => setStatus('cropping')}>Ritaglia di nuovo</Button>
                <Button className="w-full" onClick={handleConfirm}>Procedi</Button>
             </div>
+            {archivedDocumentId && (
+              <div style={{ width: '100%', maxWidth: '400px', marginTop: '0.75rem' }}>
+                <Button
+                  variant="danger"
+                  className="w-full"
+                  icon={<Trash2 size={18} />}
+                  onClick={handleDeleteArchivedDocument}
+                  disabled={deletingArchivedDocument}
+                >
+                  {deletingArchivedDocument ? 'Eliminazione...' : 'Elimina scontrino e annulla'}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </Card>

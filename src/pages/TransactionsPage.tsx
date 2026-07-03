@@ -70,6 +70,11 @@ export const TransactionsPage: React.FC = () => {
                   <div className="text-muted fs-sm">
                     Caricata da account: {uploaderLabel(tx)}
                   </div>
+                  {tx.notes && (
+                    <div className={styles.transactionNote}>
+                      Nota: {tx.notes}
+                    </div>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                   <div style={{ color: tx.type === 'expense' ? 'red' : 'green', fontWeight: 'bold', fontSize: '1.1rem' }}>

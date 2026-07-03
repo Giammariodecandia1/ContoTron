@@ -14,6 +14,7 @@ interface TransactionFormState {
   subcategoryId?: string;
   merchant?: string;
   description?: string;
+  notes?: string;
   documentId?: string;
   items?: Array<{
     description: string;
@@ -39,6 +40,7 @@ export const NewTransactionPage: React.FC = () => {
   const [subcategoryId, setSubcategoryId] = useState(initialState.subcategoryId || '');
   const [merchant, setMerchant] = useState(initialState.merchant || '');
   const [description, setDescription] = useState(initialState.description || '');
+  const [notes, setNotes] = useState(initialState.notes || '');
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ export const NewTransactionPage: React.FC = () => {
       setSubcategoryId(data.subcategory_id || '');
       setMerchant(data.merchant || '');
       setDescription(data.description || '');
+      setNotes(data.notes || '');
       setAccountId(data.account_id || '');
       setEditLoading(false);
     };
@@ -109,7 +112,8 @@ export const NewTransactionPage: React.FC = () => {
       category_id: categoryId || null,
       subcategory_id: subcategoryId || null,
       merchant: merchant || null,
-      description
+      description,
+      notes: notes.trim() || null
     };
 
     const res = isEditMode && transactionId
@@ -218,6 +222,17 @@ export const NewTransactionPage: React.FC = () => {
             <div className={styles.formGroup}>
               <label>Descrizione</label>
               <input type="text" required className={styles.input} placeholder="es. Spesa settimanale..." value={description} onChange={e => setDescription(e.target.value)} />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Commento / promemoria</label>
+              <textarea
+                className={styles.textarea}
+                placeholder="es. Da ricordare, dettaglio non previsto, motivo della spesa..."
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={3}
+              />
             </div>
 
             <Button type="submit" size="lg" className="mt-4" disabled={loading}>

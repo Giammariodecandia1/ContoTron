@@ -67,6 +67,13 @@
   background-color: var(--color-gray-50);
 }
 
+.transactionNote {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  margin-top: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 640px) {
   .header {
     align-items: stretch;
