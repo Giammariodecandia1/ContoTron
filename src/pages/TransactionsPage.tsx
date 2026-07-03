@@ -5,6 +5,7 @@ import { ListPlus, Pencil, Plus } from 'lucide-react';
 import { useTransactions, useHousehold } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useNavigate } from 'react-router-dom';
+import { paymentMethodLabels } from '../lib/paymentTiming';
 import styles from './TransactionsPage.module.css';
 
 export const TransactionsPage: React.FC = () => {
@@ -70,6 +71,11 @@ export const TransactionsPage: React.FC = () => {
                   <div className="text-muted fs-sm">
                     Caricata da account: {uploaderLabel(tx)}
                   </div>
+                  {tx.payment_method === 'credit_card' && (
+                    <div className="text-muted fs-sm">
+                      {paymentMethodLabels.credit_card}: impatto disponibilita {new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
+                    </div>
+                  )}
                   {tx.notes && (
                     <div className={styles.transactionNote}>
                       Nota: {tx.notes}

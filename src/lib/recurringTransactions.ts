@@ -72,6 +72,8 @@ export const ensureMonthlyRecurringTransactions = async ({
       type: rule.type,
       status: 'confirmed',
       source: 'recurring_rule',
+      payment_method: 'standard',
+      cash_impact_date: dueDateForMonth(rule.start_date, year, month),
       transaction_date: dueDateForMonth(rule.start_date, year, month),
       description: rule.description,
       merchant: rule.merchant || null,

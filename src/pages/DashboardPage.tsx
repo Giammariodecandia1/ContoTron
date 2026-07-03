@@ -64,7 +64,7 @@ export const DashboardPage: React.FC = () => {
     setError(null);
 
     try {
-      const start = `${selectedYear}-01-01`;
+      const transactionStart = `${selectedYear - 1}-12-01`;
       const end = `${selectedYear}-12-31`;
 
       const [txResult, budgetResult, incomeResult] = await Promise.all([
@@ -72,7 +72,7 @@ export const DashboardPage: React.FC = () => {
           .from('transactions')
           .select('*, categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)')
           .eq('household_id', householdId)
-          .gte('transaction_date', start)
+          .gte('transaction_date', transactionStart)
           .lte('transaction_date', end)
           .neq('status', 'deleted')
           .order('transaction_date', { ascending: false }),
@@ -129,7 +129,8 @@ export const DashboardPage: React.FC = () => {
     const actualIncomes: Record<number, number> = {};
 
     transactions.forEach(tx => {
-      const txDate = new Date(`${tx.transaction_date}T00:00:00`);
+      const txDate = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
+      if (txDate.getFullYear() !== selectedYear) return;
       const month = txDate.getMonth() + 1;
       if (tx.type === 'expense') {
         actualExpenses[month] = (actualExpenses[month] || 0) + Number(tx.amount || 0);

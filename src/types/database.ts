@@ -26,6 +26,10 @@ export type TransactionSource =
   | 'excel_import'
   | 'recurring_rule';
 
+export type PaymentMethod =
+  | 'standard'
+  | 'credit_card';
+
 export type DocumentType = 
   | 'receipt'
   | 'bill'
@@ -133,6 +137,8 @@ export interface Transaction {
   type: TransactionType;
   status: TransactionStatus;
   source: TransactionSource;
+  payment_method?: PaymentMethod;
+  cash_impact_date?: string | null;
   transaction_date: string;
   description: string;
   merchant: string | null;

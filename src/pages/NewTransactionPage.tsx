@@ -5,6 +5,8 @@ import { ArrowLeft } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useHousehold, useTransactions } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
+import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
+import type { PaymentMethod } from '../types/database';
 import styles from './NewTransactionPage.module.css';
 
 interface TransactionFormState {
@@ -15,6 +17,7 @@ interface TransactionFormState {
   merchant?: string;
   description?: string;
   notes?: string;
+  paymentMethod?: PaymentMethod;
   documentId?: string;
   items?: Array<{
     description: string;
@@ -41,6 +44,7 @@ export const NewTransactionPage: React.FC = () => {
   const [merchant, setMerchant] = useState(initialState.merchant || '');
   const [description, setDescription] = useState(initialState.description || '');
   const [notes, setNotes] = useState(initialState.notes || '');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialState.paymentMethod || 'standard');
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +79,7 @@ export const NewTransactionPage: React.FC = () => {
       setMerchant(data.merchant || '');
       setDescription(data.description || '');
       setNotes(data.notes || '');
+      setPaymentMethod(data.payment_method || 'standard');
       setAccountId(data.account_id || '');
       setEditLoading(false);
     };
@@ -113,7 +118,9 @@ export const NewTransactionPage: React.FC = () => {
       subcategory_id: subcategoryId || null,
       merchant: merchant || null,
       description,
-      notes: notes.trim() || null
+      notes: notes.trim() || null,
+      payment_method: paymentMethod,
+      cash_impact_date: getCashImpactDate(date, paymentMethod)
     };
 
     const res = isEditMode && transactionId
@@ -182,6 +189,20 @@ export const NewTransactionPage: React.FC = () => {
             <div className={styles.formGroup}>
               <label>Data</label>
               <input type="date" required className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Tipologia pagamento</label>
+              <select className={styles.input} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)}>
+                {paymentMethodOptions.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              {paymentMethod === 'credit_card' && (
+                <small className={styles.helpText}>
+                  La spesa resta datata {date}, ma riduce la disponibilita dal {getCashImpactDate(date, paymentMethod)}.
+                </small>
+              )}
             </div>
 
             {accounts.length > 1 && (
