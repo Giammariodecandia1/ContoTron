@@ -5,7 +5,7 @@ import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
 export const navItems = [
-  { path: '/', label: 'Dashboard', icon: <Home size={20} /> },
+  { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/documenti', label: 'Documenti', icon: <FileText size={20} /> },

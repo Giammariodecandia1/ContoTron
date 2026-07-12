@@ -189,7 +189,8 @@ function App() {
       ) : (
         <AppLayout>
           <RouterRoutes>
-            <RouterRoute path="/" element={<DashboardPage />} />
+            <RouterRoute path="/" element={<RouterNavigate to="/transazioni/nuova" replace />} />
+            <RouterRoute path="/dashboard" element={<DashboardPage />} />
             <RouterRoute path="/transazioni" element={<TransactionsPage />} />
             <RouterRoute path="/transazioni/nuova" element={<NewTransactionPage />} />
             <RouterRoute path="/transazioni/:transactionId/modifica" element={<NewTransactionPage />} />
@@ -202,7 +203,7 @@ function App() {
             <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
             <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
             <RouterRoute path="/impostazioni/spese-fisse" element={<RecurringRulesPage />} />
-            <RouterRoute path="*" element={<RouterNavigate to="/" replace />} />
+            <RouterRoute path="*" element={<RouterNavigate to="/transazioni/nuova" replace />} />
           </RouterRoutes>
         </AppLayout>
       )}
