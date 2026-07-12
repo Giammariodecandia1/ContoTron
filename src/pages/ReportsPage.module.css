@@ -69,7 +69,7 @@
 .stats {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .statBox {
@@ -110,8 +110,39 @@
 }
 
 .grid > :first-child,
+.grid > :nth-child(2),
 .grid > :last-child {
   grid-column: 1 / -1;
+}
+
+.categoryRow {
+  cursor: pointer;
+}
+
+.categoryRow:hover {
+  background: var(--color-gray-50);
+}
+
+.categoryToggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-gray-900);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 800;
+  gap: var(--space-2);
+  padding: 0;
+}
+
+.subcategoryRow {
+  background: var(--color-gray-50);
+}
+
+.subcategoryRow td:first-child {
+  color: var(--color-gray-600);
+  padding-left: calc(var(--space-3) + 28px);
 }
 
 .tableWrap {
@@ -228,6 +259,9 @@
 .weeklyBars {
   display: grid;
   gap: var(--space-3);
+  max-height: 620px;
+  overflow-y: auto;
+  padding-right: var(--space-2);
 }
 
 .weeklyRow {
@@ -292,6 +326,7 @@
 
   .periodInfo,
   .grid > :first-child,
+  .grid > :nth-child(2),
   .grid > :last-child {
     grid-column: 1 / -1;
   }

@@ -200,6 +200,8 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     return () => {
       isMounted = false;
     };
+  // The initial session must be resolved only once; loadSessionUser reads the latest user through userRef.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loginAs = (profile: AppUser) => {
@@ -219,6 +221,8 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   );
 };
 
+// Context hooks intentionally live beside their provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {

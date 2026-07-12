@@ -4,6 +4,8 @@ import { useHousehold } from '../contexts/HouseholdContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { Transaction } from '../types/database';
 
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+
 export const useTransactions = () => {
   const { household } = useHousehold();
   const { user } = useAuth();
@@ -89,10 +91,10 @@ export const useTransactions = () => {
       const { data, error: fetchError } = await query;
 
       if (fetchError) throw fetchError;
-      return (data || []) as any; // Cast for now, need proper join types later
-    } catch (err: any) {
+      return (data || []) as Transaction[];
+    } catch (err: unknown) {
       console.error('Error fetching transactions:', err);
-      setError(err.message);
+      setError(errorMessage(err));
       return [];
     } finally {
       setLoading(false);
@@ -127,9 +129,9 @@ export const useTransactions = () => {
       await saveClassificationRule(transaction);
 
       return data;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error adding transaction:', err);
-      setError(err.message);
+      setError(errorMessage(err));
       return null;
     } finally {
       setLoading(false);
@@ -157,9 +159,9 @@ export const useTransactions = () => {
 
       await saveClassificationRule(transaction);
       return data;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error updating transaction:', err);
-      setError(err.message);
+      setError(errorMessage(err));
       return null;
     } finally {
       setLoading(false);
@@ -180,9 +182,9 @@ export const useTransactions = () => {
 
       if (deleteError) throw deleteError;
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error deleting transaction:', err);
-      setError(err.message);
+      setError(errorMessage(err));
       return false;
     } finally {
       setLoading(false);

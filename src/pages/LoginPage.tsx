@@ -27,17 +27,8 @@ export const LoginPage: React.FC = () => {
   };
 
   const getAuthRedirectUrl = () => {
-    const redirectUrl = new URL('/login', CANONICAL_APP_ORIGIN);
-    const currentParams = new URLSearchParams(window.location.search);
-
-    if (
-      currentParams.has('debugLoading')
-      || window.localStorage.getItem('contotron_debug_loading_enabled') === '1'
-    ) {
-      redirectUrl.searchParams.set('debugLoading', '1');
-    }
-
-    return redirectUrl.toString();
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    return new URL('/login', isLocal ? window.location.origin : CANONICAL_APP_ORIGIN).toString();
   };
 
   const handleLogin = async () => {
@@ -186,8 +177,9 @@ export const LoginPage: React.FC = () => {
         <form onSubmit={handleSubmit} className={styles.form}>
           {mode === 'register' && (
             <div className={styles.formGroup}>
-              <label>Nome</label>
+              <label htmlFor="registration-display-name">Nome</label>
               <input
+                id="registration-display-name"
                 type="text"
                 required
                 className={styles.input}
@@ -199,8 +191,9 @@ export const LoginPage: React.FC = () => {
           )}
 
           <div className={styles.formGroup}>
-            <label>Email</label>
+            <label htmlFor="account-email">Email</label>
             <input
+              id="account-email"
               type="email"
               required
               className={styles.input}
@@ -212,8 +205,9 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div className={styles.formGroup}>
-            <label>Password</label>
+            <label htmlFor="account-password">Password</label>
             <input
+              id="account-password"
               type="password"
               required
               minLength={6}

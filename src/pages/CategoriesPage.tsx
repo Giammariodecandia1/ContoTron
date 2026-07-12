@@ -6,7 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { spendingTypeOptions, getSpendingTypeLabel } from '../lib/spendingTypes';
-import type { SpendingType } from '../types/database';
+import { foodCharacteristicOptions, getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
+import type { FoodCharacteristic, SpendingType, TransactionType } from '../types/database';
 import styles from './CategoriesPage.module.css';
 
 type EditingValue = {
@@ -18,8 +19,10 @@ export const CategoriesPage: React.FC = () => {
   const navigate = useNavigate();
   const { household, categories, subcategories, refreshData } = useHousehold();
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
+  const [newCategoryType, setNewCategoryType] = useState<Extract<TransactionType, 'expense' | 'income'>>('expense');
   const [newSubcategoryMap, setNewSubcategoryMap] = useState<Record<string, string>>({});
   const [newSubcategoryTypeMap, setNewSubcategoryTypeMap] = useState<Record<string, SpendingType>>({});
+  const [newFoodCharacteristicMap, setNewFoodCharacteristicMap] = useState<Record<string, FoodCharacteristic>>({});
   const [editingCategory, setEditingCategory] = useState<EditingValue | null>(null);
   const [editingSubcategory, setEditingSubcategory] = useState<EditingValue | null>(null);
   const [loading, setLoading] = useState(false);
@@ -27,9 +30,9 @@ export const CategoriesPage: React.FC = () => {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const expenseCategories = categories
-    .filter(c => c.type === 'expense')
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const managedCategories = categories
+    .filter(category => category.type === 'expense' || category.type === 'income')
+    .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
 
   const toggleCategory = (id: string) => {
     setExpandedCategories(prev => ({ ...prev, [id]: !prev[id] }));
@@ -52,7 +55,7 @@ export const CategoriesPage: React.FC = () => {
         .insert([{
           household_id: household.id,
           name,
-          type: 'expense',
+          type: newCategoryType,
           sort_order: 100
         }])
         .select('id, name')
@@ -62,7 +65,7 @@ export const CategoriesPage: React.FC = () => {
 
       setNewExpenseCategory('');
       await refreshData();
-      setSaveMessage(`Categoria "${data?.name || name}" salvata nel database.`);
+      setSaveMessage(`Categoria ${newCategoryType === 'expense' ? 'di uscita' : 'di entrata'} "${data?.name || name}" salvata nel database.`);
     } catch (err) {
       console.error('Errore durante inserimento categoria:', err);
       setSaveError("Impossibile aggiungere la categoria. Assicurati che non esista gia'.");
@@ -135,6 +138,11 @@ export const CategoriesPage: React.FC = () => {
     const name = newSubcategoryMap[categoryId]?.trim();
     if (!name) return;
     const spendingType = newSubcategoryTypeMap[categoryId] || 'variable';
+    const category = categories.find(item => item.id === categoryId);
+    const isFoodCategory = category?.name.trim().toLowerCase() === 'alimentari';
+    const foodCharacteristic = isFoodCategory
+      ? newFoodCharacteristicMap[categoryId] || 'necessary'
+      : null;
 
     setLoading(true);
     setSaveMessage(null);
@@ -148,6 +156,7 @@ export const CategoriesPage: React.FC = () => {
           category_id: categoryId,
           name,
           spending_type: spendingType,
+          food_characteristic: foodCharacteristic,
           sort_order: 100
         }])
         .select('id, name')
@@ -157,6 +166,7 @@ export const CategoriesPage: React.FC = () => {
 
       setNewSubcategoryMap(prev => ({ ...prev, [categoryId]: '' }));
       setNewSubcategoryTypeMap(prev => ({ ...prev, [categoryId]: 'variable' }));
+      setNewFoodCharacteristicMap(prev => ({ ...prev, [categoryId]: 'necessary' }));
       setExpandedCategories(prev => ({ ...prev, [categoryId]: true }));
       await refreshData();
       setSaveMessage(`Sottocategoria "${data?.name || name}" salvata nel database.`);
@@ -251,6 +261,31 @@ export const CategoriesPage: React.FC = () => {
     }
   };
 
+  const handleUpdateFoodCharacteristic = async (id: string, foodCharacteristic: FoodCharacteristic) => {
+    if (!household) return;
+
+    setLoading(true);
+    setSaveMessage(null);
+    setSaveError(null);
+
+    try {
+      const { error } = await supabase
+        .from('subcategories')
+        .update({ food_characteristic: foodCharacteristic })
+        .eq('id', id)
+        .eq('household_id', household.id);
+
+      if (error) throw error;
+      await refreshData();
+      setSaveMessage(`Caratteristica alimentare aggiornata: ${getFoodCharacteristicLabel(foodCharacteristic)}.`);
+    } catch (err) {
+      console.error('Errore durante modifica caratteristica alimentare:', err);
+      setSaveError('Impossibile salvare la caratteristica alimentare.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -262,23 +297,24 @@ export const CategoriesPage: React.FC = () => {
             <h1 className={styles.title}>Gestione Categorie</h1>
             <p className="text-muted">Gestisci le categorie per le tue entrate e uscite.</p>
             <p className="text-muted fs-sm">
-              Salvate nel database: {expenseCategories.length} categorie e {subcategories.length} sottocategorie.
+              Salvate nel database: {managedCategories.length} categorie e {subcategories.length} sottocategorie.
             </p>
           </div>
         </div>
       </header>
 
       <div className={styles.grid}>
-        <Card title="Le tue Categorie">
+        <Card title="Categorie del nucleo">
           {saveMessage && <div className={`${styles.saveBanner} ${styles.success}`}>{saveMessage}</div>}
           {saveError && <div className={`${styles.saveBanner} ${styles.error}`}>{saveError}</div>}
 
           <div className={styles.categoryList}>
-            {expenseCategories.length === 0 ? (
+            {managedCategories.length === 0 ? (
               <div className="text-muted fs-sm text-center py-4">Nessuna categoria configurata</div>
             ) : (
-              expenseCategories.map(cat => {
+              managedCategories.map(cat => {
                 const isExpanded = expandedCategories[cat.id];
+                const isFoodCategory = cat.name.trim().toLowerCase() === 'alimentari';
                 const catSubcategories = subcategories
                   .filter(s => s.category_id === cat.id)
                   .sort((a, b) => a.name.localeCompare(b.name));
@@ -326,6 +362,7 @@ export const CategoriesPage: React.FC = () => {
                         ) : (
                           <>
                             <span>{cat.name}</span>
+                            <span className={styles.typeBadge}>{cat.type === 'expense' ? 'Uscita' : 'Entrata'}</span>
                             {catSubcategories.length > 0 && (
                               <span className={styles.badge}>{catSubcategories.length}</span>
                             )}
@@ -399,6 +436,7 @@ export const CategoriesPage: React.FC = () => {
                                 <div className={styles.subcategoryText}>
                                   <span>{sub.name}</span>
                                   <small>{getSpendingTypeLabel(sub.spending_type)}</small>
+                                  {isFoodCategory && <small>{getFoodCharacteristicLabel(sub.food_characteristic)}</small>}
                                 </div>
                               )}
                               <select
@@ -412,6 +450,19 @@ export const CategoriesPage: React.FC = () => {
                                   <option key={option.value} value={option.value}>{option.label}</option>
                                 ))}
                               </select>
+                              {isFoodCategory && (
+                                <select
+                                  className={styles.spendingTypeSelect}
+                                  value={sub.food_characteristic || 'necessary'}
+                                  onChange={event => handleUpdateFoodCharacteristic(sub.id, event.target.value as FoodCharacteristic)}
+                                  disabled={loading}
+                                  aria-label={`Caratteristica alimentare per ${sub.name}`}
+                                >
+                                  {foodCharacteristicOptions.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              )}
                               <div className={styles.rowActions}>
                                 <button
                                   className={styles.editBtnSmall}
@@ -452,6 +503,19 @@ export const CategoriesPage: React.FC = () => {
                               <option key={option.value} value={option.value}>{option.label}</option>
                             ))}
                           </select>
+                          {isFoodCategory && (
+                            <select
+                              className={styles.inputSmall}
+                              value={newFoodCharacteristicMap[cat.id] || 'necessary'}
+                              onChange={event => setNewFoodCharacteristicMap(prev => ({ ...prev, [cat.id]: event.target.value as FoodCharacteristic }))}
+                              disabled={loading}
+                              aria-label="Caratteristica alimentare nuova sottocategoria"
+                            >
+                              {foodCharacteristicOptions.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          )}
                           <Button
                             type="button"
                             size="sm"
@@ -470,6 +534,16 @@ export const CategoriesPage: React.FC = () => {
           </div>
 
           <form onSubmit={handleAddCategory} className={styles.addForm}>
+            <select
+              value={newCategoryType}
+              onChange={event => setNewCategoryType(event.target.value as Extract<TransactionType, 'expense' | 'income'>)}
+              className={styles.input}
+              disabled={loading}
+              aria-label="Tipo nuova categoria"
+            >
+              <option value="expense">Uscita</option>
+              <option value="income">Entrata</option>
+            </select>
             <input
               type="text"
               placeholder="Nuova categoria..."

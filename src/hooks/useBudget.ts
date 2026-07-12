@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabaseClient';
 import { useHousehold } from '../contexts/HouseholdContext';
 import type { BudgetTarget } from '../types/database';
 
+const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+
 export const useBudget = () => {
   const { household } = useHousehold();
   const householdId = household?.id || null;
@@ -71,9 +73,9 @@ export const useBudget = () => {
 
       // Se non ci sono nemmeno dati del mese scorso, ritorna array vuoto (sarà l'utente a compilare da zero la prima volta)
       return [];
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error fetching/prefilling budget targets:', err);
-      setError(err.message);
+      setError(errorMessage(err));
       return [];
     } finally {
       setLoading(false);
@@ -85,43 +87,50 @@ export const useBudget = () => {
     
     // Non settare loading a true qui, altrimenti l'UI scatta ad ogni tasto
     try {
-      // Usa upsert su household_id, year, month, category_id
-      const { data, error: upsertError } = await supabase
+      const { data: existingRows, error: lookupError } = await supabase
         .from('budget_targets')
-        .upsert({
+        .select('id')
+        .eq('household_id', householdId)
+        .eq('year', year)
+        .eq('month', month)
+        .eq('category_id', categoryId)
+        .is('subcategory_id', null)
+        .order('updated_at', { ascending: false })
+        .limit(1);
+
+      if (lookupError) throw lookupError;
+
+      const existingId = existingRows?.[0]?.id;
+      if (existingId) {
+        const { data, error: updateError } = await supabase
+          .from('budget_targets')
+          .update({ planned_amount: amount, updated_at: new Date().toISOString() })
+          .eq('id', existingId)
+          .eq('household_id', householdId)
+          .select()
+          .single();
+
+        if (updateError) throw updateError;
+        return data as BudgetTarget;
+      }
+
+      const { data, error: insertError } = await supabase
+        .from('budget_targets')
+        .insert({
           household_id: householdId,
           year,
           month,
           category_id: categoryId,
-          planned_amount: amount
-        }, { onConflict: 'household_id,year,month,category_id,subcategory_id' }) // supabase richiede i campi dell'indice unique
+          subcategory_id: null,
+          planned_amount: amount,
+        })
         .select()
         .single();
 
-      if (upsertError) throw upsertError;
+      if (insertError) throw insertError;
       return data as BudgetTarget;
-    } catch (err: any) {
-      console.error('Error upserting budget target:', err);
-      // Fallback manuale in caso onConflict dia problemi se subcategory_id è null e non fa match
-      try {
-        // Cerca se esiste
-        const { data: existing } = await supabase.from('budget_targets')
-          .select('id')
-          .eq('household_id', householdId).eq('year', year).eq('month', month).eq('category_id', categoryId)
-          .single();
-          
-        if (existing) {
-          const { data: updated } = await supabase.from('budget_targets')
-            .update({ planned_amount: amount }).eq('id', existing.id).select().single();
-          return updated;
-        } else {
-          const { data: inserted } = await supabase.from('budget_targets')
-            .insert({ household_id: householdId, year, month, category_id: categoryId, planned_amount: amount }).select().single();
-          return inserted;
-        }
-      } catch (fallbackErr) {
-        console.error("Fallback error", fallbackErr);
-      }
+    } catch (err: unknown) {
+      console.error('Error saving budget target:', err);
       return null;
     }
   };

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useMemo } from 'react';
 import Webcam from 'react-webcam';
 import Tesseract from 'tesseract.js';
 import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
@@ -11,7 +11,8 @@ import { useAuth, useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { dataUrlToFile, deleteArchiveDocument, uploadArchiveDocument } from '../lib/documentArchive';
 import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
-import { classifyReceiptText, extractReceiptItems, extractReceiptTotal, normalizeSearchText, type ReceiptItemResult } from '../lib/receiptParsing';
+import { classifyReceiptText, extractReceiptItems, extractReceiptTotal, normalizeSearchText, reconcileReceiptItems, type ReceiptItemResult } from '../lib/receiptParsing';
+import { findProductClassificationRule, loadProductClassificationRules } from '../lib/productLearning';
 import type { Document } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
 
@@ -333,10 +334,14 @@ export const ScanReceiptPage: React.FC = () => {
       }
 
       const extractedItems = extractReceiptItems(text, categoriesForItemMatching, subcategories);
+      const reconciliation = reconcileReceiptItems(extractedItems, totalResult.amount);
+      const productRules = household ? await loadProductClassificationRules(household.id) : [];
       const editableItems: EditableReceiptItem[] = [];
 
-      for (const item of extractedItems) {
-        let itemCategoryId = item.categoryId;
+      for (const item of reconciliation.items) {
+        const learnedRule = findProductClassificationRule(item.description, productRules);
+        let itemCategoryId = learnedRule?.category_id || item.categoryId;
+        const itemSubcategoryId = learnedRule?.subcategory_id || item.subcategoryId;
 
         if (!itemCategoryId && item.suggestedCategoryName) {
           const createdCategory = await ensureExpenseCategory(item.suggestedCategoryName);
@@ -349,6 +354,7 @@ export const ScanReceiptPage: React.FC = () => {
         editableItems.push({
           ...item,
           categoryId: itemCategoryId,
+          subcategoryId: itemSubcategoryId,
           amountText: item.amount.toFixed(2),
         });
       }
@@ -359,6 +365,9 @@ export const ScanReceiptPage: React.FC = () => {
       setOcrHint([
         totalResult.sourceLine ? `Totale letto da: "${totalResult.sourceLine}" - ${totalConfidenceLabels[totalResult.confidence]}` : '',
         suggestedCategoryName ? `Categoria suggerita: ${suggestedCategoryName}${detectedKeyword ? ` da "${detectedKeyword}"` : ''}` : '',
+        reconciliation.correctedDescriptions.length > 0
+          ? `Corretto possibile errore 9/0 su: ${reconciliation.correctedDescriptions.join(', ')}`
+          : '',
       ].filter(Boolean).join(' - ') || null);
 
       if (household && image) {
@@ -478,6 +487,18 @@ export const ScanReceiptPage: React.FC = () => {
     setReceiptItems(prev => prev.filter(item => item.id !== id));
   };
 
+  const receiptItemsTotal = useMemo(() => (
+    receiptItems.reduce((sum, item) => {
+      const value = Number(item.amountText.replace(',', '.'));
+      return sum + (Number.isFinite(value) ? value : 0);
+    }, 0)
+  ), [receiptItems]);
+
+  const receiptAmountNumber = Number(amount.replace(',', '.'));
+  const receiptDifference = Number.isFinite(receiptAmountNumber)
+    ? Number((receiptItemsTotal - receiptAmountNumber).toFixed(2))
+    : null;
+
   const handleDeleteArchivedDocument = async () => {
     if (!archivedDocument) {
       setStatus('idle');
@@ -515,6 +536,13 @@ export const ScanReceiptPage: React.FC = () => {
         subcategoryId: item.subcategoryId || '',
       }))
       .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0);
+
+    if (receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
+      const confirmed = window.confirm(
+        `La somma degli articoli (${receiptItemsTotal.toFixed(2)} EUR) differisce dal totale (${receiptAmountNumber.toFixed(2)} EUR) di ${receiptDifference.toFixed(2)} EUR. Vuoi procedere comunque?`,
+      );
+      if (!confirmed) return;
+    }
 
     navigate('/transazioni/nuova', { 
       state: { 
@@ -761,6 +789,17 @@ export const ScanReceiptPage: React.FC = () => {
                     </div>
                   );
                 })}
+                <div className={styles.reconciliationSummary}>
+                  <span>Somma articoli: <strong>{receiptItemsTotal.toFixed(2)} EUR</strong></span>
+                  <span>Totale scontrino: <strong>{Number.isFinite(receiptAmountNumber) ? receiptAmountNumber.toFixed(2) : '0.00'} EUR</strong></span>
+                  <span className={receiptDifference !== null && Math.abs(receiptDifference) > 0.05 ? styles.reconciliationWarning : styles.reconciliationOk}>
+                    {receiptDifference === null
+                      ? 'Totale non disponibile'
+                      : Math.abs(receiptDifference) <= 0.05
+                      ? 'Somma verificata'
+                      : `Differenza: ${receiptDifference.toFixed(2)} EUR`}
+                  </span>
+                </div>
               </div>
             )}
 

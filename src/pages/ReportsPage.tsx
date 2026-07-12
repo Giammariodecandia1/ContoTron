@@ -1,27 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BarChart3, Calendar, Download, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency } from '../lib/money';
 import { createTextPdf, type PdfLine } from '../lib/textPdf';
 import { createExcelWorkbook, type ExcelSheet } from '../lib/excelXml';
+import { getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
+import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
 import { useHousehold } from '../hooks';
 import styles from './ReportsPage.module.css';
 
 const monthLabels = [
-  'Gennaio',
-  'Febbraio',
-  'Marzo',
-  'Aprile',
-  'Maggio',
-  'Giugno',
-  'Luglio',
-  'Agosto',
-  'Settembre',
-  'Ottobre',
-  'Novembre',
-  'Dicembre',
+  'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
+  'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre',
 ];
 
 const documentTypeLabels: Record<string, string> = {
@@ -41,6 +33,7 @@ interface ReportTransaction {
   amount: number;
   type: string;
   status: string;
+  frequency?: string | null;
   category_id: string | null;
   subcategory_id: string | null;
   account_id: string | null;
@@ -62,20 +55,24 @@ interface ReportDocument {
 
 interface ReportBudgetTarget {
   id: string;
+  month: number;
   category_id: string | null;
   subcategory_id: string | null;
   planned_amount: number;
+}
+
+interface ReportIncomeTarget {
+  month: number;
+  planned_income: number;
 }
 
 interface ReportItem {
   id: string;
   description: string;
   amount: number;
-  transactions?: {
-    transaction_date?: string | null;
-    merchant?: string | null;
-    description?: string | null;
-  } | null;
+  category_id: string | null;
+  subcategory_id: string | null;
+  transactions?: { transaction_date?: string | null } | null;
 }
 
 interface SummaryRow {
@@ -84,12 +81,16 @@ interface SummaryRow {
   count: number;
 }
 
-interface CategoryReportRow {
+interface SubcategoryReportRow {
   id: string;
   name: string;
   planned: number;
   actual: number;
   count: number;
+}
+
+interface CategoryReportRow extends SubcategoryReportRow {
+  subcategories: SubcategoryReportRow[];
 }
 
 interface WeeklyFoodRow {
@@ -110,8 +111,25 @@ const getMonthRange = (year: number, month: number) => ({
   end: toIsoDate(new Date(year, month, 0)),
 });
 
+const getYearRange = (year: number) => ({
+  start: `${year}-01-01`,
+  end: `${year}-12-31`,
+});
+
+const normalizeKey = (value: string) => (
+  value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+);
+
+const getIsoWeek = (date: Date) => {
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.min(52, Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7));
+};
+
 const sumAmounts = <T,>(items: T[], getValue: (item: T) => number) => (
-  items.reduce((acc, item) => acc + getValue(item), 0)
+  items.reduce((sum, item) => sum + getValue(item), 0)
 );
 
 const addToSummary = (map: Map<string, SummaryRow>, name: string, amount: number) => {
@@ -134,14 +152,6 @@ const median = (values: number[]) => {
     ? (sorted[middle - 1] + sorted[middle]) / 2
     : sorted[middle];
 };
-
-const normalizeKey = (value: string) => (
-  value
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-);
 
 const compactText = (value: string, width: number) => {
   const clean = value.replace(/\s+/g, ' ').trim();
@@ -176,451 +186,342 @@ export const ReportsPage: React.FC = () => {
   const [transactions, setTransactions] = useState<ReportTransaction[]>([]);
   const [documents, setDocuments] = useState<ReportDocument[]>([]);
   const [budgetTargets, setBudgetTargets] = useState<ReportBudgetTarget[]>([]);
+  const [incomeTargets, setIncomeTargets] = useState<ReportIncomeTarget[]>([]);
   const [items, setItems] = useState<ReportItem[]>([]);
+  const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const currency = household?.currency || 'EUR';
   const monthLabel = monthLabels[month - 1];
-  const range = useMemo(() => getMonthRange(year, month), [month, year]);
+  const monthRange = useMemo(() => getMonthRange(year, month), [month, year]);
+  const yearRange = useMemo(() => getYearRange(year), [year]);
 
-  const categoryNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    categories.forEach(category => map.set(category.id, category.name));
-    return map;
-  }, [categories]);
-
-  const subcategoryNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    subcategories.forEach(subcategory => map.set(subcategory.id, subcategory.name));
-    return map;
-  }, [subcategories]);
+  const categoryNameById = useMemo(() => new Map(categories.map(category => [category.id, category.name])), [categories]);
+  const subcategoryById = useMemo(() => new Map(subcategories.map(subcategory => [subcategory.id, subcategory])), [subcategories]);
+  const foodCategoryIds = useMemo(() => new Set(
+    categories.filter(category => normalizeKey(category.name) === 'alimentari').map(category => category.id),
+  ), [categories]);
 
   const loadReportData = useCallback(async () => {
     if (!householdId) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const { data: txRows, error: txError } = await supabase
-        .from('transactions')
-        .select(`
-          *,
-          accounts!transactions_account_id_fkey(name),
-          categories(name),
-          subcategories(name),
-          inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)
-        `)
-        .eq('household_id', householdId)
-        .gte('transaction_date', range.start)
-        .lte('transaction_date', range.end)
-        .neq('status', 'deleted')
-        .order('transaction_date', { ascending: true });
+      const [txResult, docResult, budgetResult, incomeResult, itemResult] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select(`*, accounts!transactions_account_id_fkey(name), categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)`)
+          .eq('household_id', householdId)
+          .gte('transaction_date', yearRange.start)
+          .lte('transaction_date', yearRange.end)
+          .neq('status', 'deleted')
+          .order('transaction_date', { ascending: true }),
+        supabase
+          .from('documents')
+          .select('id, type, original_filename, vendor_name, document_date, total_amount')
+          .eq('household_id', householdId)
+          .gte('document_date', yearRange.start)
+          .lte('document_date', yearRange.end)
+          .order('document_date', { ascending: true }),
+        supabase
+          .from('budget_targets')
+          .select('id, month, category_id, subcategory_id, planned_amount')
+          .eq('household_id', householdId)
+          .eq('year', year),
+        supabase
+          .from('monthly_income_targets')
+          .select('month, planned_income')
+          .eq('household_id', householdId)
+          .eq('year', year),
+        supabase
+          .from('transaction_items')
+          .select('id, description, amount, category_id, subcategory_id, transactions!inner(transaction_date)')
+          .eq('household_id', householdId),
+      ]);
 
-      if (txError) throw txError;
+      if (txResult.error) throw txResult.error;
+      if (docResult.error) throw docResult.error;
+      if (budgetResult.error) throw budgetResult.error;
+      if (incomeResult.error) throw incomeResult.error;
+      if (itemResult.error) throw itemResult.error;
 
-      const { data: docRows, error: docError } = await supabase
-        .from('documents')
-        .select('id, type, original_filename, vendor_name, document_date, total_amount')
-        .eq('household_id', householdId)
-        .gte('document_date', range.start)
-        .lte('document_date', range.end)
-        .order('document_date', { ascending: true });
-
-      if (docError) throw docError;
-
-      const { data: budgetRows, error: budgetError } = await supabase
-        .from('budget_targets')
-        .select('id, category_id, subcategory_id, planned_amount')
-        .eq('household_id', householdId)
-        .eq('year', year)
-        .eq('month', month);
-
-      if (budgetError) throw budgetError;
-
-      const { data: itemRows, error: itemError } = await supabase
-        .from('transaction_items')
-        .select('id, description, amount, transactions!inner(transaction_date, merchant, description)')
-        .eq('household_id', householdId);
-
-      if (itemError) throw itemError;
-
-      const monthItems = ((itemRows || []) as ReportItem[]).filter(item => {
+      setTransactions((txResult.data || []) as ReportTransaction[]);
+      setDocuments((docResult.data || []) as ReportDocument[]);
+      setBudgetTargets((budgetResult.data || []) as ReportBudgetTarget[]);
+      setIncomeTargets((incomeResult.data || []) as ReportIncomeTarget[]);
+      setItems(((itemResult.data || []) as unknown as ReportItem[]).filter(item => {
         const date = item.transactions?.transaction_date || '';
-        return date >= range.start && date <= range.end;
-      });
-
-      setTransactions((txRows || []) as ReportTransaction[]);
-      setDocuments((docRows || []) as ReportDocument[]);
-      setBudgetTargets((budgetRows || []) as ReportBudgetTarget[]);
-      setItems(monthItems);
+        return date >= yearRange.start && date <= yearRange.end;
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante il caricamento del report');
     } finally {
       setLoading(false);
     }
-  }, [householdId, month, range.end, range.start, year]);
+  }, [householdId, year, yearRange.end, yearRange.start]);
 
   useEffect(() => {
-    loadReportData();
+    const timer = window.setTimeout(() => void loadReportData(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadReportData]);
 
   const report = useMemo(() => {
-    const validTransactions = transactions.filter(tx => tx.status !== 'rejected');
-    const expenses = validTransactions.filter(tx => tx.type === 'expense');
-    const incomes = validTransactions.filter(tx => tx.type === 'income');
-    const transfers = validTransactions.filter(tx => tx.type === 'transfer');
-    const totalExpense = sumAmounts(expenses, tx => tx.amount);
-    const totalIncome = sumAmounts(incomes, tx => tx.amount);
-    const net = totalIncome - totalExpense;
+    const annualValidTransactions = transactions.filter(tx => tx.status !== 'rejected');
+    const monthlyTransactions = annualValidTransactions.filter(tx => tx.transaction_date >= monthRange.start && tx.transaction_date <= monthRange.end);
+    const expenses = monthlyTransactions.filter(tx => tx.type === 'expense');
+    const incomes = monthlyTransactions.filter(tx => tx.type === 'income');
+    const monthlyBudgetTargets = budgetTargets.filter(target => target.month === month);
+    const monthlyDocuments = documents.filter(document => (
+      !!document.document_date && document.document_date >= monthRange.start && document.document_date <= monthRange.end
+    ));
+    const monthlyItems = items.filter(item => {
+      const date = item.transactions?.transaction_date || '';
+      return date >= monthRange.start && date <= monthRange.end;
+    });
 
-    const globalBudget = budgetTargets.find(target => !target.category_id && !target.subcategory_id)?.planned_amount || 0;
-    const categoryBudgetTotal = sumAmounts(
-      budgetTargets.filter(target => target.category_id),
-      target => target.planned_amount
-    );
-    const plannedBudget = globalBudget || categoryBudgetTotal;
+    const totalExpense = sumAmounts(expenses, tx => Number(tx.amount || 0));
+    const actualIncome = sumAmounts(incomes, tx => Number(tx.amount || 0));
+    const plannedIncome = Number(incomeTargets.find(target => target.month === month)?.planned_income || 0);
+    const availableDelta = plannedIncome - totalExpense;
 
-    const actualByCategory = new Map<string, CategoryReportRow>();
+    const globalBudget = monthlyBudgetTargets.find(target => !target.category_id && !target.subcategory_id)?.planned_amount || 0;
+    const categoryBudgetTotal = sumAmounts(monthlyBudgetTargets.filter(target => target.category_id), target => Number(target.planned_amount || 0));
+    const plannedBudget = Number(globalBudget || categoryBudgetTotal);
+
+    const categoryMap = new Map<string, CategoryReportRow>();
+    const ensureCategory = (id: string, name: string) => {
+      const current = categoryMap.get(id) || { id, name, planned: 0, actual: 0, count: 0, subcategories: [] };
+      categoryMap.set(id, current);
+      return current;
+    };
+
     expenses.forEach(tx => {
       const id = tx.category_id || 'uncategorized';
-      const name = tx.categories?.name || categoryNameById.get(id) || 'Non classificato';
-      const current = actualByCategory.get(id) || { id, name, planned: 0, actual: 0, count: 0 };
-      current.actual += tx.amount;
-      current.count += 1;
-      actualByCategory.set(id, current);
+      const category = ensureCategory(id, tx.categories?.name || categoryNameById.get(id) || 'Non classificato');
+      category.actual += Number(tx.amount || 0);
+      category.count += 1;
     });
 
-    budgetTargets.filter(target => target.category_id).forEach(target => {
+    monthlyBudgetTargets.filter(target => target.category_id).forEach(target => {
       const id = target.category_id || 'uncategorized';
-      const name = categoryNameById.get(id) || 'Non classificato';
-      const current = actualByCategory.get(id) || { id, name, planned: 0, actual: 0, count: 0 };
-      current.planned += target.planned_amount;
-      actualByCategory.set(id, current);
+      ensureCategory(id, categoryNameById.get(id) || 'Non classificato').planned += Number(target.planned_amount || 0);
     });
 
-    const categoryRows = Array.from(actualByCategory.values())
-      .filter(row => row.actual > 0 || row.planned > 0)
-      .sort((a, b) => b.actual - a.actual);
+    categoryMap.forEach(category => {
+      const subcategoryMap = new Map<string, SubcategoryReportRow>();
+      const ensureSubcategory = (id: string, name: string) => {
+        const current = subcategoryMap.get(id) || { id, name, planned: 0, actual: 0, count: 0 };
+        subcategoryMap.set(id, current);
+        return current;
+      };
 
-    const weeksInMonth = Math.ceil(new Date(year, month, 0).getDate() / 7);
-    const foodWeeklyMap = new Map<number, number>();
-    Array.from({ length: weeksInMonth }, (_, index) => index + 1).forEach(week => {
-      foodWeeklyMap.set(week, 0);
-    });
-
-    expenses
-      .filter(tx => normalizeKey(tx.categories?.name || categoryNameById.get(tx.category_id || '') || '') === 'alimentari')
-      .forEach(tx => {
-        const date = new Date(`${tx.transaction_date}T00:00:00`);
-        const week = Math.floor((date.getDate() - 1) / 7) + 1;
-        foodWeeklyMap.set(week, (foodWeeklyMap.get(week) || 0) + tx.amount);
+      expenses.filter(tx => (tx.category_id || 'uncategorized') === category.id).forEach(tx => {
+        const id = tx.subcategory_id || 'without-subcategory';
+        const name = tx.subcategories?.name || subcategoryById.get(id)?.name || 'Senza sottocategoria';
+        const subcategory = ensureSubcategory(id, name);
+        subcategory.actual += Number(tx.amount || 0);
+        subcategory.count += 1;
       });
 
-    const foodWeeklyRows: WeeklyFoodRow[] = Array.from(foodWeeklyMap.entries()).map(([week, amount]) => {
-      const startDay = ((week - 1) * 7) + 1;
-      const endDay = Math.min(week * 7, new Date(year, month, 0).getDate());
-      return {
-        week,
-        label: `${startDay}-${endDay} ${monthLabel}`,
-        amount,
-      };
-    });
-    const foodWeeklyAmounts = foodWeeklyRows.map(row => row.amount);
-    const foodTotal = sumAmounts(foodWeeklyRows, row => row.amount);
-    const foodAverage = foodWeeklyRows.length > 0 ? foodTotal / foodWeeklyRows.length : 0;
-    const foodMedian = median(foodWeeklyAmounts);
+      monthlyBudgetTargets
+        .filter(target => target.category_id === category.id && target.subcategory_id)
+        .forEach(target => {
+          const id = target.subcategory_id || 'without-subcategory';
+          ensureSubcategory(id, subcategoryById.get(id)?.name || 'Senza sottocategoria').planned += Number(target.planned_amount || 0);
+        });
 
-    const merchantMap = new Map<string, SummaryRow>();
+      category.subcategories = Array.from(subcategoryMap.values())
+        .filter(row => row.actual > 0 || row.planned > 0)
+        .sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name));
+    });
+
+    const categoryRows = Array.from(categoryMap.values())
+      .filter(row => row.actual > 0 || row.planned > 0)
+      .sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name));
+
+    const annualFoodExpenses = annualValidTransactions.filter(tx => tx.type === 'expense' && foodCategoryIds.has(tx.category_id || ''));
+    const weeklyAmounts = Array.from({ length: 52 }, () => 0);
+    annualFoodExpenses.forEach(tx => {
+      const date = new Date(`${tx.transaction_date}T00:00:00`);
+      const week = getIsoWeek(date);
+      weeklyAmounts[week - 1] += Number(tx.amount || 0);
+    });
+    const foodWeeklyRows: WeeklyFoodRow[] = weeklyAmounts.map((amount, index) => ({
+      week: index + 1,
+      label: `Settimana ${index + 1}`,
+      amount,
+    }));
+    const foodTotal = sumAmounts(foodWeeklyRows, row => row.amount);
+    const foodAverage = foodTotal / 52;
+    const foodMedian = median(weeklyAmounts);
+
     const accountMap = new Map<string, SummaryRow>();
     const insertedByMap = new Map<string, SummaryRow>();
     const documentMap = new Map<string, SummaryRow>();
-    const itemMap = new Map<string, SummaryRow>();
+    const frequencyMap = new Map<string, SummaryRow>();
+    const foodCharacteristicMap = new Map<string, SummaryRow>();
 
     expenses.forEach(tx => {
-      addToSummary(merchantMap, tx.merchant || tx.description || 'Senza esercente', tx.amount);
-      addToSummary(accountMap, tx.accounts?.name || 'Senza conto', tx.amount);
-      addToSummary(insertedByMap, tx.inserted_by_profile?.display_name || 'Sconosciuto', tx.amount);
+      addToSummary(accountMap, tx.accounts?.name || 'Senza conto', Number(tx.amount || 0));
+      addToSummary(insertedByMap, tx.inserted_by_profile?.display_name || 'Sconosciuto', Number(tx.amount || 0));
+      addToSummary(frequencyMap, getTransactionFrequencyLabel(tx.frequency), Number(tx.amount || 0));
+    });
+    monthlyDocuments.forEach(document => {
+      addToSummary(documentMap, documentTypeLabels[document.type] || document.type, Number(document.total_amount || 0));
     });
 
-    documents.forEach(document => {
-      addToSummary(documentMap, documentTypeLabels[document.type] || document.type, document.total_amount || 0);
-    });
+    monthlyItems
+      .filter(item => foodCategoryIds.has(item.category_id || ''))
+      .forEach(item => {
+        const characteristic = subcategoryById.get(item.subcategory_id || '')?.food_characteristic;
+        addToSummary(foodCharacteristicMap, getFoodCharacteristicLabel(characteristic), Number(item.amount || 0));
+      });
 
-    items.forEach(item => {
-      const key = normalizeKey(item.description);
-      const displayName = key || 'Articolo senza nome';
-      addToSummary(itemMap, displayName, item.amount);
-    });
+    if (foodCharacteristicMap.size === 0) {
+      expenses.filter(tx => foodCategoryIds.has(tx.category_id || '')).forEach(tx => {
+        const characteristic = subcategoryById.get(tx.subcategory_id || '')?.food_characteristic;
+        addToSummary(foodCharacteristicMap, getFoodCharacteristicLabel(characteristic), Number(tx.amount || 0));
+      });
+    }
 
     return {
-      validTransactions,
       expenses,
       incomes,
-      transfers,
       totalExpense,
-      totalIncome,
-      net,
+      actualIncome,
+      plannedIncome,
+      availableDelta,
       plannedBudget,
       budgetRemaining: plannedBudget - totalExpense,
       categoryRows,
-      merchantRows: sortedRows(merchantMap),
       accountRows: sortedRows(accountMap),
       insertedByRows: sortedRows(insertedByMap),
       documentRows: sortedRows(documentMap),
-      itemRows: sortedRows(itemMap),
-      documentTotal: sumAmounts(documents, document => document.total_amount || 0),
+      frequencyRows: sortedRows(frequencyMap),
+      foodCharacteristicRows: sortedRows(foodCharacteristicMap),
       foodWeeklyRows,
       foodTotal,
       foodAverage,
       foodMedian,
+      monthlyDocuments,
     };
-  }, [budgetTargets, categoryNameById, documents, items, month, monthLabel, transactions, year]);
+  }, [budgetTargets, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategoryById, transactions]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');
-    const generatedAt = new Date().toLocaleString('it-IT');
     const lines: PdfLine[] = [
       { text: 'Contotron - Report mensile', size: 18, bold: true, gapAfter: 4 },
       { text: `${monthLabel} ${year} - ${household?.name || 'Famiglia'}`, size: 12, bold: true },
-      { text: `Periodo: ${range.start} / ${range.end}` },
-      { text: `Generato il: ${generatedAt}`, gapAfter: 10 },
+      { text: `Periodo: ${monthRange.start} / ${monthRange.end}` },
+      { text: `Generato il: ${new Date().toLocaleString('it-IT')}`, gapAfter: 10 },
       { text: 'Riepilogo generale', size: 14, bold: true },
+      { text: `Entrata prevista dal budget annuale: ${money(report.plannedIncome)}` },
+      { text: `Entrate effettive registrate: ${money(report.actualIncome)}` },
       { text: `Spese totali: ${money(report.totalExpense)}` },
-      { text: `Entrate totali: ${money(report.totalIncome)}` },
-      { text: `Saldo mese: ${money(report.net)}` },
-      { text: `Budget previsto: ${money(report.plannedBudget)}` },
-      { text: `Differenza budget/spese: ${money(report.budgetRemaining)}` },
-      { text: `Transazioni: ${report.validTransactions.length} (${report.expenses.length} spese, ${report.incomes.length} entrate, ${report.transfers.length} trasferimenti)` },
-      { text: `Documenti archiviati nel mese: ${documents.length}`, gapAfter: 10 },
-      { text: 'Spese per categoria', size: 14, bold: true },
-      { text: tableLine(['Categoria', 'Previsto', 'Speso', 'Diff.', 'N.'], [24, 12, 12, 12, 4], [1, 2, 3, 4]), mono: true, bold: true },
+      { text: `Delta entrata disponibile/spese: ${money(report.availableDelta)}` },
+      { text: `Budget di spesa previsto: ${money(report.plannedBudget)}` },
+      { text: `Residuo budget di spesa: ${money(report.budgetRemaining)}`, gapAfter: 10 },
+      { text: 'Categorie e sottocategorie', size: 14, bold: true },
+      { text: tableLine(['Voce', 'Previsto', 'Speso', 'Diff.'], [32, 13, 13, 13], [1, 2, 3]), mono: true, bold: true },
     ];
 
-    if (report.categoryRows.length === 0) {
-      lines.push({ text: 'Nessuna spesa categorizzata nel periodo.' });
-    } else {
-      report.categoryRows.forEach(row => {
-        lines.push({
-          text: tableLine([
-            row.name,
-            money(row.planned),
-            money(row.actual),
-            money(row.planned - row.actual),
-            String(row.count),
-          ], [24, 12, 12, 12, 4], [1, 2, 3, 4]),
-          mono: true,
-        });
-      });
-    }
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Da dove viene la spesa maggiore', size: 14, bold: true });
-    lines.push({ text: tableLine(['Esercente', 'Spesa', 'N.'], [34, 14, 4], [1, 2]), mono: true, bold: true });
-    report.merchantRows.slice(0, 12).forEach(row => {
-      lines.push({ text: tableLine([row.name, money(row.amount), String(row.count)], [34, 14, 4], [1, 2]), mono: true });
-    });
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Alimentari - media e mediana settimanale', size: 14, bold: true });
-    lines.push({ text: `Totale alimentari: ${money(report.foodTotal)}` });
-    lines.push({ text: `Media settimanale: ${money(report.foodAverage)}` });
-    lines.push({ text: `Mediana settimanale: ${money(report.foodMedian)}` });
-    report.foodWeeklyRows.forEach(row => {
-      lines.push({ text: `Settimana ${row.week} (${row.label}): ${money(row.amount)}` });
-    });
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Spese per conto e per persona', size: 14, bold: true });
-    lines.push({ text: tableLine(['Conto', 'Spesa', 'N.'], [30, 14, 4], [1, 2]), mono: true, bold: true });
-    report.accountRows.forEach(row => {
-      lines.push({ text: tableLine([row.name, money(row.amount), String(row.count)], [30, 14, 4], [1, 2]), mono: true });
-    });
-    lines.push({ text: tableLine(['Inserita da', 'Spesa', 'N.'], [30, 14, 4], [1, 2]), mono: true, bold: true });
-    report.insertedByRows.forEach(row => {
-      lines.push({ text: tableLine([row.name, money(row.amount), String(row.count)], [30, 14, 4], [1, 2]), mono: true });
-    });
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Documenti del mese', size: 14, bold: true });
-    if (report.documentRows.length === 0) {
-      lines.push({ text: 'Nessun documento archiviato nel periodo.' });
-    } else {
-      report.documentRows.forEach(row => {
-        lines.push({ text: `${row.name}: ${row.count} documenti - totale indicato ${money(row.amount)}` });
-      });
-    }
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Articoli piu presenti nelle righe scontrino', size: 14, bold: true });
-    if (report.itemRows.length === 0) {
-      lines.push({ text: 'Nessuna riga articolo salvata nel periodo.' });
-    } else {
-      report.itemRows.slice(0, 12).forEach(row => {
-        lines.push({ text: tableLine([row.name, money(row.amount), String(row.count)], [34, 14, 4], [1, 2]), mono: true });
-      });
-    }
-
-    lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: 'Dettaglio transazioni', size: 14, bold: true });
-    lines.push({ text: tableLine(['Data', 'Descrizione', 'Cat.', 'Importo'], [10, 28, 18, 12], [3]), mono: true, bold: true });
-    report.validTransactions.forEach(tx => {
-      const categoryName = tx.categories?.name || (tx.category_id ? categoryNameById.get(tx.category_id) : null) || 'Non class.';
-      const subcategoryName = tx.subcategory_id ? subcategoryNameById.get(tx.subcategory_id) : null;
-      const signedAmount = tx.type === 'expense' ? -tx.amount : tx.amount;
-      lines.push({
-        text: tableLine([
-          tx.transaction_date,
-          tx.merchant || tx.description,
-          subcategoryName ? `${categoryName}/${subcategoryName}` : categoryName,
-          money(signedAmount),
-        ], [10, 28, 18, 12], [3]),
-        mono: true,
+    report.categoryRows.forEach(category => {
+      lines.push({ text: tableLine([category.name, money(category.planned), money(category.actual), money(category.planned - category.actual)], [32, 13, 13, 13], [1, 2, 3]), mono: true, bold: true });
+      category.subcategories.forEach(subcategory => {
+        lines.push({ text: tableLine([`  ${subcategory.name}`, money(subcategory.planned), money(subcategory.actual), money(subcategory.planned - subcategory.actual)], [32, 13, 13, 13], [1, 2, 3]), mono: true });
       });
     });
+
+    lines.push({ text: '', gapAfter: 4 });
+    lines.push({ text: `Alimentari ${year} - settimane 1-52`, size: 14, bold: true });
+    lines.push({ text: `Totale: ${money(report.foodTotal)} - Media settimanale: ${money(report.foodAverage)} - Mediana: ${money(report.foodMedian)}` });
+    report.foodWeeklyRows.forEach(row => lines.push({ text: `Settimana ${row.week}: ${money(row.amount)}` }));
+
+    lines.push({ text: '', gapAfter: 4 });
+    lines.push({ text: 'Frequenza delle spese', size: 14, bold: true });
+    report.frequencyRows.forEach(row => lines.push({ text: `${row.name}: ${money(row.amount)} (${row.count})` }));
+    lines.push({ text: 'Caratteristiche spesa alimentare', size: 14, bold: true });
+    report.foodCharacteristicRows.forEach(row => lines.push({ text: `${row.name}: ${money(row.amount)} (${row.count})` }));
 
     return lines;
   };
 
+  const buildExcelSheets = (): ExcelSheet[] => [
+    {
+      name: 'Riepilogo',
+      rows: [
+        ['Campo', 'Valore'],
+        ['Famiglia', household?.name || 'Famiglia'],
+        ['Mese', `${monthLabel} ${year}`],
+        ['Entrata prevista', report.plannedIncome],
+        ['Entrate effettive', report.actualIncome],
+        ['Spese totali', report.totalExpense],
+        ['Delta disponibile', report.availableDelta],
+        ['Budget di spesa', report.plannedBudget],
+        ['Residuo budget', report.budgetRemaining],
+      ],
+    },
+    {
+      name: 'Categorie',
+      rows: [
+        ['Categoria', 'Sottocategoria', 'Previsto', 'Speso', 'Differenza', 'Movimenti'],
+        ...report.categoryRows.flatMap(category => [
+          [category.name, '', category.planned, category.actual, category.planned - category.actual, category.count],
+          ...category.subcategories.map(subcategory => [category.name, subcategory.name, subcategory.planned, subcategory.actual, subcategory.planned - subcategory.actual, subcategory.count]),
+        ]),
+      ],
+    },
+    {
+      name: 'Alimentari settimane 1-52',
+      rows: [
+        ['Indicatore', 'Valore'],
+        ['Totale alimentari', report.foodTotal],
+        ['Media settimanale', report.foodAverage],
+        ['Mediana settimanale', report.foodMedian],
+        [],
+        ['Settimana', 'Spesa'],
+        ...report.foodWeeklyRows.map(row => [row.week, row.amount]),
+      ],
+    },
+    {
+      name: 'Frequenze',
+      rows: [['Frequenza', 'Spesa', 'Movimenti'], ...report.frequencyRows.map(row => [row.name, row.amount, row.count])],
+    },
+    {
+      name: 'Caratteristiche alimentari',
+      rows: [['Caratteristica', 'Spesa', 'Movimenti'], ...report.foodCharacteristicRows.map(row => [row.name, row.amount, row.count])],
+    },
+    {
+      name: 'Persone e conti',
+      rows: [
+        ['Tipo', 'Nome', 'Spesa', 'Movimenti'],
+        ...report.insertedByRows.map(row => ['Persona', row.name, row.amount, row.count]),
+        ...report.accountRows.map(row => ['Conto', row.name, row.amount, row.count]),
+      ],
+    },
+    {
+      name: 'Documenti',
+      rows: [
+        ['Data', 'Tipo', 'Fornitore', 'Nome file', 'Totale indicato'],
+        ...report.monthlyDocuments.map(document => [
+          document.document_date || '',
+          documentTypeLabels[document.type] || document.type,
+          document.vendor_name || '',
+          document.original_filename,
+          document.total_amount || 0,
+        ]),
+      ],
+    },
+  ];
+
   const handleDownloadPdf = () => {
-    const filename = `contotron-report-${year}-${String(month).padStart(2, '0')}.pdf`;
-    downloadBlob(createTextPdf(buildPdfLines()), filename);
-  };
-
-  const buildExcelSheets = (): ExcelSheet[] => {
-    const signedAmount = (tx: ReportTransaction) => (tx.type === 'expense' ? -tx.amount : tx.amount);
-    const categoryLabel = (tx: ReportTransaction) => (
-      tx.categories?.name || (tx.category_id ? categoryNameById.get(tx.category_id) : null) || 'Non classificato'
-    );
-    const subcategoryLabel = (tx: ReportTransaction) => (
-      tx.subcategories?.name || (tx.subcategory_id ? subcategoryNameById.get(tx.subcategory_id) : null) || ''
-    );
-
-    return [
-      {
-        name: 'Riepilogo',
-        rows: [
-          ['Campo', 'Valore'],
-          ['Famiglia', household?.name || 'Famiglia'],
-          ['Mese', `${monthLabel} ${year}`],
-          ['Periodo inizio', range.start],
-          ['Periodo fine', range.end],
-          ['Spese totali', report.totalExpense],
-          ['Entrate totali', report.totalIncome],
-          ['Saldo mese', report.net],
-          ['Budget previsto', report.plannedBudget],
-          ['Budget residuo', report.budgetRemaining],
-          ['Numero transazioni', report.validTransactions.length],
-          ['Numero spese', report.expenses.length],
-          ['Numero entrate', report.incomes.length],
-          ['Numero trasferimenti', report.transfers.length],
-          ['Documenti archiviati', documents.length],
-        ],
-      },
-      {
-        name: 'Categorie',
-        rows: [
-          ['Categoria', 'Budget previsto', 'Speso', 'Differenza', 'Movimenti'],
-          ...report.categoryRows.map(row => [
-            row.name,
-            row.planned,
-            row.actual,
-            row.planned - row.actual,
-            row.count,
-          ]),
-        ],
-      },
-      {
-        name: 'Alimentari settimanale',
-        rows: [
-          ['Indicatore', 'Valore'],
-          ['Totale alimentari', report.foodTotal],
-          ['Media settimanale', report.foodAverage],
-          ['Mediana settimanale', report.foodMedian],
-          [],
-          ['Settimana', 'Periodo', 'Spesa'],
-          ...report.foodWeeklyRows.map(row => [row.week, row.label, row.amount]),
-        ],
-      },
-      {
-        name: 'Esercenti',
-        rows: [
-          ['Esercente o fornitore', 'Spesa', 'Movimenti'],
-          ...report.merchantRows.map(row => [row.name, row.amount, row.count]),
-        ],
-      },
-      {
-        name: 'Persone',
-        rows: [
-          ['Inserita da', 'Spesa', 'Movimenti'],
-          ...report.insertedByRows.map(row => [row.name, row.amount, row.count]),
-        ],
-      },
-      {
-        name: 'Conti',
-        rows: [
-          ['Conto', 'Spesa', 'Movimenti'],
-          ...report.accountRows.map(row => [row.name, row.amount, row.count]),
-        ],
-      },
-      {
-        name: 'Documenti',
-        rows: [
-          ['Data', 'Tipo', 'Fornitore', 'Nome file', 'Totale indicato'],
-          ...documents.map(document => [
-            document.document_date || '',
-            documentTypeLabels[document.type] || document.type,
-            document.vendor_name || '',
-            document.original_filename,
-            document.total_amount || 0,
-          ]),
-        ],
-      },
-      {
-        name: 'Transazioni',
-        rows: [
-          ['Data', 'Tipo', 'Descrizione', 'Esercente', 'Categoria', 'Sottocategoria', 'Conto', 'Inserita da', 'Importo', 'Stato'],
-          ...report.validTransactions.map(tx => [
-            tx.transaction_date,
-            tx.type,
-            tx.description,
-            tx.merchant || '',
-            categoryLabel(tx),
-            subcategoryLabel(tx),
-            tx.accounts?.name || '',
-            tx.inserted_by_profile?.display_name || 'Sconosciuto',
-            signedAmount(tx),
-            tx.status,
-          ]),
-        ],
-      },
-      {
-        name: 'Articoli',
-        rows: [
-          ['Articolo', 'Spesa', 'Movimenti'],
-          ...report.itemRows.map(row => [row.name, row.amount, row.count]),
-        ],
-      },
-      {
-        name: 'Righe scontrino',
-        rows: [
-          ['Data', 'Esercente', 'Descrizione transazione', 'Articolo', 'Importo'],
-          ...items.map(item => [
-            item.transactions?.transaction_date || '',
-            item.transactions?.merchant || '',
-            item.transactions?.description || '',
-            item.description,
-            item.amount,
-          ]),
-        ],
-      },
-    ];
+    downloadBlob(createTextPdf(buildPdfLines()), `contotron-report-${year}-${String(month).padStart(2, '0')}.pdf`);
   };
 
   const handleDownloadExcel = () => {
-    const filename = `contotron-report-${year}-${String(month).padStart(2, '0')}.xls`;
-    downloadBlob(createExcelWorkbook(buildExcelSheets()), filename);
+    downloadBlob(createExcelWorkbook(buildExcelSheets()), `contotron-report-${year}-${String(month).padStart(2, '0')}.xls`);
   };
 
   const yearOptions = Array.from({ length: 8 }, (_, index) => today.getFullYear() - index);
@@ -630,213 +531,98 @@ export const ReportsPage: React.FC = () => {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Report Mensile</h1>
-          <p className="text-muted">Genera un PDF o un file Excel di fine mese con spese, budget, categorie, documenti e dati principali.</p>
+          <p className="text-muted">Riepilogo essenziale del mese e analisi annuale delle spese alimentari.</p>
         </div>
         <div className={styles.headerActions}>
-          <Button icon={<Download size={16} />} onClick={handleDownloadPdf} disabled={loading}>
-            Genera PDF
-          </Button>
-          <Button variant="secondary" icon={<FileSpreadsheet size={16} />} onClick={handleDownloadExcel} disabled={loading}>
-            Genera Excel
-          </Button>
+          <Button icon={<Download size={16} />} onClick={handleDownloadPdf} disabled={loading}>Genera PDF</Button>
+          <Button variant="secondary" icon={<FileSpreadsheet size={16} />} onClick={handleDownloadExcel} disabled={loading}>Genera Excel</Button>
         </div>
       </header>
 
-      <Card
-        title="Periodo report"
-        icon={<Calendar size={20} />}
-        action={<Button size="sm" variant="secondary" icon={<RefreshCw size={16} />} onClick={loadReportData} disabled={loading}>Aggiorna</Button>}
-      >
+      <Card title="Periodo report" icon={<Calendar size={20} />} action={<Button size="sm" variant="secondary" icon={<RefreshCw size={16} />} onClick={loadReportData} disabled={loading}>Aggiorna</Button>}>
         <div className={styles.controls}>
-          <label>
-            Mese
-            <select className={styles.select} value={month} onChange={event => setMonth(Number(event.target.value))}>
-              {monthLabels.map((label, index) => (
-                <option key={label} value={index + 1}>{label}</option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Anno
-            <select className={styles.select} value={year} onChange={event => setYear(Number(event.target.value))}>
-              {yearOptions.map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-
-          <div className={styles.periodInfo}>
-            <span>Periodo</span>
-            <strong>{range.start} / {range.end}</strong>
-          </div>
+          <label>Mese<select className={styles.select} value={month} onChange={event => setMonth(Number(event.target.value))}>{monthLabels.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label>
+          <label>Anno<select className={styles.select} value={year} onChange={event => setYear(Number(event.target.value))}>{yearOptions.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+          <div className={styles.periodInfo}><span>Periodo</span><strong>{monthRange.start} / {monthRange.end}</strong></div>
         </div>
       </Card>
 
       {error && <div className={styles.errorBox}>{error}</div>}
 
-      {loading ? (
-        <Card>
-          <div className={styles.loading}>Caricamento report...</div>
-        </Card>
-      ) : (
+      {loading ? <Card><div className={styles.loading}>Caricamento report...</div></Card> : (
         <>
           <div className={styles.stats}>
-            <div className={styles.statBox}>
-              <span>Spese mese</span>
-              <strong className={styles.expense}>{formatCurrency(report.totalExpense, currency)}</strong>
-            </div>
-            <div className={styles.statBox}>
-              <span>Entrate mese</span>
-              <strong className={styles.income}>{formatCurrency(report.totalIncome, currency)}</strong>
-            </div>
-            <div className={styles.statBox}>
-              <span>Budget residuo</span>
-              <strong className={report.budgetRemaining < 0 ? styles.expense : styles.income}>
-                {formatCurrency(report.budgetRemaining, currency)}
-              </strong>
-            </div>
-            <div className={styles.statBox}>
-              <span>Documenti</span>
-              <strong>{documents.length}</strong>
-            </div>
+            <div className={styles.statBox}><span>Entrata prevista</span><strong className={styles.income}>{formatCurrency(report.plannedIncome, currency)}</strong></div>
+            <div className={styles.statBox}><span>Entrate effettive</span><strong className={styles.income}>{formatCurrency(report.actualIncome, currency)}</strong></div>
+            <div className={styles.statBox}><span>Spese mese</span><strong className={styles.expense}>{formatCurrency(report.totalExpense, currency)}</strong></div>
+            <div className={styles.statBox}><span>Delta disponibile</span><strong className={report.availableDelta < 0 ? styles.expense : styles.income}>{formatCurrency(report.availableDelta, currency)}</strong></div>
+            <div className={styles.statBox}><span>Documenti</span><strong>{report.monthlyDocuments.length}</strong></div>
           </div>
 
           <div className={styles.grid}>
-            <Card title="Budget e categorie" icon={<BarChart3 size={20} />}>
+            <Card title="Budget, categorie e sottocategorie" icon={<BarChart3 size={20} />}>
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>Categoria</th>
-                      <th>Previsto</th>
-                      <th>Speso</th>
-                      <th>Differenza</th>
-                    </tr>
-                  </thead>
+                  <thead><tr><th>Categoria</th><th>Previsto</th><th>Speso</th><th>Differenza</th></tr></thead>
                   <tbody>
-                    {report.categoryRows.length === 0 ? (
-                      <tr><td colSpan={4}>Nessuna spesa o budget per questo mese.</td></tr>
-                    ) : report.categoryRows.map(row => (
-                      <tr key={row.id}>
-                        <td>{row.name}</td>
-                        <td>{formatCurrency(row.planned, currency)}</td>
-                        <td>{formatCurrency(row.actual, currency)}</td>
-                        <td className={row.planned - row.actual < 0 ? styles.expenseText : styles.incomeText}>
-                          {formatCurrency(row.planned - row.actual, currency)}
-                        </td>
-                      </tr>
-                    ))}
+                    {report.categoryRows.length === 0 ? <tr><td colSpan={4}>Nessuna spesa o budget per questo mese.</td></tr> : report.categoryRows.map(category => {
+                      const expanded = expandedCategoryId === category.id;
+                      return (
+                        <React.Fragment key={category.id}>
+                          <tr className={styles.categoryRow} onClick={() => setExpandedCategoryId(expanded ? null : category.id)}>
+                            <td><button type="button" className={styles.categoryToggle}>{expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}{category.name}</button></td>
+                            <td>{formatCurrency(category.planned, currency)}</td>
+                            <td>{formatCurrency(category.actual, currency)}</td>
+                            <td className={category.planned - category.actual < 0 ? styles.expenseText : styles.incomeText}>{formatCurrency(category.planned - category.actual, currency)}</td>
+                          </tr>
+                          {expanded && category.subcategories.map(subcategory => (
+                            <tr key={`${category.id}-${subcategory.id}`} className={styles.subcategoryRow}>
+                              <td>{subcategory.name}</td>
+                              <td>{formatCurrency(subcategory.planned, currency)}</td>
+                              <td>{formatCurrency(subcategory.actual, currency)}</td>
+                              <td className={subcategory.planned - subcategory.actual < 0 ? styles.expenseText : styles.incomeText}>{formatCurrency(subcategory.planned - subcategory.actual, currency)}</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </Card>
 
-            <Card title="Spesa maggiore per esercente">
-              <div className={styles.list}>
-                {report.merchantRows.length === 0 ? (
-                  <div className={styles.empty}>Nessuna spesa nel periodo.</div>
-                ) : report.merchantRows.slice(0, 8).map(row => (
-                  <div key={row.name} className={styles.listItem}>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <span>{row.count} movimenti</span>
-                    </div>
-                    <b>{formatCurrency(row.amount, currency)}</b>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card title="Alimentari: media e mediana settimanale">
+            <Card title={`Alimentari ${year}: media e mediana settimanale`}>
               <div className={styles.foodSummary}>
-                <div>
-                  <span>Totale</span>
-                  <strong>{formatCurrency(report.foodTotal, currency)}</strong>
-                </div>
-                <div>
-                  <span>Media settimanale</span>
-                  <strong>{formatCurrency(report.foodAverage, currency)}</strong>
-                </div>
-                <div>
-                  <span>Mediana settimanale</span>
-                  <strong>{formatCurrency(report.foodMedian, currency)}</strong>
-                </div>
+                <div><span>Totale annuale</span><strong>{formatCurrency(report.foodTotal, currency)}</strong></div>
+                <div><span>Media settimanale</span><strong>{formatCurrency(report.foodAverage, currency)}</strong></div>
+                <div><span>Mediana settimanale</span><strong>{formatCurrency(report.foodMedian, currency)}</strong></div>
               </div>
               <div className={styles.weeklyBars}>
                 {report.foodWeeklyRows.map(row => {
                   const maxAmount = Math.max(...report.foodWeeklyRows.map(item => item.amount), 1);
-                  const width = Math.max((row.amount / maxAmount) * 100, row.amount > 0 ? 8 : 0);
-                  return (
-                    <div key={row.week} className={styles.weeklyRow}>
-                      <span>Sett. {row.week}</span>
-                      <div className={styles.weeklyBarTrack}>
-                        <div className={styles.weeklyBar} style={{ width: `${width}%` }} />
-                      </div>
-                      <strong>{formatCurrency(row.amount, currency)}</strong>
-                    </div>
-                  );
+                  const width = Math.max((row.amount / maxAmount) * 100, row.amount > 0 ? 4 : 0);
+                  return <div key={row.week} className={styles.weeklyRow}><span>Sett. {row.week}</span><div className={styles.weeklyBarTrack}><div className={styles.weeklyBar} style={{ width: `${width}%` }} /></div><strong>{formatCurrency(row.amount, currency)}</strong></div>;
                 })}
               </div>
             </Card>
 
+            <Card title="Frequenza delle spese">
+              <div className={styles.list}>{report.frequencyRows.length === 0 ? <div className={styles.empty}>Nessun dato</div> : report.frequencyRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} movimenti</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
+            </Card>
+
+            <Card title="Caratteristiche alimentari">
+              <div className={styles.list}>{report.foodCharacteristicRows.length === 0 ? <div className={styles.empty}>Assegna le caratteristiche alle sottocategorie Alimentari.</div> : report.foodCharacteristicRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} voci</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
+            </Card>
+
             <Card title="Persone e conti">
               <div className={styles.dualList}>
-                <div>
-                  <h4>Inserita da</h4>
-                  {report.insertedByRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.insertedByRows.map(row => (
-                    <div key={row.name} className={styles.compactRow}>
-                      <span>{row.name}</span>
-                      <strong>{formatCurrency(row.amount, currency)}</strong>
-                    </div>
-                  ))}
-                </div>
-                <div>
-                  <h4>Conto</h4>
-                  {report.accountRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.accountRows.map(row => (
-                    <div key={row.name} className={styles.compactRow}>
-                      <span>{row.name}</span>
-                      <strong>{formatCurrency(row.amount, currency)}</strong>
-                    </div>
-                  ))}
-                </div>
+                <div><h4>Inserita da</h4>{report.insertedByRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.insertedByRows.map(row => <div key={row.name} className={styles.compactRow}><span>{row.name}</span><strong>{formatCurrency(row.amount, currency)}</strong></div>)}</div>
+                <div><h4>Conto</h4>{report.accountRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.accountRows.map(row => <div key={row.name} className={styles.compactRow}><span>{row.name}</span><strong>{formatCurrency(row.amount, currency)}</strong></div>)}</div>
               </div>
             </Card>
 
             <Card title="Documenti archiviati">
-              <div className={styles.list}>
-                {report.documentRows.length === 0 ? (
-                  <div className={styles.empty}>Nessun documento archiviato nel mese.</div>
-                ) : report.documentRows.map(row => (
-                  <div key={row.name} className={styles.listItem}>
-                    <div>
-                      <strong>{row.name}</strong>
-                      <span>{row.count} documenti</span>
-                    </div>
-                    <b>{formatCurrency(row.amount, currency)}</b>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card title="Dettaglio transazioni">
-              <div className={styles.transactionList}>
-                {report.validTransactions.length === 0 ? (
-                  <div className={styles.empty}>Nessuna transazione per questo mese.</div>
-                ) : report.validTransactions.map(tx => (
-                  <div key={tx.id} className={styles.transactionItem}>
-                    <div>
-                      <strong>{tx.description}</strong>
-                      <span>
-                        {tx.transaction_date} - {tx.merchant || 'Senza esercente'} - {tx.categories?.name || 'Non classificato'} - inserita da {tx.inserted_by_profile?.display_name || 'Sconosciuto'}
-                      </span>
-                    </div>
-                    <b className={tx.type === 'expense' ? styles.expenseText : styles.incomeText}>
-                      {tx.type === 'expense' ? '-' : '+'}{formatCurrency(tx.amount, currency)}
-                    </b>
-                  </div>
-                ))}
-              </div>
+              <div className={styles.list}>{report.documentRows.length === 0 ? <div className={styles.empty}>Nessun documento archiviato nel mese.</div> : report.documentRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} documenti</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
             </Card>
           </div>
         </>

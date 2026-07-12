@@ -10,6 +10,18 @@ import styles from './RecurringRulesPage.module.css';
 
 const todayString = () => new Date().toISOString().split('T')[0];
 
+const fixedExpenseReasons = [
+  { value: 'financing', label: 'Finanziamento' },
+  { value: 'tv_fee', label: 'Canone TV' },
+  { value: 'phone_fee', label: 'Canone telefono' },
+  { value: 'life_insurance', label: 'Assicurazione vita' },
+  { value: 'rent', label: 'Affitto / locazione' },
+  { value: 'mortgage', label: 'Mutuo' },
+  { value: 'utilities', label: 'Utenza' },
+  { value: 'subscription', label: 'Canone / abbonamento' },
+  { value: 'other', label: 'Altro' },
+];
+
 export const RecurringRulesPage: React.FC = () => {
   const navigate = useNavigate();
   const { household, accounts, categories, subcategories } = useHousehold();
@@ -21,6 +33,7 @@ export const RecurringRulesPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [description, setDescription] = useState('');
+  const [reason, setReason] = useState('');
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState('');
@@ -67,17 +80,13 @@ export const RecurringRulesPage: React.FC = () => {
   }, [householdId]);
 
   useEffect(() => {
-    void fetchRules();
+    const timer = window.setTimeout(() => void fetchRules(), 0);
+    return () => window.clearTimeout(timer);
   }, [fetchRules]);
-
-  useEffect(() => {
-    if (!accountId && accounts.length > 0) {
-      setAccountId(accounts[0].id);
-    }
-  }, [accountId, accounts]);
 
   const resetForm = () => {
     setDescription('');
+    setReason('');
     setMerchant('');
     setAmount('');
     setCategoryId('');
@@ -91,8 +100,13 @@ export const RecurringRulesPage: React.FC = () => {
     if (!householdId) return;
 
     const parsedAmount = Number(amount.replace(',', '.'));
-    if (!description.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError('Inserisci descrizione e importo valido.');
+    const reasonLabel = fixedExpenseReasons.find(option => option.value === reason)?.label || '';
+    const finalDescription = reason === 'other'
+      ? description.trim()
+      : [reasonLabel, description.trim()].filter(Boolean).join(' - ');
+
+    if (!reason || !finalDescription || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError('Seleziona una motivazione e inserisci un importo valido. Per Altro specifica il dettaglio.');
       return;
     }
 
@@ -107,7 +121,7 @@ export const RecurringRulesPage: React.FC = () => {
           household_id: householdId,
           account_id: accountId || accounts[0]?.id || null,
           type: 'expense',
-          description: description.trim(),
+          description: finalDescription,
           merchant: merchant.trim() || null,
           amount: parsedAmount,
           category_id: categoryId || null,
@@ -197,8 +211,22 @@ export const RecurringRulesPage: React.FC = () => {
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
 
             <div className={styles.formGroup}>
-              <label>Descrizione</label>
-              <input className={styles.input} value={description} onChange={event => setDescription(event.target.value)} placeholder="es. Finanziamento auto" required />
+              <label>Motivazione</label>
+              <select className={styles.select} value={reason} onChange={event => setReason(event.target.value)} required>
+                <option value="">Seleziona motivazione...</option>
+                {fixedExpenseReasons.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>{reason === 'other' ? 'Descrizione obbligatoria' : 'Dettaglio opzionale'}</label>
+              <input
+                className={styles.input}
+                value={description}
+                onChange={event => setDescription(event.target.value)}
+                placeholder={reason === 'other' ? 'Descrivi la spesa fissa' : 'es. Auto, operatore, numero polizza...'}
+                required={reason === 'other'}
+              />
             </div>
 
             <div className={styles.formGroup}>
@@ -213,7 +241,7 @@ export const RecurringRulesPage: React.FC = () => {
 
             <div className={styles.formGroup}>
               <label>Conto</label>
-              <select className={styles.select} value={accountId} onChange={event => setAccountId(event.target.value)}>
+              <select className={styles.select} value={accountId || accounts[0]?.id || ''} onChange={event => setAccountId(event.target.value)}>
                 {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
               </select>
             </div>

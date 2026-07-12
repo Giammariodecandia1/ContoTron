@@ -127,7 +127,9 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           { household_id: hhData.id, name: 'Imposte', type: 'expense', sort_order: 9 },
           { household_id: hhData.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 10 },
           { household_id: hhData.id, name: 'Risparmi', type: 'expense', sort_order: 11 },
-          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 12 }
+          { household_id: hhData.id, name: 'Prestiti', type: 'expense', sort_order: 12 },
+          { household_id: hhData.id, name: 'Stipendio', type: 'income', sort_order: 1 },
+          { household_id: hhData.id, name: 'Altre entrate', type: 'income', sort_order: 2 }
         ];
         
         const { data: insertedCats } = await supabase.from('categories').insert(defaultCats).select();
@@ -181,6 +183,8 @@ export const HouseholdProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   );
 };
 
+// Context hooks intentionally live beside their provider.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useHousehold = () => {
   const context = useContext(HouseholdContext);
   if (context === undefined) {

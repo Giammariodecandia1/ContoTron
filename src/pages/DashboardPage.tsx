@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card';
 import { ExpenseCharts } from '../components/dashboard/ExpenseCharts';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
+import type { Transaction } from '../types/database';
 import styles from './DashboardPage.module.css';
 
 type IncomeTargetRow = {
@@ -20,6 +21,17 @@ type AnnualRow = {
   plannedExpense: number;
   actualExpense: number;
   actualIncome: number;
+};
+
+type AnnualBudgetTarget = {
+  month: number;
+  planned_amount: number;
+  category_id: string | null;
+};
+
+type DashboardTransaction = Transaction & {
+  categories?: { name?: string | null } | null;
+  subcategories?: { name?: string | null } | null;
 };
 
 const monthNames = [
@@ -42,15 +54,16 @@ const currency = (value: number, currencyCode = 'EUR') => (
 );
 
 export const DashboardPage: React.FC = () => {
-  const { household, loading: hhLoading } = useHousehold();
+  const { household, categories, loading: hhLoading } = useHousehold();
   const householdId = household?.id || null;
   const currencyCode = household?.currency || 'EUR';
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<DashboardTransaction[]>([]);
   const [incomeTargets, setIncomeTargets] = useState<Record<number, IncomeTargetRow>>({});
   const [incomeDrafts, setIncomeDrafts] = useState<Record<number, string>>({});
   const [plannedExpenses, setPlannedExpenses] = useState<Record<number, number>>({});
+  const [budgetTargets, setBudgetTargets] = useState<AnnualBudgetTarget[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingMonth, setSavingMonth] = useState<number | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -109,7 +122,8 @@ export const DashboardPage: React.FC = () => {
         draftMap[row.month] = String(Number(row.planned_income || 0));
       });
 
-      setTransactions(txResult.data || []);
+      setTransactions((txResult.data || []) as DashboardTransaction[]);
+      setBudgetTargets((budgetResult.data || []) as AnnualBudgetTarget[]);
       setPlannedExpenses(expenseMap);
       setIncomeTargets(targetMap);
       setIncomeDrafts(draftMap);
@@ -121,7 +135,8 @@ export const DashboardPage: React.FC = () => {
   }, [householdId, selectedYear]);
 
   useEffect(() => {
-    void loadDashboard();
+    const timer = window.setTimeout(() => void loadDashboard(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadDashboard]);
 
   const annualRows = useMemo<AnnualRow[]>(() => {
@@ -150,7 +165,7 @@ export const DashboardPage: React.FC = () => {
         actualIncome: actualIncomes[month] || 0,
       };
     });
-  }, [incomeTargets, plannedExpenses, transactions]);
+  }, [incomeTargets, plannedExpenses, selectedYear, transactions]);
 
   const totals = useMemo(() => {
     const total = annualRows.reduce((acc, row) => ({
@@ -174,6 +189,50 @@ export const DashboardPage: React.FC = () => {
       averageActualExpense: total.actualExpense / 12,
     };
   }, [annualRows]);
+
+  const annualCategoryRows = useMemo(() => {
+    const planned = new Map<string, Record<number, number>>();
+    const actual = new Map<string, Record<number, number>>();
+
+    budgetTargets.forEach(target => {
+      if (!target.category_id) return;
+      const months = planned.get(target.category_id) || {};
+      months[target.month] = (months[target.month] || 0) + Number(target.planned_amount || 0);
+      planned.set(target.category_id, months);
+    });
+
+    transactions.forEach(tx => {
+      if (tx.type !== 'expense' || !tx.category_id) return;
+      const date = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
+      if (date.getFullYear() !== selectedYear) return;
+      const month = date.getMonth() + 1;
+      const months = actual.get(tx.category_id) || {};
+      months[month] = (months[month] || 0) + Number(tx.amount || 0);
+      actual.set(tx.category_id, months);
+    });
+
+    return categories
+      .filter(category => category.type === 'expense')
+      .map(category => {
+        const plannedMonths = planned.get(category.id) || {};
+        const actualMonths = actual.get(category.id) || {};
+        const months = monthNames.map((_, index) => ({
+          month: index + 1,
+          planned: plannedMonths[index + 1] || 0,
+          actual: actualMonths[index + 1] || 0,
+        }));
+
+        return {
+          id: category.id,
+          name: category.name,
+          months,
+          plannedTotal: months.reduce((sum, month) => sum + month.planned, 0),
+          actualTotal: months.reduce((sum, month) => sum + month.actual, 0),
+        };
+      })
+      .filter(row => row.plannedTotal > 0 || row.actualTotal > 0)
+      .sort((a, b) => b.actualTotal - a.actualTotal || a.name.localeCompare(b.name));
+  }, [budgetTargets, categories, selectedYear, transactions]);
 
   const handleIncomeChange = (month: number, value: string) => {
     setIncomeDrafts(prev => ({ ...prev, [month]: value }));
@@ -371,8 +430,44 @@ export const DashboardPage: React.FC = () => {
         )}
       </Card>
 
+      <Card title={`Budget per categoria ${selectedYear}`}>
+        <p className="text-muted fs-sm">Per ogni mese: previsto / consuntivo.</p>
+        {annualCategoryRows.length === 0 ? (
+          <div className={styles.empty}>Nessun budget o movimento categorizzato per l'anno selezionato.</div>
+        ) : (
+          <div className={styles.categoryAnnualWrapper}>
+            <table className={styles.categoryAnnualTable}>
+              <thead>
+                <tr>
+                  <th>Categoria</th>
+                  {monthNames.map(month => <th key={month}>{month.slice(0, 3)}</th>)}
+                  <th>Totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {annualCategoryRows.map(row => (
+                  <tr key={row.id}>
+                    <td>{row.name}</td>
+                    {row.months.map(month => (
+                      <td key={month.month}>
+                        <span className={styles.plannedValue}>P {currency(month.planned, currencyCode)}</span>
+                        <span className={styles.actualValue}>C {currency(month.actual, currencyCode)}</span>
+                      </td>
+                    ))}
+                    <td>
+                      <span className={styles.plannedValue}>P {currency(row.plannedTotal, currencyCode)}</span>
+                      <span className={styles.actualValue}>C {currency(row.actualTotal, currencyCode)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
       {transactions.length > 0 && (
-        <ExpenseCharts transactions={transactions} />
+        <ExpenseCharts transactions={transactions} selectedYear={selectedYear} />
       )}
     </div>
   );

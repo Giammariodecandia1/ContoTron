@@ -30,6 +30,15 @@ export type PaymentMethod =
   | 'standard'
   | 'credit_card';
 
+export type TransactionFrequency =
+  | 'monthly'
+  | 'bimonthly'
+  | 'quarterly'
+  | 'four_monthly'
+  | 'semiannual'
+  | 'yearly'
+  | 'other';
+
 export type DocumentType = 
   | 'receipt'
   | 'bill'
@@ -57,6 +66,11 @@ export type SpendingType =
   | 'variable'
   | 'necessary_variable'
   | 'superfluous';
+
+export type FoodCharacteristic =
+  | 'necessary'
+  | 'necessary_indulgence'
+  | 'nonessential_misc';
 
 export interface Profile {
   id: string;
@@ -122,6 +136,7 @@ export interface Subcategory {
   category_id: string;
   name: string;
   spending_type?: SpendingType;
+  food_characteristic?: FoodCharacteristic | null;
   sort_order: number;
   is_active: boolean;
   created_at: string;
@@ -139,6 +154,7 @@ export interface Transaction {
   source: TransactionSource;
   payment_method?: PaymentMethod;
   cash_impact_date?: string | null;
+  frequency?: TransactionFrequency;
   transaction_date: string;
   description: string;
   merchant: string | null;
@@ -211,7 +227,7 @@ export interface OcrJob {
   provider: string;
   status: OcrStatus;
   extracted_text: string | null;
-  extracted_json: any | null;
+  extracted_json: unknown | null;
   confidence: number | null;
   error_message: string | null;
   started_at: string | null;
@@ -272,6 +288,20 @@ export interface ClassificationRule {
   created_at: string;
 }
 
+export interface ProductClassificationRule {
+  id: string;
+  household_id: string;
+  match_text: string;
+  display_name: string;
+  category_id: string | null;
+  subcategory_id: string | null;
+  use_count: number;
+  last_used_at: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AuditLogEntry {
   id: string;
   household_id: string;
@@ -279,7 +309,7 @@ export interface AuditLogEntry {
   entity_type: string;
   entity_id: string | null;
   action: string;
-  old_data: any | null;
-  new_data: any | null;
+  old_data: unknown | null;
+  new_data: unknown | null;
   created_at: string;
 }

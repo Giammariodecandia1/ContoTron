@@ -3,7 +3,13 @@ import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveCo
 import { Card } from '../ui/Card';
 
 interface ExpenseChartsProps {
-  transactions: any[];
+  transactions: Array<{
+    type: string;
+    amount: number;
+    transaction_date: string;
+    categories?: { name?: string | null } | null;
+  }>;
+  selectedYear: number;
 }
 
 const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#f43f5e', '#6366f1'];
@@ -13,9 +19,8 @@ const formatTooltipCurrency = (value: unknown) => {
   return `${amount.toFixed(2)} €`;
 };
 
-export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) => {
+export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions, selectedYear }) => {
   const currentMonth = new Date().getMonth();
-  const currentYear = new Date().getFullYear();
 
   // Dati per Grafico a Torta: Spese per categoria (Mese Corrente)
   const pieData = useMemo(() => {
@@ -23,7 +28,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) =>
     
     transactions.forEach(tx => {
       const txDate = new Date(tx.transaction_date);
-      if (tx.type === 'expense' && txDate.getMonth() === currentMonth && txDate.getFullYear() === currentYear) {
+      if (tx.type === 'expense' && txDate.getMonth() === currentMonth && txDate.getFullYear() === selectedYear) {
         const catName = tx.categories?.name || 'Altro';
         categoryTotals[catName] = (categoryTotals[catName] || 0) + tx.amount;
       }
@@ -32,15 +37,15 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) =>
     return Object.entries(categoryTotals)
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [transactions, currentMonth, currentYear]);
+  }, [transactions, currentMonth, selectedYear]);
 
   // Dati per Grafico a Barre: Andamento Spese Ultimi 6 Mesi
   const barData = useMemo(() => {
     const months: Record<string, number> = {};
     
-    // Inizializza ultimi 6 mesi
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(currentYear, currentMonth - i, 1);
+    // Inizializza tutti i mesi dell'anno selezionato.
+    for (let i = 0; i < 12; i++) {
+      const d = new Date(selectedYear, i, 1);
       const monthLabel = d.toLocaleString('it-IT', { month: 'short' });
       months[monthLabel] = 0;
     }
@@ -48,9 +53,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) =>
     transactions.forEach(tx => {
       if (tx.type === 'expense') {
         const txDate = new Date(tx.transaction_date);
-        // Controlla se rientra negli ultimi 6 mesi
-        const diffMonths = (currentYear - txDate.getFullYear()) * 12 + (currentMonth - txDate.getMonth());
-        if (diffMonths >= 0 && diffMonths <= 5) {
+        if (txDate.getFullYear() === selectedYear) {
           const monthLabel = txDate.toLocaleString('it-IT', { month: 'short' });
           if (months[monthLabel] !== undefined) {
             months[monthLabel] += tx.amount;
@@ -60,7 +63,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) =>
     });
 
     return Object.entries(months).map(([name, Spese]) => ({ name, Spese }));
-  }, [transactions, currentMonth, currentYear]);
+  }, [transactions, selectedYear]);
 
   if (transactions.length === 0) return null;
 
@@ -94,7 +97,7 @@ export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions }) =>
         )}
       </Card>
 
-      <Card title="Andamento Spese (Ultimi 6 mesi)">
+      <Card title={`Andamento Spese (${selectedYear})`}>
         <div style={{ width: '100%', height: 250 }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={barData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

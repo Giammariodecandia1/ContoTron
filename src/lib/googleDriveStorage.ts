@@ -45,7 +45,7 @@ export const requestGoogleDriveConnection = async (redirectTo?: string) => {
 
 export const getGoogleDriveAccessToken = async () => {
   const { data } = await supabase.auth.getSession();
-  return (data.session as any)?.provider_token as string | undefined;
+  return data.session?.provider_token;
 };
 
 const driveRequest = async (url: string, init: RequestInit = {}) => {

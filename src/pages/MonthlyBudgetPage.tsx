@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Button';
 import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import type { Transaction } from '../types/database';
 import styles from './MonthlyBudgetPage.module.css';
 
 export const MonthlyBudgetPage: React.FC = () => {
@@ -15,7 +16,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const today = new Date();
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [budgets, setBudgets] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [recurringMessage, setRecurringMessage] = useState<string | null>(null);
@@ -95,9 +96,9 @@ export const MonthlyBudgetPage: React.FC = () => {
   }, [accounts, fetchBudgetTargets, fetchTransactions, householdId, month, year]);
 
   useEffect(() => {
-    if (householdId) {
-      loadData();
-    }
+    if (!householdId) return;
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
   }, [householdId, loadData]);
 
   const handlePrevMonth = () => {

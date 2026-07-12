@@ -170,6 +170,25 @@
   background: var(--color-danger-bg);
 }
 
+.reconciliationSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.9rem;
+}
+
+.reconciliationOk {
+  color: var(--color-success);
+  font-weight: 700;
+}
+
+.reconciliationWarning {
+  color: var(--color-danger);
+  font-weight: 700;
+}
+
 @media (max-width: 760px) {
   .itemRow {
     grid-template-columns: 1fr;

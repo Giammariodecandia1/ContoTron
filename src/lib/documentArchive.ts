@@ -45,12 +45,14 @@ const safeFilename = (filename: string) => {
   return extension ? `${safeBase}.${extension}` : safeBase;
 };
 
-const isSchemaMissingError = (error: any) => (
-  error?.code === '42703'
-  || String(error?.message || '').toLowerCase().includes('storage_provider')
-  || String(error?.message || '').toLowerCase().includes('external_file_id')
-  || String(error?.message || '').toLowerCase().includes('external_url')
-);
+const isSchemaMissingError = (error: unknown) => {
+  const candidate = error as { code?: string; message?: string } | null;
+  const message = String(candidate?.message || '').toLowerCase();
+  return candidate?.code === '42703'
+    || message.includes('storage_provider')
+    || message.includes('external_file_id')
+    || message.includes('external_url');
+};
 
 const replaceExtension = (filename: string, extension: string) => {
   return `${filename.replace(/\.[^.]+$/, '')}.${extension}`;

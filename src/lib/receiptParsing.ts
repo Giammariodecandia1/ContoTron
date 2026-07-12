@@ -24,6 +24,13 @@ export interface ReceiptItemResult {
   matchedKeyword?: string;
 }
 
+export interface ReceiptItemsReconciliation {
+  items: ReceiptItemResult[];
+  correctedDescriptions: string[];
+  itemTotal: number;
+  difference: number | null;
+}
+
 const categoryKeywords: Record<string, string[]> = {
   Abbigliamento: [
     'abbigliamento',
@@ -96,6 +103,8 @@ const categoryKeywords: Record<string, string[]> = {
     'leroy',
     'brico',
     'ferramenta',
+    'candela',
+    'citronella',
   ],
   'Abitazione Numana': ['numana', 'mare', 'casa vacanza'],
   'Tempo libero': [
@@ -374,6 +383,18 @@ const cleanupItemDescription = (line: string) => (
     .trim()
 );
 
+const isUnitPriceOnlyLine = (line: string) => {
+  const searchable = normalizeSearchText(line);
+  const hasUnitFormula = /\b\d+(?:[,.]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)\s*x\s*(?:eur|euro)?\s*\/?\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)\b/i.test(line);
+  const hasProductName = searchable
+    .replace(/\b\d+\b/g, ' ')
+    .replace(/\b(?:kg|g|gr|l|lt|ml|cl|pz|pezzi|eur|euro|x)\b/g, ' ')
+    .replace(/\s+/g, '')
+    .length >= 4;
+
+  return hasUnitFormula && !hasProductName;
+};
+
 export const extractReceiptItems = (
   text: string,
   categories: Category[],
@@ -388,6 +409,7 @@ export const extractReceiptItems = (
     .flatMap((line, index) => {
       const searchableLine = normalizeSearchText(line);
       if (containsAny(searchableLine, itemRejectWords)) return [];
+      if (isUnitPriceOnlyLine(line)) return [];
       if (!/[a-zA-Z]{2,}/.test(line)) return [];
 
       const amounts = parseAmountsFromLine(line);
@@ -411,4 +433,46 @@ export const extractReceiptItems = (
       }];
     })
     .slice(0, 30);
+};
+
+export const reconcileReceiptItems = (
+  items: ReceiptItemResult[],
+  receiptTotal: number | null,
+): ReceiptItemsReconciliation => {
+  const reconciledItems = items.map(item => ({ ...item }));
+  const correctedDescriptions: string[] = [];
+
+  if (receiptTotal !== null) {
+    let currentTotal = reconciledItems.reduce((sum, item) => sum + item.amount, 0);
+    let currentDifference = currentTotal - receiptTotal;
+
+    if (currentDifference > 8.5) {
+      const candidates = reconciledItems
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => item.amount >= 9 && item.amount < 10);
+
+      for (const { item, index } of candidates) {
+        const correctedAmount = Number((item.amount - 9).toFixed(2));
+        const candidateTotal = currentTotal - item.amount + correctedAmount;
+        const candidateDifference = candidateTotal - receiptTotal;
+
+        if (Math.abs(candidateDifference) + 0.01 < Math.abs(currentDifference)) {
+          reconciledItems[index] = { ...item, amount: correctedAmount };
+          correctedDescriptions.push(item.description);
+          currentTotal = candidateTotal;
+          currentDifference = candidateDifference;
+        }
+
+        if (Math.abs(currentDifference) <= 0.05) break;
+      }
+    }
+  }
+
+  const itemTotal = reconciledItems.reduce((sum, item) => sum + item.amount, 0);
+  return {
+    items: reconciledItems,
+    correctedDescriptions,
+    itemTotal,
+    difference: receiptTotal === null ? null : Number((itemTotal - receiptTotal).toFixed(2)),
+  };
 };

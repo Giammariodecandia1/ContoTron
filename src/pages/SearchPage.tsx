@@ -205,7 +205,8 @@ export const SearchPage: React.FC = () => {
   }, [householdId]);
 
   useEffect(() => {
-    loadData();
+    const timer = window.setTimeout(() => void loadData(), 0);
+    return () => window.clearTimeout(timer);
   }, [loadData]);
 
   const amountLimits = useMemo(() => ({

@@ -127,7 +127,9 @@ export const OnboardingPage: React.FC = () => {
           { household_id: household.id, name: 'Imposte', type: 'expense', sort_order: 9 },
           { household_id: household.id, name: 'Regali e beneficenza', type: 'expense', sort_order: 10 },
           { household_id: household.id, name: 'Risparmi', type: 'expense', sort_order: 11 },
-          { household_id: household.id, name: 'Prestiti', type: 'expense', sort_order: 12 }
+          { household_id: household.id, name: 'Prestiti', type: 'expense', sort_order: 12 },
+          { household_id: household.id, name: 'Stipendio', type: 'income', sort_order: 1 },
+          { household_id: household.id, name: 'Altre entrate', type: 'income', sort_order: 2 }
         ]);
       }
 

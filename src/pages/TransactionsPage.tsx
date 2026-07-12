@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ListPlus, Pencil, Plus } from 'lucide-react';
@@ -6,22 +6,31 @@ import { useTransactions, useHousehold } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useNavigate } from 'react-router-dom';
 import { paymentMethodLabels } from '../lib/paymentTiming';
+import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
+import type { Transaction } from '../types/database';
 import styles from './TransactionsPage.module.css';
+
+type TransactionListItem = Transaction & {
+  accounts?: { name?: string | null } | null;
+  categories?: { name?: string | null } | null;
+  inserted_by_profile?: { display_name?: string | null; email?: string | null } | null;
+};
 
 export const TransactionsPage: React.FC = () => {
   const { fetchTransactions, loading, deleteTransaction } = useTransactions();
   const { household } = useHousehold();
-  const [transactions, setTransactions] = useState<any[]>([]);
+  const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
   const navigate = useNavigate();
 
-  const loadTxs = async () => {
+  const loadTxs = useCallback(async () => {
     const data = await fetchTransactions();
-    setTransactions(data);
-  };
+    setTransactions(data as TransactionListItem[]);
+  }, [fetchTransactions]);
 
   useEffect(() => {
-    loadTxs();
-  }, [fetchTransactions]);
+    const timer = window.setTimeout(() => void loadTxs(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadTxs]);
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Sei sicuro di voler eliminare questa transazione?')) {
@@ -30,7 +39,7 @@ export const TransactionsPage: React.FC = () => {
     }
   };
 
-  const uploaderLabel = (tx: any) => {
+  const uploaderLabel = (tx: TransactionListItem) => {
     const profile = tx.inserted_by_profile;
     const name = profile?.display_name || profile?.email || 'Sconosciuto';
     return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
@@ -67,6 +76,9 @@ export const TransactionsPage: React.FC = () => {
                   <div style={{ fontWeight: '600' }}>{tx.description}</div>
                   <div className="text-muted fs-sm">
                     {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'} - Conto: {tx.accounts?.name || 'Conto'}
+                  </div>
+                  <div className="text-muted fs-sm">
+                    Frequenza: {getTransactionFrequencyLabel(tx.frequency)}
                   </div>
                   <div className="text-muted fs-sm">
                     Caricata da account: {uploaderLabel(tx)}

@@ -4,7 +4,7 @@ import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarCh
 import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
-export const navItems = [
+const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },

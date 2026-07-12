@@ -4,10 +4,11 @@ import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
 import { UserPlus, X } from 'lucide-react';
 import { useAuth } from '../hooks';
+import type { Profile } from '../types/database';
 import styles from './UserSelectPage.module.css';
 
 export const UserSelectPage: React.FC = () => {
-  const [profiles, setProfiles] = useState<any[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [newUserName, setNewUserName] = useState('');
   const [showAdd, setShowAdd] = useState(false);
@@ -21,7 +22,8 @@ export const UserSelectPage: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchProfiles();
+    const timer = window.setTimeout(() => void fetchProfiles(), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const handleAddUser = async (e: React.FormEvent) => {
