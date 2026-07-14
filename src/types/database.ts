@@ -220,6 +220,21 @@ export interface Document {
   updated_at: string;
 }
 
+export interface DocumentPage {
+  id: string;
+  document_id: string;
+  household_id: string;
+  page_number: number;
+  original_filename: string;
+  storage_path: string;
+  storage_provider: DocumentStorageProvider;
+  external_file_id: string | null;
+  external_url: string | null;
+  mime_type: string | null;
+  file_size_bytes: number | null;
+  created_at: string;
+}
+
 export interface OcrJob {
   id: string;
   household_id: string;
@@ -246,6 +261,8 @@ export interface RecurringRule {
   category_id: string | null;
   subcategory_id: string | null;
   frequency: string;
+  reason_code?: string | null;
+  duration_months?: number | null;
   start_date: string;
   end_date: string | null;
   next_due_date: string | null;

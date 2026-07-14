@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient';
 import { getDocumentStorageProvider, getDocumentStorageStatus } from './documentStoragePreference';
 import { GoogleDriveAuthError, uploadFileToGoogleDrive } from './googleDriveStorage';
-import type { Document, DocumentType, Household } from '../types/database';
+import type { Document, DocumentPage, DocumentType, Household } from '../types/database';
 
 export const DOCUMENT_BUCKET = 'documents';
 
@@ -16,9 +16,18 @@ interface UploadArchiveDocumentParams {
   totalAmount?: number | null;
 }
 
+interface UploadArchiveDocumentPagesParams extends Omit<UploadArchiveDocumentParams, 'file'> {
+  files: File[];
+}
+
+export interface DocumentPageWithUrl extends DocumentPage {
+  url?: string;
+}
+
 export interface DocumentWithUrl extends Document {
   url?: string;
   ocr_text?: string | null;
+  pages?: DocumentPageWithUrl[];
 }
 
 export interface DeleteArchiveDocumentResult {
@@ -286,18 +295,239 @@ export const uploadArchiveDocument = async ({
   return legacyData as Document;
 };
 
+const uploadSupplementalDocumentPage = async ({
+  householdId,
+  household,
+  uploadedBy,
+  document,
+  file,
+  documentDate,
+  pageNumber,
+}: {
+  householdId: string;
+  household?: Household | null;
+  uploadedBy?: string | null;
+  document: Document;
+  file: File;
+  documentDate: string;
+  pageNumber: number;
+}) => {
+  const storageFile = await optimizeArchiveFile(file);
+  const pageFilename = `pagina-${String(pageNumber).padStart(2, '0')}-${safeFilename(storageFile.name)}`;
+  const parentUsesDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
+
+  if (parentUsesDrive && household) {
+    try {
+      const driveFile = await uploadFileToGoogleDrive({
+        household,
+        userId: uploadedBy,
+        file: storageFile,
+        documentDate,
+        filename: pageFilename,
+      });
+
+      return {
+        storage_path: `google_drive:${driveFile.id}`,
+        storage_provider: 'google_drive' as const,
+        external_file_id: driveFile.id,
+        external_url: driveFile.webViewLink || null,
+        mime_type: storageFile.type || null,
+        file_size_bytes: storageFile.size,
+      };
+    } catch (error) {
+      if (!(error instanceof GoogleDriveAuthError)) {
+        console.warn(`Pagina ${pageNumber}: Google Drive non disponibile, uso archivio interno.`, error);
+      }
+    }
+  }
+
+  const [year, month] = documentDate.split('-');
+  const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${pageFilename}`;
+  const { error: uploadError } = await supabase.storage
+    .from(DOCUMENT_BUCKET)
+    .upload(storagePath, storageFile, {
+      contentType: storageFile.type || 'application/octet-stream',
+      upsert: false,
+    });
+
+  if (uploadError) {
+    throw new Error(`Upload pagina ${pageNumber} non riuscito: ${uploadError.message}`);
+  }
+
+  return {
+    storage_path: storagePath,
+    storage_provider: 'supabase' as const,
+    external_file_id: null,
+    external_url: null,
+    mime_type: storageFile.type || null,
+    file_size_bytes: storageFile.size,
+  };
+};
+
+export const uploadArchiveDocumentPages = async ({
+  householdId,
+  household,
+  uploadedBy,
+  files,
+  type,
+  documentDate,
+  vendorName,
+  totalAmount,
+}: UploadArchiveDocumentPagesParams): Promise<Document> => {
+  if (files.length === 0) throw new Error('Nessuna pagina da archiviare.');
+
+  const document = await uploadArchiveDocument({
+    householdId,
+    household,
+    uploadedBy,
+    file: files[0],
+    type,
+    documentDate,
+    vendorName,
+    totalAmount,
+  });
+
+  const pageRows: Array<Omit<DocumentPage, 'id' | 'created_at'>> = [{
+    document_id: document.id,
+    household_id: householdId,
+    page_number: 1,
+    original_filename: files[0].name,
+    storage_path: document.storage_path,
+    storage_provider: document.storage_provider || (document.storage_path.startsWith('google_drive:') ? 'google_drive' : 'supabase'),
+    external_file_id: document.external_file_id || null,
+    external_url: document.external_url || null,
+    mime_type: document.mime_type,
+    file_size_bytes: document.file_size_bytes,
+  }];
+
+  try {
+    for (let index = 1; index < files.length; index += 1) {
+      const pageNumber = index + 1;
+      const storedPage = await uploadSupplementalDocumentPage({
+        householdId,
+        household,
+        uploadedBy,
+        document,
+        file: files[index],
+        documentDate,
+        pageNumber,
+      });
+
+      pageRows.push({
+        document_id: document.id,
+        household_id: householdId,
+        page_number: pageNumber,
+        original_filename: files[index].name,
+        ...storedPage,
+      });
+    }
+
+    const { error: pagesError } = await supabase.from('document_pages').insert(pageRows);
+    if (pagesError) throw new Error(`Impossibile collegare le pagine del documento: ${pagesError.message}`);
+
+    const totalFileSize = pageRows.reduce((sum, page) => sum + (page.file_size_bytes || 0), 0);
+    const { data: updatedDocument, error: updateError } = await supabase
+      .from('documents')
+      .update({
+        file_size_bytes: totalFileSize || document.file_size_bytes,
+        status: files.length > 1 ? 'archived_multipage' : 'archived',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', document.id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedDocument as Document;
+  } catch (error) {
+    const supplementalInternalPaths = pageRows
+      .slice(1)
+      .filter(page => page.storage_provider !== 'google_drive' && !page.storage_path.startsWith('google_drive:'))
+      .map(page => page.storage_path);
+    if (supplementalInternalPaths.length > 0) {
+      await supabase.storage.from(DOCUMENT_BUCKET).remove(supplementalInternalPaths).catch(cleanupError => {
+        console.warn('Pulizia pagine interne incomplete non riuscita:', cleanupError);
+      });
+    }
+    await deleteArchiveDocument(document).catch(cleanupError => {
+      console.warn('Pulizia documento multipagina incompleto non riuscita:', cleanupError);
+    });
+    throw error;
+  }
+};
+
+export const getDocumentPages = async (documents: Document[]): Promise<Record<string, DocumentPageWithUrl[]>> => {
+  if (documents.length === 0) return {};
+
+  const { data, error } = await supabase
+    .from('document_pages')
+    .select('*')
+    .in('document_id', documents.map(document => document.id))
+    .order('page_number', { ascending: true });
+
+  if (error) console.warn('Pagine documento non disponibili, uso anteprima principale:', error.message);
+  const rows = error ? [] : (data || []) as DocumentPage[];
+  const pagesWithUrls = await Promise.all(rows.map(async page => ({
+    ...page,
+    url: await getDocumentUrl(page.storage_path, page.storage_provider, page.external_url),
+  })));
+  const byDocument = pagesWithUrls.reduce<Record<string, DocumentPageWithUrl[]>>((result, page) => {
+    result[page.document_id] = [...(result[page.document_id] || []), page];
+    return result;
+  }, {});
+
+  for (const document of documents) {
+    if (byDocument[document.id]?.length) continue;
+
+    byDocument[document.id] = [{
+      id: `legacy-${document.id}`,
+      document_id: document.id,
+      household_id: document.household_id,
+      page_number: 1,
+      original_filename: document.original_filename,
+      storage_path: document.storage_path,
+      storage_provider: document.storage_provider || (document.storage_path.startsWith('google_drive:') ? 'google_drive' : 'supabase'),
+      external_file_id: document.external_file_id || null,
+      external_url: document.external_url || null,
+      mime_type: document.mime_type,
+      file_size_bytes: document.file_size_bytes,
+      created_at: document.created_at,
+      url: await getDocumentUrl(document.storage_path, document.storage_provider, document.external_url),
+    }];
+  }
+
+  return byDocument;
+};
+
 export const deleteArchiveDocument = async (document: Document): Promise<DeleteArchiveDocumentResult> => {
-  const isGoogleDriveDocument = (
-    document.storage_provider === 'google_drive'
-    || document.storage_path.startsWith('google_drive:')
-  );
+  const { data: pageRows } = await supabase
+    .from('document_pages')
+    .select('storage_path, storage_provider')
+    .eq('document_id', document.id);
+
+  const storedFiles = [
+    {
+      storage_path: document.storage_path,
+      storage_provider: document.storage_provider || (document.storage_path.startsWith('google_drive:') ? 'google_drive' : 'supabase'),
+    },
+    ...((pageRows || []) as Array<{ storage_path: string; storage_provider: string }>),
+  ];
+  const internalPaths = [...new Set(
+    storedFiles
+      .filter(file => file.storage_provider !== 'google_drive' && !file.storage_path.startsWith('google_drive:'))
+      .map(file => file.storage_path)
+      .filter(Boolean),
+  )];
+  const isGoogleDriveDocument = storedFiles.some(file => (
+    file.storage_provider === 'google_drive' || file.storage_path.startsWith('google_drive:')
+  ));
   let deletedInternalFile = false;
   let storageError: string | null = null;
 
-  if (!isGoogleDriveDocument && document.storage_path) {
+  if (internalPaths.length > 0) {
     const { error } = await supabase.storage
       .from(DOCUMENT_BUCKET)
-      .remove([document.storage_path]);
+      .remove(internalPaths);
 
     if (error) {
       storageError = error.message;

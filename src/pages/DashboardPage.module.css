@@ -126,40 +126,71 @@
   vertical-align: middle;
 }
 
-.categoryAnnualWrapper {
+.categoryAnnualList {
+  display: grid;
+  gap: var(--space-5);
   margin-top: var(--space-4);
-  overflow-x: auto;
 }
 
-.categoryAnnualTable {
-  border-collapse: collapse;
-  min-width: 1500px;
-  width: 100%;
-}
-
-.categoryAnnualTable th,
-.categoryAnnualTable td {
+.categoryAnnualSection {
+  padding-bottom: var(--space-5);
   border-bottom: 1px solid var(--color-gray-200);
-  min-width: 102px;
-  padding: var(--space-3);
-  text-align: right;
-  vertical-align: top;
 }
 
-.categoryAnnualTable th {
+.categoryAnnualSection:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.categoryAnnualHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.categoryAnnualHeader h3 {
+  margin: 0;
+  color: var(--color-gray-900);
+  font-size: var(--text-base);
+}
+
+.categoryAnnualTotals {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-3);
   color: var(--color-gray-500);
   font-size: var(--text-xs);
-  text-transform: uppercase;
 }
 
-.categoryAnnualTable th:first-child,
-.categoryAnnualTable td:first-child {
-  background: var(--color-white);
-  left: 0;
-  min-width: 180px;
-  position: sticky;
-  text-align: left;
-  z-index: 1;
+.categoryAnnualTotals strong {
+  margin-left: var(--space-1);
+  color: var(--color-gray-900);
+}
+
+.categoryMonthGrid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.categoryMonthCell {
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-sm);
+  background: var(--color-gray-50);
+}
+
+.categoryMonthName {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--color-gray-600);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-transform: capitalize;
 }
 
 .plannedValue,
@@ -167,6 +198,12 @@
   display: block;
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .categoryMonthGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 
 .plannedValue {
@@ -322,6 +359,18 @@
 
   .incomeInput {
     max-width: 150px;
+  }
+
+  .categoryAnnualHeader {
+    flex-direction: column;
+  }
+
+  .categoryAnnualTotals {
+    justify-content: flex-start;
+  }
+
+  .categoryMonthGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .totalRow,

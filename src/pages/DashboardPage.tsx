@@ -34,6 +34,13 @@ type DashboardTransaction = Transaction & {
   subcategories?: { name?: string | null } | null;
 };
 
+type DashboardItem = {
+  id: string;
+  transaction_id: string;
+  amount: number;
+  category_id: string | null;
+};
+
 const monthNames = [
   'Gennaio',
   'Febbraio',
@@ -60,6 +67,7 @@ export const DashboardPage: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [transactions, setTransactions] = useState<DashboardTransaction[]>([]);
+  const [transactionItems, setTransactionItems] = useState<DashboardItem[]>([]);
   const [incomeTargets, setIncomeTargets] = useState<Record<number, IncomeTargetRow>>({});
   const [incomeDrafts, setIncomeDrafts] = useState<Record<number, string>>({});
   const [plannedExpenses, setPlannedExpenses] = useState<Record<number, number>>({});
@@ -80,7 +88,7 @@ export const DashboardPage: React.FC = () => {
       const transactionStart = `${selectedYear - 1}-12-01`;
       const end = `${selectedYear}-12-31`;
 
-      const [txResult, budgetResult, incomeResult] = await Promise.all([
+      const [txResult, itemResult, budgetResult, incomeResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('*, categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)')
@@ -89,6 +97,12 @@ export const DashboardPage: React.FC = () => {
           .lte('transaction_date', end)
           .neq('status', 'deleted')
           .order('transaction_date', { ascending: false }),
+        supabase
+          .from('transaction_items')
+          .select('id, transaction_id, amount, category_id, transactions!inner(transaction_date)')
+          .eq('household_id', householdId)
+          .gte('transactions.transaction_date', transactionStart)
+          .lte('transactions.transaction_date', end),
         supabase
           .from('budget_targets')
           .select('month, planned_amount, category_id, subcategory_id')
@@ -102,6 +116,7 @@ export const DashboardPage: React.FC = () => {
       ]);
 
       if (txResult.error) throw txResult.error;
+      if (itemResult.error) throw itemResult.error;
       if (budgetResult.error) throw budgetResult.error;
       if (incomeResult.error) throw incomeResult.error;
 
@@ -123,6 +138,7 @@ export const DashboardPage: React.FC = () => {
       });
 
       setTransactions((txResult.data || []) as DashboardTransaction[]);
+      setTransactionItems((itemResult.data || []) as unknown as DashboardItem[]);
       setBudgetTargets((budgetResult.data || []) as AnnualBudgetTarget[]);
       setPlannedExpenses(expenseMap);
       setIncomeTargets(targetMap);
@@ -201,14 +217,49 @@ export const DashboardPage: React.FC = () => {
       planned.set(target.category_id, months);
     });
 
+    const expenseById = new Map<string, DashboardTransaction>();
     transactions.forEach(tx => {
-      if (tx.type !== 'expense' || !tx.category_id) return;
+      if (tx.type !== 'expense') return;
       const date = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
       if (date.getFullYear() !== selectedYear) return;
+      expenseById.set(tx.id, tx);
+    });
+    const itemsByTransaction = new Map<string, DashboardItem[]>();
+    transactionItems.forEach(item => {
+      if (!expenseById.has(item.transaction_id)) return;
+      const group = itemsByTransaction.get(item.transaction_id) || [];
+      group.push(item);
+      itemsByTransaction.set(item.transaction_id, group);
+    });
+    const itemizedTransactionIds = new Set(
+      Array.from(itemsByTransaction.entries())
+        .filter(([, group]) => group.reduce((sum, item) => sum + Number(item.amount || 0), 0) > 0)
+        .map(([transactionId]) => transactionId),
+    );
+
+    expenseById.forEach(tx => {
+      if (!tx.category_id || itemizedTransactionIds.has(tx.id)) return;
+      const date = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
       const month = date.getMonth() + 1;
       const months = actual.get(tx.category_id) || {};
       months[month] = (months[month] || 0) + Number(tx.amount || 0);
       actual.set(tx.category_id, months);
+    });
+    itemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = expenseById.get(transactionId);
+      if (!transaction) return;
+      const itemTotal = group.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      const date = new Date(`${transaction.cash_impact_date || transaction.transaction_date}T00:00:00`);
+      const month = date.getMonth() + 1;
+
+      group.forEach(item => {
+        if (!item.category_id) return;
+        const months = actual.get(item.category_id) || {};
+        const allocatedAmount = Number(item.amount || 0) * Number(transaction.amount || 0) / itemTotal;
+        months[month] = (months[month] || 0) + allocatedAmount;
+        actual.set(item.category_id, months);
+      });
     });
 
     return categories
@@ -231,8 +282,8 @@ export const DashboardPage: React.FC = () => {
         };
       })
       .filter(row => row.plannedTotal > 0 || row.actualTotal > 0)
-      .sort((a, b) => b.actualTotal - a.actualTotal || a.name.localeCompare(b.name));
-  }, [budgetTargets, categories, selectedYear, transactions]);
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [budgetTargets, categories, selectedYear, transactionItems, transactions]);
 
   const handleIncomeChange = (month: number, value: string) => {
     setIncomeDrafts(prev => ({ ...prev, [month]: value }));
@@ -431,37 +482,31 @@ export const DashboardPage: React.FC = () => {
       </Card>
 
       <Card title={`Budget per categoria ${selectedYear}`}>
-        <p className="text-muted fs-sm">Per ogni mese: previsto / consuntivo.</p>
+        <p className="text-muted fs-sm">Categorie in ordine alfabetico. Per ogni mese sono affiancati previsto e consuntivo.</p>
         {annualCategoryRows.length === 0 ? (
           <div className={styles.empty}>Nessun budget o movimento categorizzato per l'anno selezionato.</div>
         ) : (
-          <div className={styles.categoryAnnualWrapper}>
-            <table className={styles.categoryAnnualTable}>
-              <thead>
-                <tr>
-                  <th>Categoria</th>
-                  {monthNames.map(month => <th key={month}>{month.slice(0, 3)}</th>)}
-                  <th>Totale</th>
-                </tr>
-              </thead>
-              <tbody>
-                {annualCategoryRows.map(row => (
-                  <tr key={row.id}>
-                    <td>{row.name}</td>
-                    {row.months.map(month => (
-                      <td key={month.month}>
-                        <span className={styles.plannedValue}>P {currency(month.planned, currencyCode)}</span>
-                        <span className={styles.actualValue}>C {currency(month.actual, currencyCode)}</span>
-                      </td>
-                    ))}
-                    <td>
-                      <span className={styles.plannedValue}>P {currency(row.plannedTotal, currencyCode)}</span>
-                      <span className={styles.actualValue}>C {currency(row.actualTotal, currencyCode)}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className={styles.categoryAnnualList}>
+            {annualCategoryRows.map(row => (
+              <section key={row.id} className={styles.categoryAnnualSection}>
+                <header className={styles.categoryAnnualHeader}>
+                  <h3>{row.name}</h3>
+                  <div className={styles.categoryAnnualTotals}>
+                    <span>Previsto <strong>{currency(row.plannedTotal, currencyCode)}</strong></span>
+                    <span>Consuntivo <strong>{currency(row.actualTotal, currencyCode)}</strong></span>
+                  </div>
+                </header>
+                <div className={styles.categoryMonthGrid}>
+                  {row.months.map(month => (
+                    <div key={month.month} className={styles.categoryMonthCell}>
+                      <span className={styles.categoryMonthName}>{monthNames[month.month - 1]}</span>
+                      <span className={styles.plannedValue}>Prev. {currency(month.planned, currencyCode)}</span>
+                      <span className={styles.actualValue}>Cons. {currency(month.actual, currencyCode)}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </Card>

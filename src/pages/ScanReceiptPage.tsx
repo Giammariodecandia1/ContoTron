@@ -1,20 +1,58 @@
-import React, { useState, useRef, useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import Tesseract from 'tesseract.js';
-import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
+import ReactCrop, { type Crop, type PercentCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
+import {
+  ArrowDown,
+  ArrowUp,
+  Camera,
+  Crop as CropIcon,
+  Monitor,
+  Plus,
+  Smartphone,
+  Trash2,
+  UploadCloud,
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Camera, UploadCloud, Monitor, Smartphone, Crop as CropIcon, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { useAuth, useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
-import { dataUrlToFile, deleteArchiveDocument, uploadArchiveDocument } from '../lib/documentArchive';
+import { dataUrlToFile, deleteArchiveDocument, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
-import { classifyReceiptText, extractReceiptItems, extractReceiptTotal, normalizeSearchText, reconcileReceiptItems, type ReceiptItemResult } from '../lib/receiptParsing';
-import { findProductClassificationRule, loadProductClassificationRules } from '../lib/productLearning';
-import type { Document } from '../types/database';
+import {
+  classifyReceiptText,
+  extractReceiptItems,
+  extractReceiptTotal,
+  mergeReceiptPageTexts,
+  normalizeSearchText,
+  reconcileReceiptItems,
+  type ReceiptItemResult,
+} from '../lib/receiptParsing';
+import {
+  findProductClassificationRule,
+  loadProductClassificationRules,
+  saveProductClassificationRules,
+} from '../lib/productLearning';
+import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
+import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
+import type { PaymentMethod, TransactionFrequency } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
+
+type ScanStatus = 'idle' | 'webcam' | 'reviewing' | 'scanning' | 'done';
+
+type ReceiptPage = {
+  id: string;
+  image: string;
+  crop?: PercentCrop;
+};
+
+type OcrPageResult = {
+  pageNumber: number;
+  text: string;
+  confidence: number;
+};
 
 type EditableReceiptItem = ReceiptItemResult & {
   amountText: string;
@@ -29,6 +67,7 @@ const totalConfidenceLabels: Record<string, string> = {
 
 const MAX_SCAN_IMAGE_SIDE = 1800;
 const SCAN_JPEG_QUALITY = 0.86;
+const MAX_RECEIPT_PAGES = 10;
 
 const isSupportedImageFile = (file: File) => (
   file.type.startsWith('image/')
@@ -39,23 +78,16 @@ const isSupportedImageFile = (file: File) => (
 const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
   reader.onloadend = () => {
-    if (typeof reader.result === 'string') {
-      resolve(reader.result);
-    } else {
-      reject(new Error('Risultato immagine non valido'));
-    }
+    if (typeof reader.result === 'string') resolve(reader.result);
+    else reject(new Error('Risultato immagine non valido'));
   };
   reader.onerror = () => reject(new Error('Impossibile leggere il file immagine'));
   reader.readAsDataURL(blob);
 });
 
-const canvasToJpegDataUrl = (canvas: HTMLCanvasElement) => canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
-
 const fitImageSize = (width: number, height: number) => {
   const longestSide = Math.max(width, height);
-  if (longestSide <= MAX_SCAN_IMAGE_SIDE) {
-    return { width, height };
-  }
+  if (longestSide <= MAX_SCAN_IMAGE_SIDE) return { width, height };
 
   const ratio = MAX_SCAN_IMAGE_SIDE / longestSide;
   return {
@@ -71,7 +103,6 @@ const normalizeImageFileForScan = async (file: File): Promise<string> => {
       const { width, height } = fitImageSize(bitmap.width, bitmap.height);
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
-
       canvas.width = width;
       canvas.height = height;
 
@@ -84,22 +115,19 @@ const normalizeImageFileForScan = async (file: File): Promise<string> => {
       context.imageSmoothingQuality = 'high';
       context.drawImage(bitmap, 0, 0, width, height);
       bitmap.close();
-
-      return canvasToJpegDataUrl(canvas);
+      return canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY);
     } catch (error) {
       console.warn('Normalizzazione immagine con createImageBitmap fallita:', error);
     }
   }
 
   const originalDataUrl = await blobToDataUrl(file);
-
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const image = new Image();
     image.onload = () => {
       const { width, height } = fitImageSize(image.naturalWidth || image.width, image.naturalHeight || image.height);
       const canvas = document.createElement('canvas');
       const context = canvas.getContext('2d');
-
       canvas.width = width;
       canvas.height = height;
 
@@ -111,68 +139,130 @@ const normalizeImageFileForScan = async (file: File): Promise<string> => {
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = 'high';
       context.drawImage(image, 0, 0, width, height);
-      resolve(canvasToJpegDataUrl(canvas));
+      resolve(canvas.toDataURL('image/jpeg', SCAN_JPEG_QUALITY));
     };
     image.onerror = () => resolve(originalDataUrl);
     image.src = originalDataUrl;
   });
 };
 
+const loadDataUrlImage = (source: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const image = new Image();
+  image.onload = () => resolve(image);
+  image.onerror = () => reject(new Error('Impossibile preparare una pagina per OCR'));
+  image.src = source;
+});
+
+const preparePageForOcr = async (page: ReceiptPage) => {
+  const image = await loadDataUrlImage(page.image);
+  const crop = page.crop;
+  const sourceX = crop ? Math.round((crop.x / 100) * image.naturalWidth) : 0;
+  const sourceY = crop ? Math.round((crop.y / 100) * image.naturalHeight) : 0;
+  const sourceWidth = crop ? Math.round((crop.width / 100) * image.naturalWidth) : image.naturalWidth;
+  const sourceHeight = crop ? Math.round((crop.height / 100) * image.naturalHeight) : image.naturalHeight;
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+
+  canvas.width = Math.max(1, sourceWidth);
+  canvas.height = Math.max(1, sourceHeight);
+  if (!context) return page.image;
+
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    Math.max(1, sourceWidth),
+    Math.max(1, sourceHeight),
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = imageData.data;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const gray = (pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114);
+    const enhanced = Math.max(0, Math.min(255, ((gray - 128) * 1.35) + 128));
+    pixels[index] = enhanced;
+    pixels[index + 1] = enhanced;
+    pixels[index + 2] = enhanced;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/jpeg', 0.92);
+};
+
+const createReceiptPage = (image: string): ReceiptPage => ({
+  id: crypto.randomUUID(),
+  image,
+});
+
 export const ScanReceiptPage: React.FC = () => {
-  const [status, setStatus] = useState<'idle' | 'webcam' | 'cropping' | 'scanning' | 'done'>('idle');
-  const [image, setImage] = useState<string | null>(null);
-  const [imageReady, setImageReady] = useState(false);
-  
-  // Crop state
-  const [crop, setCrop] = useState<Crop>();
-  const [completedCrop, setCompletedCrop] = useState<PixelCrop>();
-  const imgRef = useRef<HTMLImageElement>(null);
-  
+  const [status, setStatus] = useState<ScanStatus>('idle');
+  const [pages, setPages] = useState<ReceiptPage[]>([]);
+  const [activePageIndex, setActivePageIndex] = useState(0);
+  const [preparingImages, setPreparingImages] = useState(false);
+  const [scanProgress, setScanProgress] = useState('');
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [detectedCategoryId, setDetectedCategoryId] = useState<string>('');
-  const [detectedSubcategoryId, setDetectedSubcategoryId] = useState<string>('');
-  const [archivedDocumentId, setArchivedDocumentId] = useState<string>('');
-  const [archivedDocument, setArchivedDocument] = useState<Document | null>(null);
-  const [archivedOnGoogleDrive, setArchivedOnGoogleDrive] = useState(false);
-  const [deletingArchivedDocument, setDeletingArchivedDocument] = useState(false);
+  const [accountId, setAccountId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('standard');
+  const [frequency, setFrequency] = useState<TransactionFrequency | ''>('');
+  const [notes, setNotes] = useState('');
+  const [detectedCategoryId, setDetectedCategoryId] = useState('');
+  const [detectedSubcategoryId, setDetectedSubcategoryId] = useState('');
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [ocrHint, setOcrHint] = useState<string | null>(null);
   const [receiptItems, setReceiptItems] = useState<EditableReceiptItem[]>([]);
+  const [ocrPages, setOcrPages] = useState<OcrPageResult[]>([]);
+  const [mergedOcrText, setMergedOcrText] = useState('');
+  const [removedOverlapLines, setRemovedOverlapLines] = useState(0);
+  const [archiving, setArchiving] = useState(false);
 
   const webcamRef = useRef<Webcam>(null);
   const navigate = useNavigate();
-  const { household, categories, subcategories, refreshData } = useHousehold();
+  const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const documentStorageStatus = getDocumentStorageStatus(household);
   const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+  const activePage = pages[activePageIndex] || null;
   const expenseCategories = categories
     .filter(category => category.type === 'expense')
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const detectedCategory = categories.find(category => category.id === detectedCategoryId);
-  const detectedSubcategories = subcategories
-    .filter(subcategory => subcategory.category_id === detectedCategoryId)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const resetResults = () => {
+    setAmount('');
+    setMerchant('');
+    setDetectedCategoryId('');
+    setDetectedSubcategoryId('');
+    setArchiveError(null);
+    setOcrHint(null);
+    setReceiptItems([]);
+    setOcrPages([]);
+    setMergedOcrText('');
+    setRemovedOverlapLines(0);
+  };
+
+  const resetAll = () => {
+    resetResults();
+    setPages([]);
+    setActivePageIndex(0);
+    setAccountId('');
+    setPaymentMethod('standard');
+    setFrequency('');
+    setNotes('');
+    setStatus('idle');
+  };
 
   const ensureExpenseCategory = async (name: string) => {
     if (!household) return null;
-
-    const existingCategory = categories.find(category => (
-      normalizeSearchText(category.name) === normalizeSearchText(name)
-    ));
-
+    const existingCategory = categories.find(category => normalizeSearchText(category.name) === normalizeSearchText(name));
     if (existingCategory) return existingCategory;
 
     const { data, error } = await supabase
       .from('categories')
-      .insert([{
-        household_id: household.id,
-        name,
-        type: 'expense',
-        sort_order: 100,
-      }])
+      .insert([{ household_id: household.id, name, type: 'expense', sort_order: 100 }])
       .select('*')
       .single();
 
@@ -185,107 +275,124 @@ export const ScanReceiptPage: React.FC = () => {
     return data;
   };
 
-  // Draw crop to canvas to extract just the cropped portion
-  const getCroppedImg = async (imageElement: HTMLImageElement, pixelCrop: PixelCrop): Promise<string> => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      throw new Error('No 2d context');
+  const addFiles = async (selectedFiles: File[]) => {
+    const availableSlots = MAX_RECEIPT_PAGES - pages.length;
+    const acceptedFiles = selectedFiles.filter(isSupportedImageFile).slice(0, availableSlots);
+    if (acceptedFiles.length === 0) {
+      setArchiveError(
+        pages.length >= MAX_RECEIPT_PAGES
+          ? `Puoi acquisire al massimo ${MAX_RECEIPT_PAGES} pagine per scontrino.`
+          : 'Seleziona una foto o immagine valida.',
+      );
+      return;
     }
 
-    const scaleX = imageElement.naturalWidth / imageElement.width;
-    const scaleY = imageElement.naturalHeight / imageElement.height;
-    
-    const pixelRatio = window.devicePixelRatio;
-    
-    canvas.width = Math.floor(pixelCrop.width * scaleX * pixelRatio);
-    canvas.height = Math.floor(pixelCrop.height * scaleY * pixelRatio);
+    setPreparingImages(true);
+    setArchiveError('Preparazione delle foto...');
+    try {
+      const normalizedImages: string[] = [];
+      for (const file of acceptedFiles) normalizedImages.push(await normalizeImageFileForScan(file));
 
-    ctx.scale(pixelRatio, pixelRatio);
-    ctx.imageSmoothingQuality = 'high';
-
-    const cropX = pixelCrop.x * scaleX;
-    const cropY = pixelCrop.y * scaleY;
-    const cropWidth = pixelCrop.width * scaleX;
-    const cropHeight = pixelCrop.height * scaleY;
-
-    ctx.drawImage(
-      imageElement,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      cropWidth,
-      cropHeight
-    );
-
-    // Auto-enhance for OCR (grayscale + high contrast)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-      const val = avg < 150 ? 0 : 255;
-      data[i] = val;
-      data[i+1] = val;
-      data[i+2] = val;
+      const newPages = normalizedImages.map(createReceiptPage);
+      setPages(previous => [...previous, ...newPages]);
+      setActivePageIndex(pages.length);
+      resetResults();
+      setStatus('reviewing');
+      setArchiveError(
+        selectedFiles.length > acceptedFiles.length
+          ? `Sono state aggiunte ${acceptedFiles.length} foto. Il limite e ${MAX_RECEIPT_PAGES} pagine.`
+          : null,
+      );
+    } catch (error) {
+      console.error('Errore lettura immagini:', error);
+      setArchiveError('Non riesco a leggere una delle immagini. Se e HEIC, imposta la fotocamera su JPG e riprova.');
+    } finally {
+      setPreparingImages(false);
     }
-    ctx.putImageData(imageData, 0, 0);
-
-    return canvas.toDataURL('image/jpeg');
   };
 
-  const processImage = async () => {
-    if (!image) {
-      setArchiveError('Carica o scatta una foto dello scontrino prima di avviare OCR.');
+  const onImageLoad = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    await addFiles(files);
+  };
+
+  const captureWebcam = useCallback(() => {
+    const imageSource = webcamRef.current?.getScreenshot();
+    if (!imageSource) return;
+    setPages(previous => [...previous, createReceiptPage(imageSource)].slice(0, MAX_RECEIPT_PAGES));
+    setActivePageIndex(pages.length);
+    resetResults();
+    setArchiveError(null);
+    setStatus('reviewing');
+  }, [pages.length]);
+
+  const updateActiveCrop = (crop: PercentCrop) => {
+    setPages(previous => previous.map((page, index) => index === activePageIndex ? { ...page, crop } : page));
+  };
+
+  const moveActivePage = (direction: -1 | 1) => {
+    const destination = activePageIndex + direction;
+    if (destination < 0 || destination >= pages.length) return;
+
+    setPages(previous => {
+      const reordered = [...previous];
+      [reordered[activePageIndex], reordered[destination]] = [reordered[destination], reordered[activePageIndex]];
+      return reordered;
+    });
+    setActivePageIndex(destination);
+  };
+
+  const removeActivePage = () => {
+    const remaining = pages.filter((_, index) => index !== activePageIndex);
+    setPages(remaining);
+    setActivePageIndex(Math.max(0, Math.min(activePageIndex, remaining.length - 1)));
+    resetResults();
+    if (remaining.length === 0) setStatus('idle');
+  };
+
+  const processImages = async () => {
+    if (pages.length === 0) {
+      setArchiveError('Aggiungi almeno una foto dello scontrino.');
       return;
     }
 
-    if (!imgRef.current || !imageReady) {
-      setArchiveError("Sto ancora caricando l'immagine. Riprova tra un secondo.");
-      return;
-    }
-    
-    let targetImageSrc = image;
-    
-    // If user cropped, use the cropped and enhanced image
-    if (completedCrop && completedCrop.width > 0 && completedCrop.height > 0) {
-       targetImageSrc = await getCroppedImg(imgRef.current, completedCrop);
-    }
-    
     setStatus('scanning');
-    
+    setArchiveError(null);
+    setScanProgress(`Preparazione pagina 1 di ${pages.length}...`);
+
     try {
-      const result = await Tesseract.recognize(targetImageSrc, 'ita+eng', {
-        logger: m => console.log(m)
-      });
-      const text = result.data.text;
-      
-      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-      const totalResult = extractReceiptTotal(text);
-      const foundAmount = totalResult.amount ? totalResult.amount.toFixed(2) : '0.00';
+      const recognizedPages: OcrPageResult[] = [];
+      for (let index = 0; index < pages.length; index += 1) {
+        setScanProgress(`Lettura OCR pagina ${index + 1} di ${pages.length}...`);
+        const targetImage = await preparePageForOcr(pages[index]);
+        const result = await Tesseract.recognize(targetImage, 'ita+eng');
+        recognizedPages.push({
+          pageNumber: index + 1,
+          text: result.data.text,
+          confidence: result.data.confidence,
+        });
+      }
 
-      // Heuristic 2: Merchant is usually the first non-empty line containing text
-      const foundMerchant = lines.find(l => /[a-zA-Z]{4,}/.test(l)) || (lines.length > 0 ? lines[0] : '');
-      const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s.&-]/g, '').substring(0, 30).trim();
-      
-      setAmount(foundAmount);
-      setMerchant(cleanMerchant || 'Esercente Sconosciuto');
+      setScanProgress('Unione delle pagine e classificazione articoli...');
+      const merged = mergeReceiptPageTexts(recognizedPages.map(page => page.text));
+      if (!merged.text.trim()) throw new Error('Non e stato riconosciuto testo leggibile nelle foto.');
 
-      // Auto categorization
-      const fullTextLower = normalizeSearchText(text);
+      const firstPageLines = recognizedPages[0].text.split('\n').map(line => line.trim()).filter(Boolean);
+      const totalResult = extractReceiptTotal(merged.text);
+      const foundMerchant = firstPageLines.find(line => /[a-zA-Z]{4,}/.test(line)) || firstPageLines[0] || '';
+      const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s.&-]/g, '').substring(0, 40).trim();
+
+      setAmount(totalResult.amount ? totalResult.amount.toFixed(2) : '0.00');
+      setMerchant(cleanMerchant || 'Esercente sconosciuto');
+
+      const fullTextLower = normalizeSearchText(merged.text);
       let matchedCategoryId = '';
       let matchedSubcategoryId = '';
-      let matchFoundInDb = false;
-      let detectedKeyword = '';
       let suggestedCategoryName = '';
       let categoriesForItemMatching = categories;
 
-      // 1. Try DB Classification Rules
       if (household) {
-        // Find all rules for this household
         const { data: rules } = await supabase
           .from('classification_rules')
           .select('*')
@@ -293,35 +400,19 @@ export const ScanReceiptPage: React.FC = () => {
           .order('priority', { ascending: false })
           .order('use_count', { ascending: false });
 
-        if (rules && rules.length > 0) {
-          // First try to match the exact merchant
-          const merchantLower = normalizeSearchText(cleanMerchant);
-          const merchantMatch = rules.find(r => normalizeSearchText(r.match_text) === merchantLower);
-          
-          if (merchantMatch) {
-            matchedCategoryId = merchantMatch.category_id;
-            matchedSubcategoryId = merchantMatch.subcategory_id || '';
-            matchFoundInDb = true;
-          } else {
-            // Then try to find any rule keyword in the full text
-            for (const rule of rules) {
-              if (fullTextLower.includes(normalizeSearchText(rule.match_text))) {
-                matchedCategoryId = rule.category_id;
-                matchedSubcategoryId = rule.subcategory_id || '';
-                matchFoundInDb = true;
-                break;
-              }
-            }
-          }
+        const merchantLower = normalizeSearchText(cleanMerchant);
+        const rule = rules?.find(candidate => normalizeSearchText(candidate.match_text) === merchantLower)
+          || rules?.find(candidate => fullTextLower.includes(normalizeSearchText(candidate.match_text)));
+        if (rule) {
+          matchedCategoryId = rule.category_id;
+          matchedSubcategoryId = rule.subcategory_id || '';
         }
       }
 
-      // 2. Fallback to saved category/subcategory names and curated keywords
-      if (!matchFoundInDb) {
-        const categoryMatch = classifyReceiptText(text, categories, subcategories);
+      if (!matchedCategoryId) {
+        const categoryMatch = classifyReceiptText(merged.text, categories, subcategories);
         matchedCategoryId = categoryMatch.categoryId;
         matchedSubcategoryId = categoryMatch.subcategoryId;
-        detectedKeyword = categoryMatch.matchedKeyword || '';
         suggestedCategoryName = categoryMatch.suggestedCategoryName || '';
 
         if (!matchedCategoryId && suggestedCategoryName) {
@@ -333,7 +424,7 @@ export const ScanReceiptPage: React.FC = () => {
         }
       }
 
-      const extractedItems = extractReceiptItems(text, categoriesForItemMatching, subcategories);
+      const extractedItems = extractReceiptItems(merged.text, categoriesForItemMatching, subcategories);
       const reconciliation = reconcileReceiptItems(extractedItems, totalResult.amount);
       const productRules = household ? await loadProductClassificationRules(household.id) : [];
       const editableItems: EditableReceiptItem[] = [];
@@ -362,172 +453,64 @@ export const ScanReceiptPage: React.FC = () => {
       setDetectedCategoryId(matchedCategoryId);
       setDetectedSubcategoryId(matchedSubcategoryId);
       setReceiptItems(editableItems);
+      setOcrPages(recognizedPages);
+      setMergedOcrText(merged.text);
+      setRemovedOverlapLines(merged.removedOverlapLines);
       setOcrHint([
-        totalResult.sourceLine ? `Totale letto da: "${totalResult.sourceLine}" - ${totalConfidenceLabels[totalResult.confidence]}` : '',
-        suggestedCategoryName ? `Categoria suggerita: ${suggestedCategoryName}${detectedKeyword ? ` da "${detectedKeyword}"` : ''}` : '',
+        `${pages.length} ${pages.length === 1 ? 'pagina analizzata' : 'pagine analizzate'}`,
+        merged.removedOverlapLines > 0 ? `${merged.removedOverlapLines} righe sovrapposte eliminate` : '',
+        totalResult.sourceLine
+          ? `Totale letto da: "${totalResult.sourceLine}" - ${totalConfidenceLabels[totalResult.confidence]}`
+          : 'Totale non rilevato',
         reconciliation.correctedDescriptions.length > 0
           ? `Corretto possibile errore 9/0 su: ${reconciliation.correctedDescriptions.join(', ')}`
           : '',
-      ].filter(Boolean).join(' - ') || null);
-
-      if (household && image) {
-        try {
-          setArchiveError(null);
-          const archiveFile = await dataUrlToFile(image, `scontrino-${Date.now()}.jpg`);
-          const document = await uploadArchiveDocument({
-            householdId: household.id,
-            household,
-            uploadedBy: user?.id || null,
-            file: archiveFile,
-            type: 'receipt',
-            documentDate: date,
-            vendorName: cleanMerchant || 'Scontrino',
-            totalAmount: totalResult.amount,
-          });
-
-          await supabase.from('ocr_jobs').insert([{
-            household_id: household.id,
-            document_id: document.id,
-            provider: 'tesseract',
-            status: 'completed',
-            extracted_text: text,
-            extracted_json: {
-              source: 'scan_receipt',
-              total: totalResult,
-              detected_category_id: matchedCategoryId || null,
-              detected_subcategory_id: matchedSubcategoryId || null,
-              detected_keyword: detectedKeyword || null,
-              items: editableItems.map(item => ({
-                description: item.description,
-                amount: Number(item.amountText.replace(',', '.')),
-                category_id: item.categoryId || null,
-                subcategory_id: item.subcategoryId || null,
-                raw_line: item.rawLine,
-              })),
-            },
-            confidence: result.data.confidence,
-            started_at: new Date().toISOString(),
-            completed_at: new Date().toISOString(),
-          }]);
-
-          setArchivedDocumentId(document.id);
-          setArchivedDocument(document);
-          setArchivedOnGoogleDrive(document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:'));
-        } catch (documentError) {
-          setArchiveError(documentError instanceof Error ? documentError.message : 'Documento non archiviato');
-        }
-      }
-
+      ].filter(Boolean).join(' - '));
       setStatus('done');
-
-    } catch (err) {
-      console.error(err);
-      alert('Errore durante il riconoscimento del testo.');
-      setStatus('cropping');
+    } catch (error) {
+      console.error(error);
+      setArchiveError(error instanceof Error ? error.message : 'Errore durante il riconoscimento del testo.');
+      setStatus('reviewing');
+    } finally {
+      setScanProgress('');
     }
   };
-
-  const resetScanResult = () => {
-    setImageReady(false);
-    setCrop(undefined);
-    setCompletedCrop(undefined);
-    setAmount('');
-    setMerchant('');
-    setDetectedCategoryId('');
-    setDetectedSubcategoryId('');
-    setArchivedDocumentId('');
-    setArchivedDocument(null);
-    setArchivedOnGoogleDrive(false);
-    setDeletingArchivedDocument(false);
-    setArchiveError(null);
-    setOcrHint(null);
-    setReceiptItems([]);
-  };
-
-  const onImageLoad = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-
-    if (file) {
-      if (!isSupportedImageFile(file)) {
-        setArchiveError('Per ora la scansione OCR accetta foto o immagini. I PDF puoi archiviarli dalla pagina Documenti.');
-        return;
-      }
-
-      try {
-        resetScanResult();
-        setArchiveError('Preparazione foto per OCR...');
-        const normalizedImage = await normalizeImageFileForScan(file);
-        setImage(normalizedImage);
-        setArchiveError(null);
-        setStatus('cropping');
-      } catch (error) {
-        console.error('Errore lettura immagine:', error);
-        setArchiveError('Non riesco a leggere questa immagine. Se e uno scatto HEIC, prova a impostare la fotocamera su JPG e riprova.');
-      }
-    }
-  };
-
-  const captureWebcam = useCallback(() => {
-    const imageSrc = webcamRef.current?.getScreenshot();
-    if (imageSrc) {
-      resetScanResult();
-      setImage(imageSrc);
-      setStatus('cropping');
-    }
-  }, [webcamRef]);
 
   const updateReceiptItem = (id: string, updates: Partial<EditableReceiptItem>) => {
-    setReceiptItems(prev => prev.map(item => (
-      item.id === id ? { ...item, ...updates } : item
-    )));
+    setReceiptItems(previous => previous.map(item => item.id === id ? { ...item, ...updates } : item));
   };
 
   const removeReceiptItem = (id: string) => {
-    setReceiptItems(prev => prev.filter(item => item.id !== id));
+    setReceiptItems(previous => previous.filter(item => item.id !== id));
   };
 
-  const receiptItemsTotal = useMemo(() => (
-    receiptItems.reduce((sum, item) => {
-      const value = Number(item.amountText.replace(',', '.'));
-      return sum + (Number.isFinite(value) ? value : 0);
-    }, 0)
-  ), [receiptItems]);
+  const addReceiptItem = () => {
+    setReceiptItems(previous => [...previous, {
+      id: `manual-${crypto.randomUUID()}`,
+      rawLine: '',
+      description: '',
+      amount: 0,
+      amountText: '',
+      categoryId: detectedCategoryId,
+      subcategoryId: '',
+    }]);
+  };
 
+  const receiptItemsTotal = useMemo(() => receiptItems.reduce((sum, item) => {
+    const value = Number(item.amountText.replace(',', '.'));
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0), [receiptItems]);
   const receiptAmountNumber = Number(amount.replace(',', '.'));
   const receiptDifference = Number.isFinite(receiptAmountNumber)
     ? Number((receiptItemsTotal - receiptAmountNumber).toFixed(2))
     : null;
 
-  const handleDeleteArchivedDocument = async () => {
-    if (!archivedDocument) {
-      setStatus('idle');
-      resetScanResult();
-      setImage(null);
+  const handleConfirm = async () => {
+    if (!household || pages.length === 0) {
+      setArchiveError('Nucleo familiare o pagine non disponibili.');
       return;
     }
 
-    const confirmed = window.confirm(
-      'Vuoi eliminare lo scontrino archiviato e annullare questa scansione?\n\nNessuna transazione verra salvata.',
-    );
-    if (!confirmed) return;
-
-    setDeletingArchivedDocument(true);
-    setArchiveError(null);
-
-    try {
-      await deleteArchiveDocument(archivedDocument);
-      setImage(null);
-      setStatus('idle');
-      resetScanResult();
-    } catch (error) {
-      setArchiveError(error instanceof Error ? error.message : 'Non riesco a eliminare lo scontrino archiviato.');
-    } finally {
-      setDeletingArchivedDocument(false);
-    }
-  };
-
-  const handleConfirm = () => {
     const items = receiptItems
       .map(item => ({
         description: item.description.trim(),
@@ -537,6 +520,22 @@ export const ScanReceiptPage: React.FC = () => {
       }))
       .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0);
 
+    if (!Number.isFinite(receiptAmountNumber) || receiptAmountNumber <= 0) {
+      setArchiveError('Controlla e inserisci un totale dello scontrino valido.');
+      return;
+    }
+
+    const selectedAccountId = accountId || accounts[0]?.id || null;
+    if (!selectedAccountId) {
+      setArchiveError('Non e disponibile un conto sul quale registrare la spesa.');
+      return;
+    }
+
+    if (!frequency) {
+      setArchiveError("Seleziona la periodicita dell'acquisto.");
+      return;
+    }
+
     if (receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
       const confirmed = window.confirm(
         `La somma degli articoli (${receiptItemsTotal.toFixed(2)} EUR) differisce dal totale (${receiptAmountNumber.toFixed(2)} EUR) di ${receiptDifference.toFixed(2)} EUR. Vuoi procedere comunque?`,
@@ -544,115 +543,238 @@ export const ScanReceiptPage: React.FC = () => {
       if (!confirmed) return;
     }
 
-    navigate('/transazioni/nuova', { 
-      state: { 
-        amount, 
-        merchant, 
-        date,
-        description: `Acquisto ${merchant}`,
-        type: 'expense',
-        categoryId: detectedCategoryId,
-        subcategoryId: detectedSubcategoryId,
-        documentId: archivedDocumentId,
-        items,
-      } 
-    });
+    setArchiving(true);
+    setArchiveError(null);
+    try {
+      const timestamp = Date.now();
+      const files = await Promise.all(pages.map((page, index) => (
+        dataUrlToFile(page.image, `scontrino-${timestamp}-pagina-${index + 1}.jpg`)
+      )));
+      const totalAmount = receiptAmountNumber;
+      const document = await uploadArchiveDocumentPages({
+        householdId: household.id,
+        household,
+        uploadedBy: user?.id || null,
+        files,
+        type: 'receipt',
+        documentDate: date,
+        vendorName: merchant || 'Scontrino',
+        totalAmount,
+      });
+
+      const averageConfidence = ocrPages.length > 0
+        ? ocrPages.reduce((sum, page) => sum + page.confidence, 0) / ocrPages.length
+        : null;
+      const { error: ocrError } = await supabase.from('ocr_jobs').insert([{
+        household_id: household.id,
+        document_id: document.id,
+        provider: 'tesseract',
+        status: 'completed',
+        extracted_text: mergedOcrText,
+        extracted_json: {
+          source: 'scan_receipt_multipage',
+          page_count: pages.length,
+          removed_overlap_lines: removedOverlapLines,
+          pages: ocrPages,
+          detected_category_id: detectedCategoryId || null,
+          detected_subcategory_id: detectedSubcategoryId || null,
+          items: items.map(item => ({
+            description: item.description,
+            amount: item.amount,
+            category_id: item.categoryId || null,
+            subcategory_id: item.subcategoryId || null,
+          })),
+        },
+        confidence: averageConfidence,
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+      }]);
+      if (ocrError) console.error('Testo OCR non archiviato:', ocrError);
+
+      const categorizedItems = items.filter(item => item.categoryId);
+      const categoryIds = new Set(categorizedItems.map(item => item.categoryId));
+      const subcategoryIds = new Set(items.filter(item => item.subcategoryId).map(item => item.subcategoryId));
+      const allItemsShareCategory = items.length > 0 && categorizedItems.length === items.length && categoryIds.size === 1;
+      const allItemsShareSubcategory = allItemsShareCategory && subcategoryIds.size === 1
+        && items.every(item => item.subcategoryId);
+
+      const { data: transaction, error: transactionError } = await supabase
+        .from('transactions')
+        .insert([{
+          household_id: household.id,
+          account_id: selectedAccountId,
+          document_id: document.id,
+          type: 'expense',
+          status: 'confirmed',
+          source: 'receipt_ocr',
+          payment_method: paymentMethod,
+          cash_impact_date: getCashImpactDate(date, paymentMethod),
+          frequency,
+          transaction_date: date,
+          description: `Acquisto ${merchant || 'da scontrino'}`,
+          merchant: merchant.trim() || null,
+          amount: totalAmount,
+          category_id: allItemsShareCategory ? [...categoryIds][0] : null,
+          subcategory_id: allItemsShareSubcategory ? [...subcategoryIds][0] : null,
+          is_shared: true,
+          inserted_by: user?.id || null,
+          notes: notes.trim() || null,
+        }])
+        .select()
+        .single();
+
+      if (transactionError || !transaction) {
+        await deleteArchiveDocument(document).catch(cleanupError => console.warn('Pulizia documento fallita:', cleanupError));
+        throw new Error(transactionError?.message || 'Transazione non salvata.');
+      }
+
+      if (items.length > 0) {
+        const itemRows = items.map(item => ({
+          household_id: household.id,
+          transaction_id: transaction.id,
+          description: item.description,
+          amount: item.amount,
+          category_id: item.categoryId || null,
+          subcategory_id: item.subcategoryId || null,
+          is_confirmed: true,
+        }));
+        const { error: itemError } = await supabase.from('transaction_items').insert(itemRows);
+        if (itemError) {
+          await supabase.from('transactions').delete().eq('id', transaction.id);
+          await deleteArchiveDocument(document).catch(cleanupError => console.warn('Pulizia documento fallita:', cleanupError));
+          throw new Error(`Articoli non salvati: ${itemError.message}`);
+        }
+
+        await saveProductClassificationRules({
+          householdId: household.id,
+          userId: user?.id || null,
+          products: items.map(item => ({
+            description: item.description,
+            categoryId: item.categoryId || null,
+            subcategoryId: item.subcategoryId || null,
+          })),
+        }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
+      }
+
+      navigate('/transazioni', { replace: true });
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Non riesco ad archiviare lo scontrino multipagina.');
+    } finally {
+      setArchiving(false);
+    }
   };
+
+  const pageStrip = (
+    <div className={styles.pageStrip} aria-label="Pagine dello scontrino">
+      {pages.map((page, index) => (
+        <button
+          key={page.id}
+          type="button"
+          className={`${styles.pageThumbnail} ${index === activePageIndex ? styles.pageThumbnailActive : ''}`}
+          onClick={() => setActivePageIndex(index)}
+        >
+          <img src={page.image} alt={`Pagina ${index + 1}`} />
+          <span>Pagina {index + 1}</span>
+        </button>
+      ))}
+    </div>
+  );
 
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Scansiona Scontrino</h1>
-        <p className="text-muted">Acquisisci un documento, ritaglialo e lascia che l'OCR estragga i dati.</p>
+        <h1 className={styles.title}>Scansiona scontrino</h1>
+        <p className="text-muted">Fotografa anche gli scontrini lunghi in piu parti e controlla tutto prima di salvare.</p>
       </header>
 
       <Card className={styles.scanCard}>
         {status === 'idle' && (
           <div className={styles.idleState}>
-            <div className={styles.iconCircle}>
-              <Camera size={32} />
-            </div>
-            <p>Scegli come vuoi acquisire lo scontrino:</p>
+            <div className={styles.iconCircle}><Camera size={32} /></div>
+            <h2>Acquisisci la prima pagina</h2>
+            <p className="text-muted">Per uno scontrino lungo potrai aggiungere altre foto subito dopo.</p>
             {archiveError && <p className="text-warning fs-sm">{archiveError}</p>}
-            
-            <div style={{display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '2rem', width: '100%', maxWidth: '300px'}}>
-              <input 
-                type="file" 
-                accept="image/*" 
-                capture="environment" 
-                id="receipt-camera-input"
-                className={styles.fileInput}
-                onChange={onImageLoad}
-              />
+            <div className={styles.captureActions}>
+              <input type="file" accept="image/*" capture="environment" id="receipt-camera-input" className={styles.fileInput} onChange={onImageLoad} />
               <label className={`${styles.fileButton} ${styles.fileButtonPrimary}`} htmlFor="receipt-camera-input">
-                <Smartphone size={18} />
-                Fotocamera Telefono
+                <Smartphone size={18} /> Fotocamera telefono
               </label>
-
-              <Button 
-                variant="secondary"
-                icon={<Monitor size={18} />} 
-                onClick={() => setStatus('webcam')}
-                className="w-full"
-              >
+              <Button variant="secondary" icon={<Monitor size={18} />} onClick={() => setStatus('webcam')} className="w-full">
                 Webcam PC
               </Button>
-
-              <input 
-                type="file" 
-                accept="image/*"
-                id="receipt-file-input"
-                className={styles.fileInput}
-                onChange={onImageLoad}
-              />
+              <input type="file" accept="image/*" multiple id="receipt-file-input" className={styles.fileInput} onChange={onImageLoad} />
               <label className={`${styles.fileButton} ${styles.fileButtonGhost}`} htmlFor="receipt-file-input">
-                <UploadCloud size={18} />
-                Carica Immagine
+                <UploadCloud size={18} /> Carica foto esistenti
               </label>
             </div>
           </div>
         )}
 
         {status === 'webcam' && (
-          <div style={{width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
-            <div style={{marginBottom: '1rem', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--color-gray-200)'}}>
+          <div className={styles.webcamState}>
+            <div className={styles.webcamFrame}>
               <Webcam
                 audio={false}
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode: "environment" }}
-                style={{width: '100%', maxWidth: '500px'}}
+                videoConstraints={{ facingMode: 'environment' }}
               />
             </div>
-            <div style={{display: 'flex', gap: '1rem'}}>
-              <Button variant="secondary" onClick={() => setStatus('idle')}>Annulla</Button>
-              <Button onClick={captureWebcam} icon={<Camera size={18} />}>Scatta Foto</Button>
+            <div className={styles.actionRow}>
+              <Button variant="secondary" onClick={() => setStatus(pages.length ? 'reviewing' : 'idle')}>Annulla</Button>
+              <Button onClick={captureWebcam} icon={<Camera size={18} />}>Scatta foto</Button>
             </div>
           </div>
         )}
 
-        {status === 'cropping' && (
-          <div style={{width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center'}}>
-             <p className="mb-4 text-muted"><strong>Opzionale ma Consigliato:</strong> Ritaglia l'immagine per includere solo il Totale e l'Esercente. L'immagine verrà messa in bianco e nero in automatico per migliorare l'OCR.</p>
-             <div style={{maxWidth: '100%', maxHeight: '60vh', overflow: 'auto', border: '1px solid var(--color-gray-200)', borderRadius: '4px', marginBottom: '1rem'}}>
-               {image && (
-                 <ReactCrop crop={crop} onChange={c => setCrop(c)} onComplete={c => setCompletedCrop(c)}>
-                   <img
-                     ref={imgRef}
-                     src={image}
-                     alt="Scontrino"
-                     style={{maxWidth: '100%'}}
-                     onLoad={() => setImageReady(true)}
-                     onError={() => setArchiveError('Non riesco a mostrare questa immagine. Prova a scattarla di nuovo.')}
-                   />
-                 </ReactCrop>
-               )}
-             </div>
-             {archiveError && <p className="text-warning fs-sm mb-4">{archiveError}</p>}
-             <div style={{display: 'flex', gap: '1rem'}}>
-              <Button variant="secondary" onClick={() => setStatus('idle')}>Annulla</Button>
-              <Button onClick={processImage} icon={<CropIcon size={18} />} disabled={!imageReady}>
-                {imageReady ? 'Conferma e Leggi OCR' : 'Caricamento immagine...'}
+        {status === 'reviewing' && activePage && (
+          <div className={styles.reviewState}>
+            <div className={styles.reviewHeader}>
+              <div>
+                <h2>{pages.length === 1 ? '1 pagina acquisita' : `${pages.length} pagine acquisite`}</h2>
+                <p className="text-muted fs-sm">Lascia 2-3 righe sovrapposte tra una foto e la successiva. Verranno eliminate automaticamente.</p>
+              </div>
+              <span className={styles.pageLimit}>{pages.length}/{MAX_RECEIPT_PAGES}</span>
+            </div>
+            {pageStrip}
+
+            <div className={styles.pageToolbar}>
+              <Button variant="secondary" size="sm" icon={<ArrowUp size={16} />} disabled={activePageIndex === 0} onClick={() => moveActivePage(-1)}>
+                Prima
+              </Button>
+              <Button variant="secondary" size="sm" icon={<ArrowDown size={16} />} disabled={activePageIndex === pages.length - 1} onClick={() => moveActivePage(1)}>
+                Dopo
+              </Button>
+              <Button variant="danger" size="sm" icon={<Trash2 size={16} />} onClick={removeActivePage}>
+                Rimuovi
+              </Button>
+            </div>
+
+            <div className={styles.cropFrame}>
+              <ReactCrop
+                crop={activePage.crop as Crop | undefined}
+                onChange={(_, percentCrop) => updateActiveCrop(percentCrop)}
+              >
+                <img src={activePage.image} alt={`Pagina ${activePageIndex + 1} dello scontrino`} />
+              </ReactCrop>
+            </div>
+            <p className="text-muted fs-sm">Il ritaglio e facoltativo. Includi l'intera porzione visibile dello scontrino, non soltanto il totale.</p>
+
+            {archiveError && <p className="text-warning fs-sm">{archiveError}</p>}
+            <div className={styles.addPageActions}>
+              <input type="file" accept="image/*" capture="environment" id="receipt-add-camera-input" className={styles.fileInput} onChange={onImageLoad} />
+              <label className={`${styles.fileButton} ${styles.fileButtonPrimary}`} htmlFor="receipt-add-camera-input">
+                <Camera size={18} /> Aggiungi altra foto
+              </label>
+              <input type="file" accept="image/*" multiple id="receipt-add-file-input" className={styles.fileInput} onChange={onImageLoad} />
+              <label className={`${styles.fileButton} ${styles.fileButtonGhost}`} htmlFor="receipt-add-file-input">
+                <Plus size={18} /> Aggiungi dalla galleria
+              </label>
+            </div>
+            <div className={styles.actionRow}>
+              <Button variant="secondary" onClick={resetAll}>Annulla scansione</Button>
+              <Button icon={<CropIcon size={18} />} onClick={processImages} disabled={preparingImages}>
+                {preparingImages ? 'Preparazione...' : `Analizza ${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'}`}
               </Button>
             </div>
           </div>
@@ -661,177 +783,124 @@ export const ScanReceiptPage: React.FC = () => {
         {status === 'scanning' && (
           <div className={styles.scanningState}>
             <div className={styles.spinner}></div>
-            <p>Analisi OCR in corso con Tesseract.js...<br/><small className="text-muted">Potrebbe richiedere qualche secondo</small></p>
+            <p>{scanProgress || 'Analisi OCR in corso...'}</p>
+            <small className="text-muted">Non chiudere questa pagina durante la lettura.</small>
           </div>
         )}
 
         {status === 'done' && (
           <div className={styles.doneState}>
-            <h3 className="text-success mb-4">Dati Estratti!</h3>
-            
-            <div className={styles.formGroup}>
-              <label>Importo totale</label>
-              <input type="text" className={styles.input} value={amount} onChange={e => setAmount(e.target.value)} />
+            <div className={styles.doneHeading}>
+              <div>
+                <h2>Dati estratti</h2>
+                <p className="text-muted fs-sm">Controlla totale, righe e categorie prima di creare la transazione.</p>
+              </div>
+              <span className={styles.pageCountBadge}>{pages.length} {pages.length === 1 ? 'pagina' : 'pagine'}</span>
             </div>
-            <div className={styles.formGroup}>
-              <label>Esercente</label>
-              <input type="text" className={styles.input} value={merchant} onChange={e => setMerchant(e.target.value)} />
-            </div>
-            <div className={styles.formGroup}>
-              <label>Data</label>
-              <input type="date" className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
-            </div>
-            {ocrHint && (
-              <p className="text-muted fs-sm text-center mb-4">{ocrHint}</p>
-            )}
-            <div className={styles.formGroup}>
-              <label>Categoria dello scontrino</label>
-              <select
-                className={styles.input}
-                value={detectedCategoryId}
-                onChange={event => {
-                  setDetectedCategoryId(event.target.value);
-                  setDetectedSubcategoryId('');
-                }}
-              >
-                <option value="">Seleziona categoria...</option>
-                {expenseCategories.map(category => (
-                  <option key={category.id} value={category.id}>{category.name}</option>
-                ))}
-              </select>
-              {detectedCategory && (
-                <span className="text-success fs-sm">Rilevata: {detectedCategory.name}</span>
-              )}
-            </div>
+            {pageStrip}
 
-            {detectedSubcategories.length > 0 && (
+            <div className={styles.summaryGrid}>
               <div className={styles.formGroup}>
-                <label>Sottocategoria</label>
-                <select
-                  className={styles.input}
-                  value={detectedSubcategoryId}
-                  onChange={event => setDetectedSubcategoryId(event.target.value)}
-                >
-                  <option value="">Nessuna sottocategoria</option>
-                  {detectedSubcategories.map(subcategory => (
-                    <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
-                  ))}
+                <label>Importo totale</label>
+                <input type="text" inputMode="decimal" className={styles.input} value={amount} onChange={event => setAmount(event.target.value)} />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Esercente</label>
+                <input type="text" className={styles.input} value={merchant} onChange={event => setMerchant(event.target.value)} />
+              </div>
+              <div className={styles.formGroup}>
+                <label>Data</label>
+                <input type="date" className={styles.input} value={date} onChange={event => setDate(event.target.value)} />
+              </div>
+              {accounts.length > 1 && (
+                <div className={styles.formGroup}>
+                  <label>Conto</label>
+                  <select className={styles.input} value={accountId || accounts[0]?.id || ''} onChange={event => setAccountId(event.target.value)}>
+                    {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className={styles.formGroup}>
+                <label>Tipologia pagamento</label>
+                <select className={styles.input} value={paymentMethod} onChange={event => setPaymentMethod(event.target.value as PaymentMethod)}>
+                  {paymentMethodOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
-            )}
-
-            {detectedCategoryId ? (
-               <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-                 <p className="text-success fs-sm">✨ Categoria trovata automaticamente!</p>
-                 {detectedSubcategoryId && (
-                   <p className="text-muted fs-sm">Sottocategoria abbinata.</p>
-                 )}
-               </div>
-            ) : (
-               <p className="text-warning fs-sm text-center mb-4">⚠️ Nessuna categoria abbinata automaticamente.</p>
-            )}
-            {receiptItems.length > 0 && (
-              <div className={styles.itemsReview}>
-                <h4>Articoli rilevati</h4>
-                <p className="text-muted fs-sm">
-                  Se lo scontrino contiene spese diverse, correggi categoria e importo per ogni riga.
-                </p>
-
-                {receiptItems.map(item => {
-                  const itemSubcategories = subcategories
-                    .filter(subcategory => subcategory.category_id === item.categoryId)
-                    .sort((a, b) => a.name.localeCompare(b.name));
-
-                  return (
-                    <div key={item.id} className={styles.itemRow}>
-                      <input
-                        className={styles.itemDescription}
-                        value={item.description}
-                        onChange={event => updateReceiptItem(item.id, { description: event.target.value })}
-                        aria-label="Descrizione articolo"
-                      />
-                      <input
-                        className={styles.itemAmount}
-                        value={item.amountText}
-                        onChange={event => updateReceiptItem(item.id, { amountText: event.target.value })}
-                        aria-label="Importo articolo"
-                      />
-                      <select
-                        className={styles.itemSelect}
-                        value={item.categoryId}
-                        onChange={event => updateReceiptItem(item.id, { categoryId: event.target.value, subcategoryId: '' })}
-                        aria-label="Categoria articolo"
-                      >
-                        <option value="">Categoria...</option>
-                        {expenseCategories.map(category => (
-                          <option key={category.id} value={category.id}>{category.name}</option>
-                        ))}
-                      </select>
-                      <select
-                        className={styles.itemSelect}
-                        value={item.subcategoryId}
-                        onChange={event => updateReceiptItem(item.id, { subcategoryId: event.target.value })}
-                        aria-label="Sottocategoria articolo"
-                        disabled={!item.categoryId || itemSubcategories.length === 0}
-                      >
-                        <option value="">Sottocategoria...</option>
-                        {itemSubcategories.map(subcategory => (
-                          <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className={styles.removeItemButton}
-                        onClick={() => removeReceiptItem(item.id)}
-                      >
-                        Rimuovi
-                      </button>
-                    </div>
-                  );
-                })}
-                <div className={styles.reconciliationSummary}>
-                  <span>Somma articoli: <strong>{receiptItemsTotal.toFixed(2)} EUR</strong></span>
-                  <span>Totale scontrino: <strong>{Number.isFinite(receiptAmountNumber) ? receiptAmountNumber.toFixed(2) : '0.00'} EUR</strong></span>
-                  <span className={receiptDifference !== null && Math.abs(receiptDifference) > 0.05 ? styles.reconciliationWarning : styles.reconciliationOk}>
-                    {receiptDifference === null
-                      ? 'Totale non disponibile'
-                      : Math.abs(receiptDifference) <= 0.05
-                      ? 'Somma verificata'
-                      : `Differenza: ${receiptDifference.toFixed(2)} EUR`}
-                  </span>
-                </div>
+              <div className={styles.formGroup}>
+                <label>Periodicita dell'acquisto</label>
+                <select className={styles.input} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)} required>
+                  <option value="">Seleziona periodicita...</option>
+                  {transactionFrequencyOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
               </div>
-            )}
-
-            {archivedDocumentId && (
-              <p className="text-success fs-sm text-center mb-2">
-                {archivedOnGoogleDrive
-                  ? 'Documento salvato su Google Drive.'
-                  : drivePending
-                  ? "Documento salvato nell'archivio interno provvisorio. Google Drive e' ancora da collegare."
-                  : "Documento salvato nell'archivio."}
-              </p>
-            )}
-            {archiveError && (
-              <p className="text-warning fs-sm text-center mb-2">OCR completato, ma archivio non salvato: {archiveError}</p>
-            )}
-            <div style={{display: 'flex', gap: '1rem', width: '100%', maxWidth: '400px', marginTop: '1rem'}}>
-               <Button variant="secondary" className="w-full" onClick={() => setStatus('cropping')}>Ritaglia di nuovo</Button>
-               <Button className="w-full" onClick={handleConfirm}>Procedi</Button>
+              <div className={styles.formGroup}>
+                <label>Commento / promemoria</label>
+                <textarea className={styles.input} rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Dettaglio opzionale sulla spesa" />
+              </div>
             </div>
-            {archivedDocumentId && (
-              <div style={{ width: '100%', maxWidth: '400px', marginTop: '0.75rem' }}>
-                <Button
-                  variant="danger"
-                  className="w-full"
-                  icon={<Trash2 size={18} />}
-                  onClick={handleDeleteArchivedDocument}
-                  disabled={deletingArchivedDocument}
-                >
-                  {deletingArchivedDocument ? 'Eliminazione...' : 'Elimina scontrino e annulla'}
+
+            {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
+
+            <div className={styles.itemsReview}>
+              <div className={styles.itemsHeader}>
+                <div>
+                  <h3>Articoli rilevati</h3>
+                  <p className="text-muted fs-sm">Correggi descrizione, prezzo e classificazione di ogni riga.</p>
+                </div>
+                <Button type="button" variant="secondary" size="sm" icon={<Plus size={16} />} onClick={addReceiptItem}>
+                  Aggiungi riga
                 </Button>
               </div>
-            )}
+
+              {receiptItems.length === 0 && <p className="text-warning fs-sm">Nessun articolo riconosciuto. Puoi aggiungere le righe manualmente.</p>}
+              {receiptItems.map(item => {
+                const itemSubcategories = subcategories
+                  .filter(subcategory => subcategory.category_id === item.categoryId)
+                  .sort((left, right) => left.name.localeCompare(right.name));
+
+                return (
+                  <div key={item.id} className={styles.itemRow}>
+                    <input className={styles.itemDescription} value={item.description} onChange={event => updateReceiptItem(item.id, { description: event.target.value })} aria-label="Descrizione articolo" placeholder="Descrizione" />
+                    <input className={styles.itemAmount} inputMode="decimal" value={item.amountText} onChange={event => updateReceiptItem(item.id, { amountText: event.target.value })} aria-label="Importo articolo" placeholder="0,00" />
+                    <select className={styles.itemSelect} value={item.categoryId} onChange={event => updateReceiptItem(item.id, { categoryId: event.target.value, subcategoryId: '' })} aria-label="Categoria articolo">
+                      <option value="">Categoria...</option>
+                      {expenseCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
+                    </select>
+                    <select className={styles.itemSelect} value={item.subcategoryId} onChange={event => updateReceiptItem(item.id, { subcategoryId: event.target.value })} aria-label="Sottocategoria articolo" disabled={!item.categoryId || itemSubcategories.length === 0}>
+                      <option value="">Sottocategoria...</option>
+                      {itemSubcategories.map(subcategory => <option key={subcategory.id} value={subcategory.id}>{subcategory.name}</option>)}
+                    </select>
+                    <button type="button" className={styles.removeItemButton} onClick={() => removeReceiptItem(item.id)} aria-label="Rimuovi articolo">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                );
+              })}
+
+              <div className={styles.reconciliationSummary}>
+                <span>Somma articoli: <strong>{receiptItemsTotal.toFixed(2)} EUR</strong></span>
+                <span className={receiptDifference !== null && Math.abs(receiptDifference) > 0.05 ? styles.reconciliationWarning : styles.reconciliationOk}>
+                  {receiptDifference === null
+                    ? 'Totale non disponibile'
+                    : Math.abs(receiptDifference) <= 0.05
+                    ? 'Somma verificata'
+                    : `Differenza: ${receiptDifference.toFixed(2)} EUR`}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-muted fs-sm text-center">
+              {drivePending
+                ? "Le pagine verranno salvate nell'archivio interno provvisorio finche Google Drive non sara collegato."
+                : `Le ${pages.length} pagine verranno archiviate insieme come un unico documento.`}
+            </p>
+            {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}
+            <div className={styles.actionRow}>
+              <Button variant="secondary" onClick={() => setStatus('reviewing')} disabled={archiving}>Rivedi foto</Button>
+              <Button onClick={handleConfirm} disabled={archiving}>
+                {archiving ? 'Salvataggio completo...' : 'Salva scontrino e transazione'}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

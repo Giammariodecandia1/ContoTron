@@ -75,10 +75,7 @@ export const TransactionsPage: React.FC = () => {
                 <div>
                   <div style={{ fontWeight: '600' }}>{tx.description}</div>
                   <div className="text-muted fs-sm">
-                    {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || 'Non classificato'} - Conto: {tx.accounts?.name || 'Conto'}
-                  </div>
-                  <div className="text-muted fs-sm">
-                    Frequenza: {getTransactionFrequencyLabel(tx.frequency)}
+                    {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || (tx.source === 'receipt_ocr' ? 'Scontrino multi-categoria' : 'Non classificato')} - Conto: {tx.accounts?.name || 'Conto'} - Periodicita: {getTransactionFrequencyLabel(tx.frequency)}
                   </div>
                   <div className="text-muted fs-sm">
                     Caricata da account: {uploaderLabel(tx)}

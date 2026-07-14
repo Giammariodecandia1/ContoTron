@@ -10,6 +10,15 @@ import styles from './RecurringRulesPage.module.css';
 
 const todayString = () => new Date().toISOString().split('T')[0];
 
+const endDateFromDuration = (startDate: string, durationMonths: number) => {
+  if (!startDate || !Number.isInteger(durationMonths) || durationMonths <= 0) return null;
+  const start = new Date(`${startDate}T00:00:00`);
+  const targetMonth = start.getMonth() + durationMonths - 1;
+  const lastDay = new Date(start.getFullYear(), targetMonth + 1, 0).getDate();
+  const end = new Date(start.getFullYear(), targetMonth, Math.min(start.getDate(), lastDay));
+  return `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`;
+};
+
 const fixedExpenseReasons = [
   { value: 'financing', label: 'Finanziamento' },
   { value: 'tv_fee', label: 'Canone TV' },
@@ -40,6 +49,7 @@ export const RecurringRulesPage: React.FC = () => {
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
   const [startDate, setStartDate] = useState(todayString());
+  const [durationMonths, setDurationMonths] = useState('');
   const [notes, setNotes] = useState('');
 
   const expenseCategories = useMemo(
@@ -55,6 +65,11 @@ export const RecurringRulesPage: React.FC = () => {
   const categoryName = (id?: string | null) => categories.find(category => category.id === id)?.name || 'Non classificata';
   const subcategoryName = (id?: string | null) => subcategories.find(subcategory => subcategory.id === id)?.name || '';
   const accountName = (id?: string | null) => accounts.find(account => account.id === id)?.name || 'Conto principale';
+  const reasonName = (code?: string | null) => fixedExpenseReasons.find(option => option.value === code)?.label || null;
+  const calculatedEndDate = useMemo(() => {
+    const months = Number(durationMonths);
+    return Number.isInteger(months) && months > 0 ? endDateFromDuration(startDate, months) : null;
+  }, [durationMonths, startDate]);
 
   const fetchRules = useCallback(async () => {
     if (!householdId) return;
@@ -92,6 +107,7 @@ export const RecurringRulesPage: React.FC = () => {
     setCategoryId('');
     setSubcategoryId('');
     setStartDate(todayString());
+    setDurationMonths('');
     setNotes('');
   };
 
@@ -101,12 +117,15 @@ export const RecurringRulesPage: React.FC = () => {
 
     const parsedAmount = Number(amount.replace(',', '.'));
     const reasonLabel = fixedExpenseReasons.find(option => option.value === reason)?.label || '';
-    const finalDescription = reason === 'other'
-      ? description.trim()
-      : [reasonLabel, description.trim()].filter(Boolean).join(' - ');
+    const finalDescription = description.trim() || reasonLabel;
+    const parsedDuration = durationMonths ? Number(durationMonths) : null;
 
     if (!reason || !finalDescription || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError('Seleziona una motivazione e inserisci un importo valido. Per Altro specifica il dettaglio.');
+      setError('Seleziona il tipo di spesa e inserisci un importo valido. Per Altro specifica il dettaglio.');
+      return;
+    }
+    if (parsedDuration !== null && (!Number.isInteger(parsedDuration) || parsedDuration <= 0)) {
+      setError('La durata deve essere espressa con un numero intero di mesi maggiore di zero.');
       return;
     }
 
@@ -127,7 +146,10 @@ export const RecurringRulesPage: React.FC = () => {
           category_id: categoryId || null,
           subcategory_id: subcategoryId || null,
           frequency: 'monthly',
+          reason_code: reason,
+          duration_months: parsedDuration,
           start_date: startDate,
+          end_date: calculatedEndDate,
           next_due_date: startDate,
           is_active: true,
           notes: notes.trim() || null,
@@ -206,20 +228,29 @@ export const RecurringRulesPage: React.FC = () => {
 
       <div className={styles.grid}>
         <Card title="Nuova spesa fissa" icon={<Plus size={20} />}>
-          <form className={styles.form} onSubmit={handleCreateRule}>
+          <form
+            className={styles.form}
+            onSubmit={handleCreateRule}
+            onKeyDown={event => {
+              const target = event.target as HTMLElement;
+              if (event.key === 'Enter' && target.tagName !== 'TEXTAREA' && target.tagName !== 'BUTTON') {
+                event.preventDefault();
+              }
+            }}
+          >
             {message && <div className={`${styles.message} ${styles.success}`}>{message}</div>}
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
 
             <div className={styles.formGroup}>
-              <label>Motivazione</label>
+              <label>Tipo di spesa fissa</label>
               <select className={styles.select} value={reason} onChange={event => setReason(event.target.value)} required>
-                <option value="">Seleziona motivazione...</option>
+                <option value="">Seleziona tipo...</option>
                 {fixedExpenseReasons.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </div>
 
             <div className={styles.formGroup}>
-              <label>{reason === 'other' ? 'Descrizione obbligatoria' : 'Dettaglio opzionale'}</label>
+              <label>{reason === 'other' ? 'Descrizione obbligatoria' : 'Descrizione opzionale'}</label>
               <input
                 className={styles.input}
                 value={description}
@@ -273,6 +304,24 @@ export const RecurringRulesPage: React.FC = () => {
             </div>
 
             <div className={styles.formGroup}>
+              <label>Durata in mesi (opzionale)</label>
+              <input
+                className={styles.input}
+                type="number"
+                min="1"
+                step="1"
+                value={durationMonths}
+                onChange={event => setDurationMonths(event.target.value)}
+                placeholder="es. 36"
+              />
+              <small className="text-muted">
+                {calculatedEndDate
+                  ? `Ultima scadenza: ${new Date(`${calculatedEndDate}T00:00:00`).toLocaleDateString('it-IT')}`
+                  : 'Lascia vuoto per una spesa senza scadenza.'}
+              </small>
+            </div>
+
+            <div className={styles.formGroup}>
               <label>Note</label>
               <textarea className={styles.textarea} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Promemoria interno opzionale" />
             </div>
@@ -297,12 +346,16 @@ export const RecurringRulesPage: React.FC = () => {
                       <div className={styles.ruleTitle}>{rule.description}</div>
                       <div className={styles.ruleMeta}>
                         Mensile dal {new Date(`${rule.start_date}T00:00:00`).toLocaleDateString('it-IT')}
+                        {rule.end_date ? ` al ${new Date(`${rule.end_date}T00:00:00`).toLocaleDateString('it-IT')}` : ' senza scadenza'}
                         {' - '}
                         {categoryName(rule.category_id)}
                         {rule.subcategory_id ? ` / ${subcategoryName(rule.subcategory_id)}` : ''}
                         {' - '}
                         {accountName(rule.account_id)}
                       </div>
+                      {reasonName(rule.reason_code) && (
+                        <div className={styles.ruleMeta}>Tipo: {reasonName(rule.reason_code)}</div>
+                      )}
                       {rule.notes && <div className={styles.ruleMeta}>{rule.notes}</div>}
                       {!rule.is_active && <div className={styles.ruleMeta}>Disattivata</div>}
                     </div>

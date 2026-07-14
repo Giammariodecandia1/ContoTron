@@ -68,6 +68,7 @@ interface ReportIncomeTarget {
 
 interface ReportItem {
   id: string;
+  transaction_id: string;
   description: string;
   amount: number;
   category_id: string | null;
@@ -237,7 +238,7 @@ export const ReportsPage: React.FC = () => {
           .eq('year', year),
         supabase
           .from('transaction_items')
-          .select('id, description, amount, category_id, subcategory_id, transactions!inner(transaction_date)')
+          .select('id, transaction_id, description, amount, category_id, subcategory_id, transactions!inner(transaction_date)')
           .eq('household_id', householdId),
       ]);
 
@@ -280,6 +281,23 @@ export const ReportsPage: React.FC = () => {
       const date = item.transactions?.transaction_date || '';
       return date >= monthRange.start && date <= monthRange.end;
     });
+    const monthlyExpenseById = new Map(expenses.map(tx => [tx.id, tx]));
+    const monthlyItemsByTransaction = new Map<string, ReportItem[]>();
+    monthlyItems.forEach(item => {
+      if (!monthlyExpenseById.has(item.transaction_id)) return;
+      const group = monthlyItemsByTransaction.get(item.transaction_id) || [];
+      group.push(item);
+      monthlyItemsByTransaction.set(item.transaction_id, group);
+    });
+    const itemizedTransactionIds = new Set(
+      Array.from(monthlyItemsByTransaction.entries())
+        .filter(([, group]) => sumAmounts(group, item => Number(item.amount || 0)) > 0)
+        .map(([transactionId]) => transactionId),
+    );
+    const allocatedItemAmount = (item: ReportItem, group: ReportItem[], transactionAmount: number) => {
+      const itemTotal = sumAmounts(group, row => Number(row.amount || 0));
+      return itemTotal > 0 ? Number(item.amount || 0) * transactionAmount / itemTotal : 0;
+    };
 
     const totalExpense = sumAmounts(expenses, tx => Number(tx.amount || 0));
     const actualIncome = sumAmounts(incomes, tx => Number(tx.amount || 0));
@@ -297,11 +315,22 @@ export const ReportsPage: React.FC = () => {
       return current;
     };
 
-    expenses.forEach(tx => {
+    expenses.filter(tx => !itemizedTransactionIds.has(tx.id)).forEach(tx => {
       const id = tx.category_id || 'uncategorized';
       const category = ensureCategory(id, tx.categories?.name || categoryNameById.get(id) || 'Non classificato');
       category.actual += Number(tx.amount || 0);
       category.count += 1;
+    });
+    monthlyItemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = monthlyExpenseById.get(transactionId);
+      if (!transaction) return;
+      group.forEach(item => {
+        const id = item.category_id || 'uncategorized';
+        const category = ensureCategory(id, categoryNameById.get(id) || 'Non classificato');
+        category.actual += allocatedItemAmount(item, group, Number(transaction.amount || 0));
+        category.count += 1;
+      });
     });
 
     monthlyBudgetTargets.filter(target => target.category_id).forEach(target => {
@@ -317,12 +346,25 @@ export const ReportsPage: React.FC = () => {
         return current;
       };
 
-      expenses.filter(tx => (tx.category_id || 'uncategorized') === category.id).forEach(tx => {
+      expenses
+        .filter(tx => !itemizedTransactionIds.has(tx.id) && (tx.category_id || 'uncategorized') === category.id)
+        .forEach(tx => {
         const id = tx.subcategory_id || 'without-subcategory';
         const name = tx.subcategories?.name || subcategoryById.get(id)?.name || 'Senza sottocategoria';
         const subcategory = ensureSubcategory(id, name);
         subcategory.actual += Number(tx.amount || 0);
         subcategory.count += 1;
+      });
+      monthlyItemsByTransaction.forEach((group, transactionId) => {
+        if (!itemizedTransactionIds.has(transactionId)) return;
+        const transaction = monthlyExpenseById.get(transactionId);
+        if (!transaction) return;
+        group.filter(item => (item.category_id || 'uncategorized') === category.id).forEach(item => {
+          const id = item.subcategory_id || 'without-subcategory';
+          const subcategory = ensureSubcategory(id, subcategoryById.get(id)?.name || 'Senza sottocategoria');
+          subcategory.actual += allocatedItemAmount(item, group, Number(transaction.amount || 0));
+          subcategory.count += 1;
+        });
       });
 
       monthlyBudgetTargets
@@ -334,19 +376,48 @@ export const ReportsPage: React.FC = () => {
 
       category.subcategories = Array.from(subcategoryMap.values())
         .filter(row => row.actual > 0 || row.planned > 0)
-        .sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name));
+        .sort((a, b) => a.name.localeCompare(b.name));
     });
 
     const categoryRows = Array.from(categoryMap.values())
       .filter(row => row.actual > 0 || row.planned > 0)
-      .sort((a, b) => b.actual - a.actual || a.name.localeCompare(b.name));
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-    const annualFoodExpenses = annualValidTransactions.filter(tx => tx.type === 'expense' && foodCategoryIds.has(tx.category_id || ''));
+    const annualExpenseById = new Map(
+      annualValidTransactions.filter(tx => tx.type === 'expense').map(tx => [tx.id, tx]),
+    );
+    const annualItemsByTransaction = new Map<string, ReportItem[]>();
+    items.forEach(item => {
+      if (!annualExpenseById.has(item.transaction_id)) return;
+      const group = annualItemsByTransaction.get(item.transaction_id) || [];
+      group.push(item);
+      annualItemsByTransaction.set(item.transaction_id, group);
+    });
+    const annualItemizedIds = new Set(
+      Array.from(annualItemsByTransaction.entries())
+        .filter(([, group]) => sumAmounts(group, item => Number(item.amount || 0)) > 0)
+        .map(([transactionId]) => transactionId),
+    );
+    const annualFoodExpenses = annualValidTransactions.filter(tx => (
+      tx.type === 'expense'
+      && !annualItemizedIds.has(tx.id)
+      && foodCategoryIds.has(tx.category_id || '')
+    ));
     const weeklyAmounts = Array.from({ length: 52 }, () => 0);
     annualFoodExpenses.forEach(tx => {
       const date = new Date(`${tx.transaction_date}T00:00:00`);
       const week = getIsoWeek(date);
       weeklyAmounts[week - 1] += Number(tx.amount || 0);
+    });
+    annualItemsByTransaction.forEach((group, transactionId) => {
+      if (!annualItemizedIds.has(transactionId)) return;
+      const transaction = annualExpenseById.get(transactionId);
+      if (!transaction) return;
+      const date = new Date(`${transaction.transaction_date}T00:00:00`);
+      const week = getIsoWeek(date);
+      group.filter(item => foodCategoryIds.has(item.category_id || '')).forEach(item => {
+        weeklyAmounts[week - 1] += allocatedItemAmount(item, group, Number(transaction.amount || 0));
+      });
     });
     const foodWeeklyRows: WeeklyFoodRow[] = weeklyAmounts.map((amount, index) => ({
       week: index + 1,
@@ -372,19 +443,25 @@ export const ReportsPage: React.FC = () => {
       addToSummary(documentMap, documentTypeLabels[document.type] || document.type, Number(document.total_amount || 0));
     });
 
-    monthlyItems
-      .filter(item => foodCategoryIds.has(item.category_id || ''))
-      .forEach(item => {
+    monthlyItemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = monthlyExpenseById.get(transactionId);
+      if (!transaction) return;
+      group.filter(item => foodCategoryIds.has(item.category_id || '')).forEach(item => {
         const characteristic = subcategoryById.get(item.subcategory_id || '')?.food_characteristic;
-        addToSummary(foodCharacteristicMap, getFoodCharacteristicLabel(characteristic), Number(item.amount || 0));
+        addToSummary(
+          foodCharacteristicMap,
+          getFoodCharacteristicLabel(characteristic),
+          allocatedItemAmount(item, group, Number(transaction.amount || 0)),
+        );
       });
-
-    if (foodCharacteristicMap.size === 0) {
-      expenses.filter(tx => foodCategoryIds.has(tx.category_id || '')).forEach(tx => {
+    });
+    expenses
+      .filter(tx => !itemizedTransactionIds.has(tx.id) && foodCategoryIds.has(tx.category_id || ''))
+      .forEach(tx => {
         const characteristic = subcategoryById.get(tx.subcategory_id || '')?.food_characteristic;
         addToSummary(foodCharacteristicMap, getFoodCharacteristicLabel(characteristic), Number(tx.amount || 0));
       });
-    }
 
     return {
       expenses,

@@ -31,6 +31,11 @@ export interface ReceiptItemsReconciliation {
   difference: number | null;
 }
 
+export interface MergedReceiptText {
+  text: string;
+  removedOverlapLines: number;
+}
+
 const categoryKeywords: Record<string, string[]> = {
   Abbigliamento: [
     'abbigliamento',
@@ -170,6 +175,67 @@ export const normalizeSearchText = (value: string) => (
     .trim()
 );
 
+const receiptLineSimilarity = (left: string, right: string) => {
+  const leftAmounts = left.match(/\d+[,.]\d{2}/g) || [];
+  const rightAmounts = right.match(/\d+[,.]\d{2}/g) || [];
+  if (leftAmounts.length > 0 && rightAmounts.length > 0) {
+    const normalizedLeftAmounts = leftAmounts.map(value => value.replace(',', '.'));
+    const normalizedRightAmounts = rightAmounts.map(value => value.replace(',', '.'));
+    if (!normalizedLeftAmounts.some(value => normalizedRightAmounts.includes(value))) return 0;
+  }
+
+  const normalizedLeft = normalizeSearchText(left);
+  const normalizedRight = normalizeSearchText(right);
+  if (!normalizedLeft || !normalizedRight) return 0;
+  if (normalizedLeft === normalizedRight) return 1;
+
+  const leftTokens = new Set(normalizedLeft.split(' ').filter(token => token.length > 1));
+  const rightTokens = new Set(normalizedRight.split(' ').filter(token => token.length > 1));
+  if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
+
+  const shared = [...leftTokens].filter(token => rightTokens.has(token)).length;
+  return shared / Math.max(leftTokens.size, rightTokens.size);
+};
+
+/** Joins OCR pages while removing only duplicated lines at adjacent page boundaries. */
+export const mergeReceiptPageTexts = (pageTexts: string[]): MergedReceiptText => {
+  const pages = pageTexts
+    .map(text => text.split('\n').map(line => line.trim()).filter(Boolean))
+    .filter(lines => lines.length > 0);
+
+  if (pages.length === 0) return { text: '', removedOverlapLines: 0 };
+
+  const merged = [...pages[0]];
+  let removedOverlapLines = 0;
+
+  for (const nextPage of pages.slice(1)) {
+    const maxOverlap = Math.min(8, merged.length, nextPage.length);
+    let overlap = 0;
+
+    for (let length = maxOverlap; length >= 1; length -= 1) {
+      const previousBoundary = merged.slice(-length);
+      const nextBoundary = nextPage.slice(0, length);
+      const similarities = previousBoundary.map((line, index) => receiptLineSimilarity(line, nextBoundary[index]));
+      const strongMatches = similarities.filter(score => score >= 0.72).length;
+      const average = similarities.reduce((sum, score) => sum + score, 0) / length;
+
+      const requiredMatches = length >= 3 ? length - 1 : length;
+      if (strongMatches >= requiredMatches && average >= 0.68) {
+        overlap = length;
+        break;
+      }
+    }
+
+    removedOverlapLines += overlap;
+    merged.push(...nextPage.slice(overlap));
+  }
+
+  return {
+    text: merged.join('\n'),
+    removedOverlapLines,
+  };
+};
+
 const normalizeMoneyText = (value: string) => (
   value
     .replace(/[Oo]/g, '0')
@@ -183,6 +249,9 @@ const parseAmountsFromLine = (line: string) => {
   let match: RegExpExecArray | null;
 
   while ((match = regex.exec(normalized)) !== null) {
+    const trailingText = normalized.slice(match.index + match[0].length);
+    if (/^\s*%/.test(trailingText)) continue;
+
     const integerPart = match[1].replace(/[.\s]/g, '');
     const decimalPart = match[2];
     const value = Number(`${integerPart}.${decimalPart}`);
@@ -432,7 +501,7 @@ export const extractReceiptItems = (
         matchedKeyword: category.matchedKeyword,
       }];
     })
-    .slice(0, 30);
+    .slice(0, 100);
 };
 
 export const reconcileReceiptItems = (

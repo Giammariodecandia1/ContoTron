@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Tesseract from 'tesseract.js';
-import { ExternalLink, FileText, Trash2, UploadCloud } from 'lucide-react';
+import { ExternalLink, FileText, Images, Trash2, UploadCloud, X } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
@@ -8,7 +8,7 @@ import { useAuth, useHousehold } from '../hooks';
 import {
   formatMonthKey,
   deleteArchiveDocument,
-  getDocumentUrl,
+  getDocumentPages,
   getMonthKey,
   getMonthRange,
   uploadArchiveDocument,
@@ -19,7 +19,7 @@ import {
   getDocumentStorageProvider,
   getDocumentStorageStatus,
 } from '../lib/documentStoragePreference';
-import type { DocumentType, OcrJob } from '../types/database';
+import type { Document, DocumentType, OcrJob } from '../types/database';
 import styles from './DocumentsPage.module.css';
 
 type DocumentUploaderProfile = {
@@ -65,6 +65,7 @@ export const DocumentsPage: React.FC = () => {
   const [ocrProgress, setOcrProgress] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewingDocument, setViewingDocument] = useState<ArchiveDocument | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
   const [documentType, setDocumentType] = useState<DocumentType>('receipt');
@@ -140,13 +141,14 @@ export const DocumentsPage: React.FC = () => {
         }, {});
       }
 
-      const withUrls = await Promise.all(
-        documentRows.map(async doc => ({
-          ...doc,
-          url: await getDocumentUrl(doc.storage_path, doc.storage_provider, doc.external_url),
-          ocr_text: ocrByDocumentId[doc.id] || null,
-        })),
-      );
+      const pagesByDocumentId = await getDocumentPages(documentRows as Document[]);
+      const withUrls = documentRows.map(doc => ({
+        ...doc,
+        pages: pagesByDocumentId[doc.id] || [],
+        url: pagesByDocumentId[doc.id]?.[0]?.url
+          || '',
+        ocr_text: ocrByDocumentId[doc.id] || null,
+      }));
 
       setDocuments(withUrls as ArchiveDocument[]);
     } catch (err) {
@@ -195,7 +197,9 @@ export const DocumentsPage: React.FC = () => {
   }, [filteredDocuments]);
 
   const totalAmountVisible = filteredDocuments.reduce((acc, doc) => acc + (doc.total_amount || 0), 0);
-  const imageCount = filteredDocuments.filter(doc => doc.mime_type?.startsWith('image/')).length;
+  const imageCount = filteredDocuments.reduce((count, doc) => (
+    count + (doc.pages?.filter(page => page.mime_type?.startsWith('image/')).length || 0)
+  ), 0);
 
   const handleUpload = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -442,6 +446,9 @@ export const DocumentsPage: React.FC = () => {
                       </div>
                       <div className={styles.documentBody}>
                         <span className={styles.typePill}>{getTypeLabel(doc.type)}</span>
+                        {(doc.pages?.length || 1) > 1 && (
+                          <span className={styles.pagePill}><Images size={13} /> {doc.pages?.length} pagine</span>
+                        )}
                         <div className={styles.documentTitle}>{doc.vendor_name || doc.original_filename}</div>
                         <div className={styles.meta}>{doc.document_date || 'Senza data'} - {doc.original_filename}</div>
                         <div className={styles.uploaderMeta}>
@@ -461,7 +468,11 @@ export const DocumentsPage: React.FC = () => {
                         {doc.ocr_text && (
                           <div className={styles.meta}>{doc.ocr_text.slice(0, 120)}...</div>
                         )}
-                        {doc.url && (
+                        {(doc.pages?.length || 0) > 1 ? (
+                          <button type="button" className={styles.openDocumentButton} onClick={() => setViewingDocument(doc)}>
+                            <Images size={14} /> Apri tutte le pagine
+                          </button>
+                        ) : doc.url && (
                           <a href={doc.url} target="_blank" rel="noreferrer">
                             <ExternalLink size={14} /> Apri documento
                           </a>
@@ -486,6 +497,39 @@ export const DocumentsPage: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {viewingDocument && (
+        <div className={styles.viewerBackdrop} role="presentation" onMouseDown={() => setViewingDocument(null)}>
+          <section className={styles.viewerDialog} role="dialog" aria-modal="true" aria-label={`Pagine di ${viewingDocument.vendor_name || viewingDocument.original_filename}`} onMouseDown={event => event.stopPropagation()}>
+            <header className={styles.viewerHeader}>
+              <div>
+                <h2>{viewingDocument.vendor_name || viewingDocument.original_filename}</h2>
+                <p>{viewingDocument.pages?.length || 1} pagine - {viewingDocument.document_date || 'Senza data'}</p>
+              </div>
+              <button type="button" className={styles.closeViewerButton} onClick={() => setViewingDocument(null)} aria-label="Chiudi visualizzatore">
+                <X size={22} />
+              </button>
+            </header>
+            <div className={styles.viewerPages}>
+              {viewingDocument.pages?.map(page => (
+                <article key={page.id} className={styles.viewerPage}>
+                  <div className={styles.viewerPageHeading}>
+                    <strong>Pagina {page.page_number}</strong>
+                    {page.url && (
+                      <a href={page.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Apri originale</a>
+                    )}
+                  </div>
+                  {page.mime_type?.startsWith('image/') && page.url ? (
+                    <img src={page.url} alt={`Pagina ${page.page_number}`} loading="lazy" />
+                  ) : (
+                    <div className={styles.viewerFileFallback}><FileText size={42} /> Anteprima non disponibile</div>
+                  )}
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };
