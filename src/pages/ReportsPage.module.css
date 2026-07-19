@@ -173,6 +173,68 @@
   white-space: nowrap;
 }
 
+.totalTypeRow {
+  background: var(--color-gray-50);
+  font-weight: 800;
+}
+
+.typeComparison {
+  border-top: 1px solid var(--color-gray-200);
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+}
+
+.typeComparisonRow {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.typeComparisonRow > strong {
+  color: var(--color-gray-800);
+  font-size: var(--text-sm);
+}
+
+.typeComparisonRow > div {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 42px minmax(0, 1fr) 64px;
+}
+
+.typeComparisonRow span,
+.typeComparisonRow b {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+}
+
+.typeComparisonRow b {
+  text-align: right;
+}
+
+.typeTrack {
+  background: var(--color-gray-100);
+  border-radius: 999px;
+  height: 9px;
+  overflow: hidden;
+}
+
+.typeTrack i {
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.plannedTypeBar {
+  background: var(--color-primary);
+}
+
+.actualTypeBar {
+  background: var(--color-success);
+}
+
 .list,
 .transactionList {
   display: flex;

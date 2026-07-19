@@ -125,6 +125,7 @@ export interface Category {
   household_id: string;
   name: string;
   type: TransactionType;
+  spending_type?: SpendingType;
   sort_order: number;
   is_active: boolean;
   created_at: string;

@@ -5,8 +5,15 @@ import { Button } from '../components/ui/Button';
 import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import { supabase } from '../lib/supabaseClient';
 import type { Transaction } from '../types/database';
 import styles from './MonthlyBudgetPage.module.css';
+
+type BudgetTransactionItem = {
+  transaction_id: string;
+  amount: number;
+  category_id: string | null;
+};
 
 export const MonthlyBudgetPage: React.FC = () => {
   const { household, accounts, categories } = useHousehold();
@@ -17,6 +24,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactionItems, setTransactionItems] = useState<BudgetTransactionItem[]>([]);
   const [budgets, setBudgets] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [recurringMessage, setRecurringMessage] = useState<string | null>(null);
@@ -66,7 +74,26 @@ export const MonthlyBudgetPage: React.FC = () => {
     try {
       const txs = await fetchTransactions(month, year);
       if (loadRequestRef.current !== requestId) return;
-      setTransactions(txs.filter(t => t.type === 'expense')); // Only expenses affect this budget view
+      const validTransactions = txs.filter(t => (
+        t.type === 'expense'
+        && t.status !== 'deleted'
+        && t.status !== 'rejected'
+      ));
+      setTransactions(validTransactions);
+
+      const transactionIds = validTransactions.map(transaction => transaction.id);
+      if (transactionIds.length > 0) {
+        const { data: itemData, error: itemError } = await supabase
+          .from('transaction_items')
+          .select('transaction_id, amount, category_id')
+          .eq('household_id', householdId)
+          .in('transaction_id', transactionIds);
+        if (itemError) throw itemError;
+        if (loadRequestRef.current !== requestId) return;
+        setTransactionItems((itemData || []) as BudgetTransactionItem[]);
+      } else {
+        setTransactionItems([]);
+      }
 
       // 2. Fetch or auto-prefill budget targets
       const targets = await fetchBudgetTargets(year, month);
@@ -132,18 +159,37 @@ export const MonthlyBudgetPage: React.FC = () => {
   // Calculate actuals
   const actualsByCategory = useMemo(() => {
     const map: Record<string, number> = {};
-    transactions.forEach(tx => {
-      if (tx.category_id) {
-        map[tx.category_id] = (map[tx.category_id] || 0) + tx.amount;
+    const transactionById = new Map(transactions.map(transaction => [transaction.id, transaction]));
+    const itemsByTransaction = new Map<string, BudgetTransactionItem[]>();
+    transactionItems.forEach(item => {
+      if (!transactionById.has(item.transaction_id)) return;
+      const group = itemsByTransaction.get(item.transaction_id) || [];
+      group.push(item);
+      itemsByTransaction.set(item.transaction_id, group);
+    });
+
+    transactions.forEach(transaction => {
+      const itemGroup = itemsByTransaction.get(transaction.id) || [];
+      const itemTotal = itemGroup.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+      if (itemTotal <= 0) {
+        const categoryId = transaction.category_id || 'uncategorized';
+        map[categoryId] = (map[categoryId] || 0) + Number(transaction.amount || 0);
+        return;
       }
+
+      itemGroup.forEach(item => {
+        const categoryId = item.category_id || 'uncategorized';
+        const allocatedAmount = Number(item.amount || 0) * Number(transaction.amount || 0) / itemTotal;
+        map[categoryId] = (map[categoryId] || 0) + allocatedAmount;
+      });
     });
     return map;
-  }, [transactions]);
+  }, [transactionItems, transactions]);
 
   const expenseCategories = categories.filter(c => c.type === 'expense').sort((a, b) => a.name.localeCompare(b.name));
 
   const totalPlanned = expenseCategories.reduce((acc, cat) => acc + (budgets[cat.id] || 0), 0);
-  const totalActual = Object.values(actualsByCategory).reduce((acc, val) => acc + val, 0);
+  const totalActual = transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
   const totalDiff = totalPlanned - totalActual;
 
   return (
@@ -212,7 +258,14 @@ export const MonthlyBudgetPage: React.FC = () => {
         {loading || budgetLoading ? (
           <div style={{ textAlign: 'center', padding: '2rem' }}>Caricamento {monthNames[month - 1]} {year}...</div>
         ) : (
-          <table className={styles.budgetTable}>
+          <>
+            <div className={styles.budgetSummary}>
+              <div><span>Totale previsto</span><strong>{totalPlanned.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
+              <div><span>Totale effettivo</span><strong>{totalActual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
+              <div><span>Differenza</span><strong className={totalDiff >= 0 ? styles.diffPositive : styles.diffNegative}>{totalDiff > 0 ? '+' : ''}{totalDiff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
+            </div>
+
+            <table className={styles.budgetTable}>
             <thead>
               <tr>
                 <th>Categoria</th>
@@ -259,16 +312,17 @@ export const MonthlyBudgetPage: React.FC = () => {
                 );
               })}
 
-              <tr className={styles.totalsRow}>
-                <td data-label="Totale">TOTALE MESE</td>
-                <td data-label="Totale Previsto" className={styles.amount}>{totalPlanned.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
-                <td data-label="Totale Effettivo" className={styles.amount}>{totalActual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
-                <td data-label="Differenza Totale" className={`${styles.amount} ${totalDiff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                  {totalDiff > 0 ? '+' : ''}{totalDiff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
-                </td>
-              </tr>
+              {(actualsByCategory.uncategorized || 0) > 0 && (
+                <tr className={styles.uncategorizedRow}>
+                  <td data-label="Categoria"><div className={styles.categoryName}>Non classificato</div></td>
+                  <td data-label="Previsto" className={styles.amount}>0,00 €</td>
+                  <td data-label="Effettivo" className={styles.amount}>{actualsByCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                  <td data-label="Differenza" className={`${styles.amount} ${styles.diffNegative}`}>-{actualsByCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                </tr>
+              )}
             </tbody>
           </table>
+          </>
         )}
       </Card>
     </div>

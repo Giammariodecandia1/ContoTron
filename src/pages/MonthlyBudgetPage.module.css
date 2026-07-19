@@ -74,6 +74,32 @@
   border-collapse: collapse;
 }
 
+.budgetSummary {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: var(--space-4) 0;
+}
+
+.budgetSummary > div {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-100);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.budgetSummary span {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+}
+
+.budgetSummary strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-lg);
+}
+
 .periodBanner {
   background: var(--color-gray-50);
   border: 1px solid var(--color-gray-100);
@@ -185,8 +211,7 @@
   background-color: var(--color-danger);
 }
 
-.totalsRow {
-  font-weight: 700;
+.uncategorizedRow {
   background-color: var(--color-gray-50);
 }
 
@@ -211,6 +236,10 @@
 
   .directSelectors button {
     grid-column: 1 / -1;
+  }
+
+  .budgetSummary {
+    grid-template-columns: 1fr;
   }
 
   .budgetTable thead {
@@ -249,14 +278,4 @@
     width: 120px;
   }
   
-  .totalsRow {
-    background: transparent;
-    border: none;
-  }
-  
-  .totalsRow td {
-    background: var(--color-gray-50);
-    padding: var(--space-3) !important;
-    margin-bottom: 2px;
-  }
 }

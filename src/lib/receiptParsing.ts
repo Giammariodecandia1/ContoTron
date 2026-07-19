@@ -111,7 +111,6 @@ const categoryKeywords: Record<string, string[]> = {
     'candela',
     'citronella',
   ],
-  'Abitazione Numana': ['numana', 'mare', 'casa vacanza'],
   'Tempo libero': [
     'ristorante',
     'pizzeria',
@@ -250,7 +249,7 @@ const parseAmountsFromLine = (line: string) => {
 
   while ((match = regex.exec(normalized)) !== null) {
     const trailingText = normalized.slice(match.index + match[0].length);
-    if (/^\s*%/.test(trailingText)) continue;
+    if (/^\s*(?:%|[%o0°]\s*\/\s*[o0])/.test(trailingText)) continue;
 
     const integerPart = match[1].replace(/[.\s]/g, '');
     const decimalPart = match[2];
@@ -277,9 +276,10 @@ export const extractReceiptTotal = (text: string): ReceiptTotalResult => {
     if (amounts.length === 0) return [];
 
     const searchableLine = normalizeSearchText(line);
+    const taxAwareSearchableLine = searchableLine.replace(/\b(?:1va|lva)\b/g, 'iva');
     const hasStrongTotal = containsAny(searchableLine, strongTotalWords);
     const hasMediumTotal = containsAny(searchableLine, mediumTotalWords);
-    const hasHardReject = containsAny(searchableLine, hardRejectWords);
+    const hasHardReject = containsAny(taxAwareSearchableLine, hardRejectWords);
     const hasSoftReject = containsAny(searchableLine, softRejectWords);
     const hasCurrency = /€|eur|euro/i.test(line);
     const linePositionBonus = lines.length > 1 ? (index / (lines.length - 1)) * 12 : 0;
@@ -443,6 +443,14 @@ const itemRejectWords = [
   'punti',
 ];
 
+const isTaxOrPercentageLine = (line: string) => {
+  const searchable = normalizeSearchText(line);
+  const normalizedTaxText = searchable.replace(/\b(?:1va|lva)\b/g, 'iva');
+  const hasTaxWord = containsAny(normalizedTaxText, ['iva', 'aliquota', 'imponibile', 'imposta']);
+  const hasPercentage = /%|[%o0°]\s*\/\s*[o0]/i.test(line);
+  return hasTaxWord || hasPercentage;
+};
+
 const cleanupItemDescription = (line: string) => (
   normalizeMoneyText(line)
     .replace(/(?:EUR|EURO)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,.]\s*\d{2}/gi, ' ')
@@ -454,14 +462,16 @@ const cleanupItemDescription = (line: string) => (
 
 const isUnitPriceOnlyLine = (line: string) => {
   const searchable = normalizeSearchText(line);
-  const hasUnitFormula = /\b\d+(?:[,.]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)\s*x\s*(?:eur|euro)?\s*\/?\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)\b/i.test(line);
+  const amounts = parseAmountsFromLine(line);
+  const hasUnitFormula = /\b\d+(?:[,.]\d+)?\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)?\s*x\s*(?:eur|euro)?\s*\d+(?:[,.]\d+)?\s*(?:eur|euro)?\s*(?:\/\s*)?(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)?\b/i.test(line);
+  const hasPerUnitMarker = /(?:eur|euro)?\s*\/\s*(?:kg|g|gr|l|lt|ml|cl|pz|pezzi)\b/i.test(line);
   const hasProductName = searchable
     .replace(/\b\d+\b/g, ' ')
-    .replace(/\b(?:kg|g|gr|l|lt|ml|cl|pz|pezzi|eur|euro|x)\b/g, ' ')
+    .replace(/\b(?:net|netto|kg|g|gr|l|lt|ml|cl|pz|pezzi|eur|euro|x)\b/g, ' ')
     .replace(/\s+/g, '')
     .length >= 4;
 
-  return hasUnitFormula && !hasProductName;
+  return amounts.length >= 1 && amounts.length <= 2 && hasUnitFormula && (hasPerUnitMarker || !hasProductName);
 };
 
 export const extractReceiptItems = (
@@ -474,10 +484,20 @@ export const extractReceiptItems = (
     .map(line => line.trim())
     .filter(Boolean);
 
-  return lines
+  const candidateLines = lines.map((line, index) => {
+    if (parseAmountsFromLine(line).length > 0 || !/[a-zA-Z]{2,}/.test(line)) return line;
+    const nextLine = lines[index + 1] || '';
+    const nextHasAmount = parseAmountsFromLine(nextLine).length > 0;
+    const nextHasProductText = /[a-zA-Z]{3,}/.test(nextLine);
+    if (!nextHasAmount || nextHasProductText || isUnitPriceOnlyLine(nextLine) || isTaxOrPercentageLine(nextLine)) return line;
+    return `${line} ${nextLine}`;
+  });
+
+  return candidateLines
     .flatMap((line, index) => {
       const searchableLine = normalizeSearchText(line);
       if (containsAny(searchableLine, itemRejectWords)) return [];
+      if (isTaxOrPercentageLine(line)) return [];
       if (isUnitPriceOnlyLine(line)) return [];
       if (!/[a-zA-Z]{2,}/.test(line)) return [];
 

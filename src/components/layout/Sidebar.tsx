@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3 } from 'lucide-react';
+import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
@@ -8,9 +8,10 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
+  { path: '/report', label: 'Consuntivo mensile', mobileLabel: 'Consuntivo', icon: <BarChart3 size={20} /> },
+  { path: '/analisi-annuale', label: 'Analisi annuale', mobileLabel: 'Annuale', icon: <TrendingUp size={20} /> },
   { path: '/documenti', label: 'Documenti', icon: <FileText size={20} /> },
   { path: '/ricerca', label: 'Ricerca', icon: <Search size={20} /> },
-  { path: '/report', label: 'Report', icon: <BarChart3 size={20} /> },
   { path: '/impostazioni', label: 'Impostazioni', icon: <Settings size={20} /> },
 ];
 
@@ -80,7 +81,7 @@ export const MobileNavigation: React.FC = () => {
           className={`${styles.mobileNavLink} ${isActive(item.path) ? styles.mobileActive : ''}`}
         >
           {item.icon}
-          <span>{item.label}</span>
+          <span>{'mobileLabel' in item ? item.mobileLabel : item.label}</span>
         </Link>
       ))}
     </nav>

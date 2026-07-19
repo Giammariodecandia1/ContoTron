@@ -65,9 +65,11 @@ const totalConfidenceLabels: Record<string, string> = {
   none: 'non rilevato',
 };
 
-const MAX_SCAN_IMAGE_SIDE = 1800;
-const SCAN_JPEG_QUALITY = 0.86;
+const MAX_SCAN_IMAGE_SIDE = 3000;
+const SCAN_JPEG_QUALITY = 0.9;
 const MAX_RECEIPT_PAGES = 10;
+const MIN_OCR_IMAGE_WIDTH = 1100;
+const MAX_OCR_IMAGE_HEIGHT = 6000;
 
 const isSupportedImageFile = (file: File) => (
   file.type.startsWith('image/')
@@ -153,7 +155,7 @@ const loadDataUrlImage = (source: string) => new Promise<HTMLImageElement>((reso
   image.src = source;
 });
 
-const preparePageForOcr = async (page: ReceiptPage) => {
+const preparePageForOcr = async (page: ReceiptPage, mode: 'standard' | 'strong' = 'standard') => {
   const image = await loadDataUrlImage(page.image);
   const crop = page.crop;
   const sourceX = crop ? Math.round((crop.x / 100) * image.naturalWidth) : 0;
@@ -163,8 +165,13 @@ const preparePageForOcr = async (page: ReceiptPage) => {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
 
-  canvas.width = Math.max(1, sourceWidth);
-  canvas.height = Math.max(1, sourceHeight);
+  const safeSourceWidth = Math.max(1, sourceWidth);
+  const safeSourceHeight = Math.max(1, sourceHeight);
+  const widthScale = safeSourceWidth < MIN_OCR_IMAGE_WIDTH ? MIN_OCR_IMAGE_WIDTH / safeSourceWidth : 1;
+  const heightScaleLimit = MAX_OCR_IMAGE_HEIGHT / safeSourceHeight;
+  const outputScale = Math.max(1, Math.min(widthScale, heightScaleLimit));
+  canvas.width = Math.max(1, Math.round(safeSourceWidth * outputScale));
+  canvas.height = Math.max(1, Math.round(safeSourceHeight * outputScale));
   if (!context) return page.image;
 
   context.drawImage(
@@ -183,13 +190,29 @@ const preparePageForOcr = async (page: ReceiptPage) => {
   const pixels = imageData.data;
   for (let index = 0; index < pixels.length; index += 4) {
     const gray = (pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114);
-    const enhanced = Math.max(0, Math.min(255, ((gray - 128) * 1.35) + 128));
+    const contrast = mode === 'strong' ? 1.85 : 1.35;
+    const enhanced = Math.max(0, Math.min(255, ((gray - 128) * contrast) + 128));
     pixels[index] = enhanced;
     pixels[index + 1] = enhanced;
     pixels[index + 2] = enhanced;
   }
   context.putImageData(imageData, 0, 0);
   return canvas.toDataURL('image/jpeg', 0.92);
+};
+
+const assessOcrText = (text: string, confidence: number) => {
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  const itemLikeLines = lines.filter(line => (
+    /[a-zA-Z]{2,}/.test(line)
+    && /\d+\s*[,.]\s*\d{2}/.test(line)
+  )).length;
+  const score = confidence + Math.min(40, itemLikeLines * 4) + Math.min(20, lines.length * 0.5);
+  const expectedItemLines = Math.max(4, Math.floor(lines.length * 0.25));
+
+  return {
+    score,
+    shouldRetry: confidence < 72 || (lines.length >= 12 && itemLikeLines < expectedItemLines),
+  };
 };
 
 const createReceiptPage = (image: string): ReceiptPage => ({
@@ -366,7 +389,16 @@ export const ScanReceiptPage: React.FC = () => {
       for (let index = 0; index < pages.length; index += 1) {
         setScanProgress(`Lettura OCR pagina ${index + 1} di ${pages.length}...`);
         const targetImage = await preparePageForOcr(pages[index]);
-        const result = await Tesseract.recognize(targetImage, 'ita+eng');
+        let result = await Tesseract.recognize(targetImage, 'ita+eng');
+        const firstAssessment = assessOcrText(result.data.text, result.data.confidence);
+
+        if (firstAssessment.shouldRetry) {
+          setScanProgress(`Seconda lettura pagina ${index + 1} di ${pages.length}...`);
+          const strongImage = await preparePageForOcr(pages[index], 'strong');
+          const secondResult = await Tesseract.recognize(strongImage, 'ita+eng');
+          const secondAssessment = assessOcrText(secondResult.data.text, secondResult.data.confidence);
+          if (secondAssessment.score > firstAssessment.score) result = secondResult;
+        }
         recognizedPages.push({
           pageNumber: index + 1,
           text: result.data.text,
@@ -424,7 +456,19 @@ export const ScanReceiptPage: React.FC = () => {
         }
       }
 
-      const extractedItems = extractReceiptItems(merged.text, categoriesForItemMatching, subcategories);
+      const receiptLines = merged.text.split('\n').map(line => line.trim()).filter(Boolean);
+      const totalSourceKey = normalizeSearchText(totalResult.sourceLine || '');
+      const totalSourceIndex = totalSourceKey
+        ? receiptLines.findIndex(line => normalizeSearchText(line) === totalSourceKey)
+        : -1;
+      const totalComesFromReceiptFooter = totalSourceIndex >= Math.floor(receiptLines.length * 0.55);
+      const extractedItems = extractReceiptItems(merged.text, categoriesForItemMatching, subcategories)
+        .filter(item => !(
+          totalResult.amount !== null
+          && totalComesFromReceiptFooter
+          && normalizeSearchText(item.rawLine) === totalSourceKey
+          && Math.abs(item.amount - totalResult.amount) <= 0.01
+        ));
       const reconciliation = reconcileReceiptItems(extractedItems, totalResult.amount);
       const productRules = household ? await loadProductClassificationRules(household.id) : [];
       const editableItems: EditableReceiptItem[] = [];

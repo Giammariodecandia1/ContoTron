@@ -1,0 +1,154 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.title {
+  color: var(--color-gray-900);
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin: 0 0 var(--space-1);
+}
+
+.controls {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.yearSelect {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-900);
+  font-size: var(--text-base);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chartGrid {
+  display: grid;
+  gap: var(--space-5);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.chart {
+  height: 360px;
+  min-width: 0;
+}
+
+.statsGrid {
+  border-top: 1px solid var(--color-gray-200);
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--space-3);
+  padding-top: var(--space-4);
+}
+
+.statsGrid div {
+  min-width: 0;
+}
+
+.statsGrid span,
+.statsGrid strong {
+  display: block;
+}
+
+.statsGrid span {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.statsGrid strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+
+.statsGrid .danger {
+  color: var(--color-danger);
+}
+
+.insights {
+  color: var(--color-gray-700);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.insights p {
+  line-height: 1.55;
+  margin: 0;
+}
+
+.notice,
+.error,
+.loading {
+  border-radius: var(--border-radius-md);
+  padding: var(--space-4);
+}
+
+.notice {
+  background: var(--color-warning-bg);
+  color: var(--color-gray-800);
+}
+
+.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.loading {
+  color: var(--color-gray-500);
+  padding-block: var(--space-8);
+  text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .chartGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .controls,
+  .yearSelect {
+    width: 100%;
+  }
+
+  .controls > :last-child {
+    flex: 1;
+  }
+
+  .chart {
+    height: 320px;
+    margin-inline: -0.5rem;
+  }
+
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .chart {
+    height: 300px;
+  }
+
+  .statsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

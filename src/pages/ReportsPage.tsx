@@ -7,6 +7,7 @@ import { formatCurrency } from '../lib/money';
 import { createTextPdf, type PdfLine } from '../lib/textPdf';
 import { createExcelWorkbook, type ExcelSheet } from '../lib/excelXml';
 import { getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
+import { spendingTypeOptions } from '../lib/spendingTypes';
 import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
 import { useHousehold } from '../hooks';
 import styles from './ReportsPage.module.css';
@@ -100,6 +101,17 @@ interface WeeklyFoodRow {
   amount: number;
 }
 
+interface SpendingTypeReportRow {
+  id: string;
+  name: string;
+  planned: number;
+  actual: number;
+  plannedCount: number;
+  actualCount: number;
+  plannedPercent: number;
+  actualPercent: number;
+}
+
 const toIsoDate = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -160,6 +172,8 @@ const compactText = (value: string, width: number) => {
   return `${clean.slice(0, Math.max(0, width - 1))}~`;
 };
 
+const formatPercent = (value: number) => `${value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+
 const tableLine = (columns: string[], widths: number[], alignRight: number[] = []) => (
   columns.map((column, index) => {
     const clean = compactText(column, widths[index]);
@@ -199,6 +213,7 @@ export const ReportsPage: React.FC = () => {
   const yearRange = useMemo(() => getYearRange(year), [year]);
 
   const categoryNameById = useMemo(() => new Map(categories.map(category => [category.id, category.name])), [categories]);
+  const categoryById = useMemo(() => new Map(categories.map(category => [category.id, category])), [categories]);
   const subcategoryById = useMemo(() => new Map(subcategories.map(subcategory => [subcategory.id, subcategory])), [subcategories]);
   const foodCategoryIds = useMemo(() => new Set(
     categories.filter(category => normalizeKey(category.name) === 'alimentari').map(category => category.id),
@@ -433,6 +448,75 @@ export const ReportsPage: React.FC = () => {
     const documentMap = new Map<string, SummaryRow>();
     const frequencyMap = new Map<string, SummaryRow>();
     const foodCharacteristicMap = new Map<string, SummaryRow>();
+    const spendingTypeMap = new Map<string, SpendingTypeReportRow>(
+      spendingTypeOptions.map(option => [option.value, {
+        id: option.value,
+        name: option.label,
+        planned: 0,
+        actual: 0,
+        plannedCount: 0,
+        actualCount: 0,
+        plannedPercent: 0,
+        actualPercent: 0,
+      }]),
+    );
+
+    const resolveSpendingType = (categoryId?: string | null, subcategoryId?: string | null) => (
+      subcategoryById.get(subcategoryId || '')?.spending_type
+      || categoryById.get(categoryId || '')?.spending_type
+      || 'variable'
+    );
+    const addSpendingTypeValue = (
+      spendingType: string,
+      field: 'planned' | 'actual',
+      amount: number,
+    ) => {
+      const row = spendingTypeMap.get(spendingType) || spendingTypeMap.get('variable');
+      if (!row) return;
+      row[field] += amount;
+      if (field === 'planned') row.plannedCount += 1;
+      else row.actualCount += 1;
+    };
+
+    const targetsByCategory = new Map<string, ReportBudgetTarget[]>();
+    monthlyBudgetTargets.filter(target => target.category_id).forEach(target => {
+      const group = targetsByCategory.get(target.category_id || '') || [];
+      group.push(target);
+      targetsByCategory.set(target.category_id || '', group);
+    });
+    targetsByCategory.forEach((group, categoryId) => {
+      const subcategoryTargets = group.filter(target => target.subcategory_id);
+      const selectedTargets = subcategoryTargets.length > 0
+        ? subcategoryTargets
+        : group.filter(target => !target.subcategory_id);
+      selectedTargets.forEach(target => {
+        addSpendingTypeValue(
+          resolveSpendingType(categoryId, target.subcategory_id),
+          'planned',
+          Number(target.planned_amount || 0),
+        );
+      });
+    });
+
+    expenses.filter(tx => !itemizedTransactionIds.has(tx.id)).forEach(tx => {
+      addSpendingTypeValue(
+        resolveSpendingType(tx.category_id, tx.subcategory_id),
+        'actual',
+        Number(tx.amount || 0),
+      );
+    });
+    monthlyItemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = monthlyExpenseById.get(transactionId);
+      if (!transaction) return;
+      group.forEach(item => {
+        addSpendingTypeValue(
+          resolveSpendingType(item.category_id, item.subcategory_id),
+          'actual',
+          allocatedItemAmount(item, group, Number(transaction.amount || 0)),
+        );
+      });
+    });
 
     expenses.forEach(tx => {
       addToSummary(accountMap, tx.accounts?.name || 'Senza conto', Number(tx.amount || 0));
@@ -463,6 +547,16 @@ export const ReportsPage: React.FC = () => {
         addToSummary(foodCharacteristicMap, getFoodCharacteristicLabel(characteristic), Number(tx.amount || 0));
       });
 
+    const spendingTypeRows = Array.from(spendingTypeMap.values());
+    const typedPlannedTotal = sumAmounts(spendingTypeRows, row => row.planned);
+    const typedActualTotal = sumAmounts(spendingTypeRows, row => row.actual);
+    spendingTypeRows.forEach(row => {
+      row.plannedPercent = typedPlannedTotal > 0 ? (row.planned / typedPlannedTotal) * 100 : 0;
+      row.actualPercent = typedActualTotal > 0 ? (row.actual / typedActualTotal) * 100 : 0;
+    });
+    const foodCharacteristicRows = sortedRows(foodCharacteristicMap);
+    const foodCharacteristicTotal = sumAmounts(foodCharacteristicRows, row => row.amount);
+
     return {
       expenses,
       incomes,
@@ -477,14 +571,18 @@ export const ReportsPage: React.FC = () => {
       insertedByRows: sortedRows(insertedByMap),
       documentRows: sortedRows(documentMap),
       frequencyRows: sortedRows(frequencyMap),
-      foodCharacteristicRows: sortedRows(foodCharacteristicMap),
+      foodCharacteristicRows,
+      foodCharacteristicTotal,
+      spendingTypeRows,
+      typedPlannedTotal,
+      typedActualTotal,
       foodWeeklyRows,
       foodTotal,
       foodAverage,
       foodMedian,
       monthlyDocuments,
     };
-  }, [budgetTargets, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategoryById, transactions]);
+  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategoryById, transactions]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');
@@ -512,6 +610,12 @@ export const ReportsPage: React.FC = () => {
     });
 
     lines.push({ text: '', gapAfter: 4 });
+    lines.push({ text: 'Tipi di spesa: previsione e consuntivo', size: 14, bold: true });
+    report.spendingTypeRows.forEach(row => lines.push({
+      text: `${row.name}: previsto ${money(row.planned)} (${formatPercent(row.plannedPercent)}), consuntivo ${money(row.actual)} (${formatPercent(row.actualPercent)}), voci ${row.actualCount}`,
+    }));
+
+    lines.push({ text: '', gapAfter: 4 });
     lines.push({ text: `Alimentari ${year} - settimane 1-52`, size: 14, bold: true });
     lines.push({ text: `Totale: ${money(report.foodTotal)} - Media settimanale: ${money(report.foodAverage)} - Mediana: ${money(report.foodMedian)}` });
     report.foodWeeklyRows.forEach(row => lines.push({ text: `Settimana ${row.week}: ${money(row.amount)}` }));
@@ -520,7 +624,10 @@ export const ReportsPage: React.FC = () => {
     lines.push({ text: 'Frequenza delle spese', size: 14, bold: true });
     report.frequencyRows.forEach(row => lines.push({ text: `${row.name}: ${money(row.amount)} (${row.count})` }));
     lines.push({ text: 'Caratteristiche spesa alimentare', size: 14, bold: true });
-    report.foodCharacteristicRows.forEach(row => lines.push({ text: `${row.name}: ${money(row.amount)} (${row.count})` }));
+    report.foodCharacteristicRows.forEach(row => {
+      const percent = report.foodCharacteristicTotal > 0 ? (row.amount / report.foodCharacteristicTotal) * 100 : 0;
+      lines.push({ text: `${row.name}: ${money(row.amount)} - ${formatPercent(percent)} (${row.count})` });
+    });
 
     return lines;
   };
@@ -551,6 +658,13 @@ export const ReportsPage: React.FC = () => {
       ],
     },
     {
+      name: 'Tipi di spesa',
+      rows: [
+        ['Tipo spesa', 'Previsione', '% previsione', 'Consuntivo', '% consuntivo', 'Voci previste', 'Voci effettive'],
+        ...report.spendingTypeRows.map(row => [row.name, row.planned, row.plannedPercent / 100, row.actual, row.actualPercent / 100, row.plannedCount, row.actualCount]),
+      ],
+    },
+    {
       name: 'Alimentari settimane 1-52',
       rows: [
         ['Indicatore', 'Valore'],
@@ -568,7 +682,15 @@ export const ReportsPage: React.FC = () => {
     },
     {
       name: 'Caratteristiche alimentari',
-      rows: [['Caratteristica', 'Spesa', 'Movimenti'], ...report.foodCharacteristicRows.map(row => [row.name, row.amount, row.count])],
+      rows: [
+        ['Caratteristica', 'Spesa', 'Percentuale', 'Voci'],
+        ...report.foodCharacteristicRows.map(row => [
+          row.name,
+          row.amount,
+          report.foodCharacteristicTotal > 0 ? row.amount / report.foodCharacteristicTotal : 0,
+          row.count,
+        ]),
+      ],
     },
     {
       name: 'Persone e conti',
@@ -607,8 +729,8 @@ export const ReportsPage: React.FC = () => {
     <div className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>Report Mensile</h1>
-          <p className="text-muted">Riepilogo essenziale del mese e analisi annuale delle spese alimentari.</p>
+          <h1 className={styles.title}>Consuntivo mensile</h1>
+          <p className="text-muted">Riepilogo del mese, tipi di spesa e analisi delle caratteristiche alimentari.</p>
         </div>
         <div className={styles.headerActions}>
           <Button icon={<Download size={16} />} onClick={handleDownloadPdf} disabled={loading}>Genera PDF</Button>
@@ -668,6 +790,45 @@ export const ReportsPage: React.FC = () => {
               </div>
             </Card>
 
+            <Card title="Tipi di spesa: previsione e consuntivo">
+              <div className={styles.tableWrap}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr><th>Tipo spesa</th><th>Previsione</th><th>% previsione</th><th>Consuntivo</th><th>% consuntivo</th><th>Voci</th></tr>
+                  </thead>
+                  <tbody>
+                    {report.spendingTypeRows.map(row => (
+                      <tr key={row.id}>
+                        <td><strong>{row.name}</strong></td>
+                        <td>{formatCurrency(row.planned, currency)}</td>
+                        <td>{formatPercent(row.plannedPercent)}</td>
+                        <td>{formatCurrency(row.actual, currency)}</td>
+                        <td>{formatPercent(row.actualPercent)}</td>
+                        <td>{row.actualCount}</td>
+                      </tr>
+                    ))}
+                    <tr className={styles.totalTypeRow}>
+                      <td>Totale</td>
+                      <td>{formatCurrency(report.typedPlannedTotal, currency)}</td>
+                      <td>{formatPercent(report.typedPlannedTotal > 0 ? 100 : 0)}</td>
+                      <td>{formatCurrency(report.typedActualTotal, currency)}</td>
+                      <td>{formatPercent(report.typedActualTotal > 0 ? 100 : 0)}</td>
+                      <td>{report.spendingTypeRows.reduce((sum, row) => sum + row.actualCount, 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className={styles.typeComparison}>
+                {report.spendingTypeRows.map(row => (
+                  <div key={`bars-${row.id}`} className={styles.typeComparisonRow}>
+                    <strong>{row.name}</strong>
+                    <div><span>Prev.</span><div className={styles.typeTrack}><i className={styles.plannedTypeBar} style={{ width: `${row.plannedPercent}%` }} /></div><b>{formatPercent(row.plannedPercent)}</b></div>
+                    <div><span>Cons.</span><div className={styles.typeTrack}><i className={styles.actualTypeBar} style={{ width: `${row.actualPercent}%` }} /></div><b>{formatPercent(row.actualPercent)}</b></div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
             <Card title={`Alimentari ${year}: media e mediana settimanale`}>
               <div className={styles.foodSummary}>
                 <div><span>Totale annuale</span><strong>{formatCurrency(report.foodTotal, currency)}</strong></div>
@@ -688,7 +849,22 @@ export const ReportsPage: React.FC = () => {
             </Card>
 
             <Card title="Caratteristiche alimentari">
-              <div className={styles.list}>{report.foodCharacteristicRows.length === 0 ? <div className={styles.empty}>Assegna le caratteristiche alle sottocategorie Alimentari.</div> : report.foodCharacteristicRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} voci</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
+              {report.foodCharacteristicRows.length === 0 ? (
+                <div className={styles.empty}>Assegna le caratteristiche alle sottocategorie Alimentari.</div>
+              ) : (
+                <div className={styles.tableWrap}>
+                  <table className={styles.table}>
+                    <thead><tr><th>Caratteristica</th><th>Spesa</th><th>Percentuale</th><th>Voci</th></tr></thead>
+                    <tbody>
+                      {report.foodCharacteristicRows.map(row => {
+                        const percent = report.foodCharacteristicTotal > 0 ? (row.amount / report.foodCharacteristicTotal) * 100 : 0;
+                        return <tr key={row.name}><td><strong>{row.name}</strong></td><td>{formatCurrency(row.amount, currency)}</td><td>{formatPercent(percent)}</td><td>{row.count}</td></tr>;
+                      })}
+                      <tr className={styles.totalTypeRow}><td>Totale</td><td>{formatCurrency(report.foodCharacteristicTotal, currency)}</td><td>{formatPercent(100)}</td><td>{report.foodCharacteristicRows.reduce((sum, row) => sum + row.count, 0)}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
 
             <Card title="Persone e conti">
