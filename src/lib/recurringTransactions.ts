@@ -47,6 +47,13 @@ export const ensureMonthlyRecurringTransactions = async ({
   const activeRules = ((rules || []) as RecurringRule[])
     .filter(rule => ruleAppliesToMonth(rule, year, month));
 
+  const now = new Date();
+  const requestedMonth = new Date(year, month - 1, 1);
+  const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  if (requestedMonth > currentMonth) {
+    return { createdCount: 0, rulesCount: activeRules.length };
+  }
+
   let createdCount = 0;
 
   for (const rule of activeRules) {

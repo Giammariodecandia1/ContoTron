@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react';
@@ -20,6 +20,7 @@ export const TransactionsPage: React.FC = () => {
   const { fetchTransactions, loading, error, deleteTransaction } = useTransactions();
   const { household } = useHousehold();
   const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
+  const createdTransactionRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
   const routeState = (location.state || {}) as {
@@ -38,6 +39,33 @@ export const TransactionsPage: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [loadTxs]);
 
+  useEffect(() => {
+    if (!routeState.createdTransactionId || !createdTransactionRef.current) return;
+    createdTransactionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [routeState.createdTransactionId, transactions]);
+
+  const orderedTransactions = useMemo(() => {
+    if (!routeState.createdTransactionId) return transactions;
+    const created = transactions.find(transaction => transaction.id === routeState.createdTransactionId);
+    return created
+      ? [created, ...transactions.filter(transaction => transaction.id !== created.id)]
+      : transactions;
+  }, [routeState.createdTransactionId, transactions]);
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+  const newlyCreatedTransaction = routeState.createdTransactionId
+    ? orderedTransactions.filter(transaction => transaction.id === routeState.createdTransactionId)
+    : [];
+  const currentTransactions = orderedTransactions.filter(transaction => (
+    transaction.id !== routeState.createdTransactionId
+    && new Date(transaction.transaction_date).getTime() <= todayEnd.getTime()
+  ));
+  const futureTransactions = orderedTransactions.filter(transaction => (
+    transaction.id !== routeState.createdTransactionId
+    && new Date(transaction.transaction_date).getTime() > todayEnd.getTime()
+  ));
+
   const handleDelete = async (id: string) => {
     if (window.confirm('Sei sicuro di voler eliminare questa transazione?')) {
       await deleteTransaction(id);
@@ -50,6 +78,39 @@ export const TransactionsPage: React.FC = () => {
     const name = profile?.display_name || profile?.email || 'Sconosciuto';
     return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
   };
+
+  const renderTransaction = (tx: TransactionListItem) => (
+    <div
+      key={tx.id}
+      ref={tx.id === routeState.createdTransactionId ? createdTransactionRef : undefined}
+      className={tx.id === routeState.createdTransactionId ? styles.recentlyCreated : styles.transactionRow}
+    >
+      <div>
+        <div className={styles.transactionTitle}>{tx.description}</div>
+        <div className="text-muted fs-sm">
+          {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || (tx.source === 'receipt_ocr' ? 'Scontrino multi-categoria' : 'Non classificato')} - Conto: {tx.accounts?.name || 'Conto'} - Periodicita: {getTransactionFrequencyLabel(tx.frequency)}
+        </div>
+        <div className="text-muted fs-sm">
+          Caricata da account: {uploaderLabel(tx)}
+        </div>
+        {tx.payment_method === 'credit_card' && (
+          <div className="text-muted fs-sm">
+            {paymentMethodLabels.credit_card}: impatto disponibilita {new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
+          </div>
+        )}
+        {tx.notes && <div className={styles.transactionNote}>Nota: {tx.notes}</div>}
+      </div>
+      <div className={styles.transactionActions}>
+        <div className={tx.type === 'expense' ? styles.expenseAmount : styles.incomeAmount}>
+          {tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
+        </div>
+        <button onClick={() => navigate(`/transazioni/${tx.id}/modifica`)} className={styles.editButton}>
+          <Pencil size={14} /> Modifica
+        </button>
+        <button onClick={() => handleDelete(tx.id)} className={styles.deleteButton}>Elimina</button>
+      </div>
+    </div>
+  );
 
   return (
     <div className={styles.page}>
@@ -89,38 +150,25 @@ export const TransactionsPage: React.FC = () => {
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            {transactions.map(tx => (
-              <div key={tx.id} className={tx.id === routeState.createdTransactionId ? styles.recentlyCreated : undefined} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--border-color)' }}>
-                <div>
-                  <div style={{ fontWeight: '600' }}>{tx.description}</div>
-                  <div className="text-muted fs-sm">
-                    {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || (tx.source === 'receipt_ocr' ? 'Scontrino multi-categoria' : 'Non classificato')} - Conto: {tx.accounts?.name || 'Conto'} - Periodicita: {getTransactionFrequencyLabel(tx.frequency)}
-                  </div>
-                  <div className="text-muted fs-sm">
-                    Caricata da account: {uploaderLabel(tx)}
-                  </div>
-                  {tx.payment_method === 'credit_card' && (
-                    <div className="text-muted fs-sm">
-                      {paymentMethodLabels.credit_card}: impatto disponibilita {new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
-                    </div>
-                  )}
-                  {tx.notes && (
-                    <div className={styles.transactionNote}>
-                      Nota: {tx.notes}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                  <div style={{ color: tx.type === 'expense' ? 'red' : 'green', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                    {tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
-                  </div>
-                  <button onClick={() => navigate(`/transazioni/${tx.id}/modifica`)} style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', padding: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                    <Pencil size={14} /> Modifica
-                  </button>
-                  <button onClick={() => handleDelete(tx.id)} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer', padding: '0.5rem' }}>Elimina</button>
-                </div>
-              </div>
-            ))}
+            {newlyCreatedTransaction.length > 0 && (
+              <section>
+                <h2 className={styles.sectionTitle}>Appena salvata</h2>
+                {newlyCreatedTransaction.map(renderTransaction)}
+              </section>
+            )}
+            {currentTransactions.length > 0 && (
+              <section>
+                <h2 className={styles.sectionTitle}>Movimenti registrati</h2>
+                {currentTransactions.map(renderTransaction)}
+              </section>
+            )}
+            {futureTransactions.length > 0 && (
+              <section className={styles.futureSection}>
+                <h2 className={styles.sectionTitle}>Movimenti futuri gia programmati</h2>
+                <p className="text-muted fs-sm">Questi movimenti hanno una data successiva a oggi.</p>
+                {futureTransactions.map(renderTransaction)}
+              </section>
+            )}
           </div>
         )}
       </Card>

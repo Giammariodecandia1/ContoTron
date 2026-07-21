@@ -41,8 +41,72 @@
 }
 
 .recentlyCreated {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-4);
+  border: 2px solid var(--color-primary);
   border-radius: var(--border-radius-md);
   background: var(--color-primary-light);
+}
+
+.transactionRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.transactionTitle,
+.expenseAmount,
+.incomeAmount {
+  font-weight: 700;
+}
+
+.expenseAmount,
+.incomeAmount {
+  font-size: var(--text-lg);
+}
+
+.expenseAmount,
+.deleteButton {
+  color: var(--color-danger);
+}
+
+.incomeAmount {
+  color: var(--color-success);
+}
+
+.transactionActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.editButton,
+.deleteButton {
+  padding: var(--space-2);
+  background: none;
+  cursor: pointer;
+}
+
+.editButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+}
+
+.sectionTitle {
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--text-base);
+}
+
+.futureSection {
+  margin-top: var(--space-6);
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--color-gray-200);
 }
 
 .tableToolbar {
@@ -119,5 +183,18 @@
 
   .headerActions {
     flex-direction: column-reverse;
+  }
+
+  .recentlyCreated,
+  .transactionRow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .transactionActions {
+    width: 100%;
+    justify-content: space-between;
+    gap: var(--space-2);
   }
 }
