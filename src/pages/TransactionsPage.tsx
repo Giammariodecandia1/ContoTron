@@ -44,27 +44,24 @@ export const TransactionsPage: React.FC = () => {
     createdTransactionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [routeState.createdTransactionId, transactions]);
 
-  const orderedTransactions = useMemo(() => {
-    if (!routeState.createdTransactionId) return transactions;
-    const created = transactions.find(transaction => transaction.id === routeState.createdTransactionId);
-    return created
-      ? [created, ...transactions.filter(transaction => transaction.id !== created.id)]
-      : transactions;
-  }, [routeState.createdTransactionId, transactions]);
+  const { newlyCreatedTransaction, currentTransactions, futureTransactions } = useMemo(() => {
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const created = routeState.createdTransactionId
+      ? transactions.find(transaction => transaction.id === routeState.createdTransactionId)
+      : undefined;
+    const remaining = transactions.filter(transaction => transaction.id !== created?.id);
 
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
-  const newlyCreatedTransaction = routeState.createdTransactionId
-    ? orderedTransactions.filter(transaction => transaction.id === routeState.createdTransactionId)
-    : [];
-  const currentTransactions = orderedTransactions.filter(transaction => (
-    transaction.id !== routeState.createdTransactionId
-    && new Date(transaction.transaction_date).getTime() <= todayEnd.getTime()
-  ));
-  const futureTransactions = orderedTransactions.filter(transaction => (
-    transaction.id !== routeState.createdTransactionId
-    && new Date(transaction.transaction_date).getTime() > todayEnd.getTime()
-  ));
+    return {
+      newlyCreatedTransaction: created ? [created] : [],
+      currentTransactions: remaining
+        .filter(transaction => new Date(transaction.transaction_date).getTime() <= todayEnd.getTime())
+        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime()),
+      futureTransactions: remaining
+        .filter(transaction => new Date(transaction.transaction_date).getTime() > todayEnd.getTime())
+        .sort((left, right) => new Date(left.transaction_date).getTime() - new Date(right.transaction_date).getTime()),
+    };
+  }, [routeState.createdTransactionId, transactions]);
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Sei sicuro di voler eliminare questa transazione?')) {
@@ -158,7 +155,7 @@ export const TransactionsPage: React.FC = () => {
             )}
             {currentTransactions.length > 0 && (
               <section>
-                <h2 className={styles.sectionTitle}>Movimenti registrati</h2>
+                <h2 className={styles.sectionTitle}>Movimenti recenti</h2>
                 {currentTransactions.map(renderTransaction)}
               </section>
             )}
