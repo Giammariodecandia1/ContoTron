@@ -383,10 +383,10 @@ export const ReportsPage: React.FC = () => {
       });
 
       monthlyBudgetTargets
-        .filter(target => target.category_id === category.id && target.subcategory_id)
+        .filter(target => target.category_id === category.id)
         .forEach(target => {
           const id = target.subcategory_id || 'without-subcategory';
-          ensureSubcategory(id, subcategoryById.get(id)?.name || 'Senza sottocategoria').planned += Number(target.planned_amount || 0);
+          ensureSubcategory(id, target.subcategory_id ? (subcategoryById.get(id)?.name || 'Senza sottocategoria') : 'Non ripartito').planned += Number(target.planned_amount || 0);
         });
 
       category.subcategories = Array.from(subcategoryMap.values())
@@ -485,11 +485,7 @@ export const ReportsPage: React.FC = () => {
       targetsByCategory.set(target.category_id || '', group);
     });
     targetsByCategory.forEach((group, categoryId) => {
-      const subcategoryTargets = group.filter(target => target.subcategory_id);
-      const selectedTargets = subcategoryTargets.length > 0
-        ? subcategoryTargets
-        : group.filter(target => !target.subcategory_id);
-      selectedTargets.forEach(target => {
+      group.forEach(target => {
         addSpendingTypeValue(
           resolveSpendingType(categoryId, target.subcategory_id),
           'planned',

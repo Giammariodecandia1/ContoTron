@@ -19,7 +19,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useAuth, useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
-import { dataUrlToFile, deleteArchiveDocument, uploadArchiveDocumentPages } from '../lib/documentArchive';
+import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
 import {
   classifyReceiptText,
@@ -155,6 +155,38 @@ const loadDataUrlImage = (source: string) => new Promise<HTMLImageElement>((reso
   image.src = source;
 });
 
+const otsuThreshold = (pixels: Uint8ClampedArray) => {
+  const histogram = new Array<number>(256).fill(0);
+  for (let index = 0; index < pixels.length; index += 4) {
+    histogram[Math.round((pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114))] += 1;
+  }
+
+  const pixelCount = pixels.length / 4;
+  const weightedTotal = histogram.reduce((sum, count, value) => sum + (value * count), 0);
+  let backgroundWeight = 0;
+  let backgroundSum = 0;
+  let bestVariance = -1;
+  let threshold = 160;
+
+  for (let value = 0; value < histogram.length; value += 1) {
+    backgroundWeight += histogram[value];
+    if (backgroundWeight === 0) continue;
+    const foregroundWeight = pixelCount - backgroundWeight;
+    if (foregroundWeight === 0) break;
+
+    backgroundSum += value * histogram[value];
+    const backgroundMean = backgroundSum / backgroundWeight;
+    const foregroundMean = (weightedTotal - backgroundSum) / foregroundWeight;
+    const variance = backgroundWeight * foregroundWeight * ((backgroundMean - foregroundMean) ** 2);
+    if (variance > bestVariance) {
+      bestVariance = variance;
+      threshold = value;
+    }
+  }
+
+  return Math.max(105, Math.min(220, threshold));
+};
+
 const preparePageForOcr = async (page: ReceiptPage, mode: 'standard' | 'strong' = 'standard') => {
   const image = await loadDataUrlImage(page.image);
   const crop = page.crop;
@@ -188,10 +220,12 @@ const preparePageForOcr = async (page: ReceiptPage, mode: 'standard' | 'strong' 
 
   const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
   const pixels = imageData.data;
+  const threshold = mode === 'strong' ? otsuThreshold(pixels) : null;
   for (let index = 0; index < pixels.length; index += 4) {
     const gray = (pixels[index] * 0.299) + (pixels[index + 1] * 0.587) + (pixels[index + 2] * 0.114);
-    const contrast = mode === 'strong' ? 1.85 : 1.35;
-    const enhanced = Math.max(0, Math.min(255, ((gray - 128) * contrast) + 128));
+    const contrast = mode === 'strong' ? 1.6 : 1.3;
+    const contrastValue = Math.max(0, Math.min(255, ((gray - 128) * contrast) + 128));
+    const enhanced = threshold === null ? contrastValue : (contrastValue >= threshold ? 255 : 0);
     pixels[index] = enhanced;
     pixels[index + 1] = enhanced;
     pixels[index + 2] = enhanced;
@@ -206,13 +240,54 @@ const assessOcrText = (text: string, confidence: number) => {
     /[a-zA-Z]{2,}/.test(line)
     && /\d+\s*[,.]\s*\d{2}/.test(line)
   )).length;
-  const score = confidence + Math.min(40, itemLikeLines * 4) + Math.min(20, lines.length * 0.5);
+  const totalSignals = lines.filter(line => /totale|importo\s+pagato|pagamento\s+elettronico/i.test(line)).length;
+  const score = confidence
+    + Math.min(40, itemLikeLines * 4)
+    + Math.min(20, lines.length * 0.5)
+    + Math.min(18, totalSignals * 6);
   const expectedItemLines = Math.max(4, Math.floor(lines.length * 0.25));
 
   return {
     score,
     shouldRetry: confidence < 72 || (lines.length >= 12 && itemLikeLines < expectedItemLines),
   };
+};
+
+const findMerchantLine = (lines: string[]) => {
+  const knownMerchants: Array<[string, string]> = [
+    ['risparmiocasa', 'Risparmio Casa'],
+    ['eurospin', 'Eurospin'],
+    ['esselunga', 'Esselunga'],
+    ['carrefour', 'Carrefour'],
+    ['conad', 'Conad'],
+    ['coop', 'Coop'],
+    ['lidl', 'Lidl'],
+    ['action', 'Action'],
+    ['ikea', 'IKEA'],
+  ];
+  const normalizedLines = lines.slice(0, 20).map(line => normalizeSearchText(line));
+  const knownMerchant = knownMerchants.find(([keyword]) => (
+    normalizedLines.some(line => ` ${line} `.includes(` ${keyword} `) || line.includes(`${keyword}.`))
+  ));
+  if (knownMerchant) return knownMerchant[1];
+
+  const rejected = [
+    'documento', 'commerciale', 'vendita', 'prestazione', 'descrizione', 'prezzo',
+    'partita iva', 'p iva', 'telefono', 'totale', 'pagamento', 'importo',
+  ];
+
+  return lines
+    .slice(0, 16)
+    .map((line, index) => {
+      const normalized = normalizeSearchText(line);
+      const letters = (line.match(/[a-zA-Z]/g) || []).length;
+      const rejectedLine = rejected.some(word => normalized.includes(word));
+      const addressLike = /\b(?:via|viale|piazza|corso)\b/i.test(line) || /\b\d{5}\b/.test(line);
+      const score = letters - (index * 0.35) - (rejectedLine ? 50 : 0) - (addressLike ? 30 : 0);
+      return { line, score };
+    })
+    .filter(candidate => candidate.score > 3)
+    .sort((left, right) => right.score - left.score)[0]?.line || '';
 };
 
 const createReceiptPage = (image: string): ReceiptPage => ({
@@ -244,8 +319,9 @@ export const ScanReceiptPage: React.FC = () => {
   const [archiving, setArchiving] = useState(false);
 
   const webcamRef = useRef<Webcam>(null);
+  const saveInFlightRef = useRef(false);
   const navigate = useNavigate();
-  const { household, accounts, categories, subcategories, refreshData } = useHousehold();
+  const { household, accounts, categories, subcategories } = useHousehold();
   const { user } = useAuth();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const documentStorageStatus = getDocumentStorageStatus(household);
@@ -276,26 +352,6 @@ export const ScanReceiptPage: React.FC = () => {
     setFrequency('');
     setNotes('');
     setStatus('idle');
-  };
-
-  const ensureExpenseCategory = async (name: string) => {
-    if (!household) return null;
-    const existingCategory = categories.find(category => normalizeSearchText(category.name) === normalizeSearchText(name));
-    if (existingCategory) return existingCategory;
-
-    const { data, error } = await supabase
-      .from('categories')
-      .insert([{ household_id: household.id, name, type: 'expense', sort_order: 100 }])
-      .select('*')
-      .single();
-
-    if (error) {
-      console.error('Errore creazione categoria OCR:', error);
-      return null;
-    }
-
-    await refreshData();
-    return data;
   };
 
   const addFiles = async (selectedFiles: File[]) => {
@@ -384,18 +440,31 @@ export const ScanReceiptPage: React.FC = () => {
     setArchiveError(null);
     setScanProgress(`Preparazione pagina 1 di ${pages.length}...`);
 
+    let worker: Awaited<ReturnType<typeof Tesseract.createWorker>> | null = null;
     try {
+      setScanProgress('Avvio motore OCR...');
+      worker = await Tesseract.createWorker(['ita', 'eng'], Tesseract.OEM.LSTM_ONLY);
       const recognizedPages: OcrPageResult[] = [];
       for (let index = 0; index < pages.length; index += 1) {
         setScanProgress(`Lettura OCR pagina ${index + 1} di ${pages.length}...`);
+        await worker.setParameters({
+          tessedit_pageseg_mode: Tesseract.PSM.SINGLE_BLOCK,
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        });
         const targetImage = await preparePageForOcr(pages[index]);
-        let result = await Tesseract.recognize(targetImage, 'ita+eng');
+        let result = await worker.recognize(targetImage, { rotateAuto: true });
         const firstAssessment = assessOcrText(result.data.text, result.data.confidence);
 
         if (firstAssessment.shouldRetry) {
           setScanProgress(`Seconda lettura pagina ${index + 1} di ${pages.length}...`);
+          await worker.setParameters({
+            tessedit_pageseg_mode: Tesseract.PSM.SPARSE_TEXT,
+            preserve_interword_spaces: '1',
+            user_defined_dpi: '300',
+          });
           const strongImage = await preparePageForOcr(pages[index], 'strong');
-          const secondResult = await Tesseract.recognize(strongImage, 'ita+eng');
+          const secondResult = await worker.recognize(strongImage, { rotateAuto: true });
           const secondAssessment = assessOcrText(secondResult.data.text, secondResult.data.confidence);
           if (secondAssessment.score > firstAssessment.score) result = secondResult;
         }
@@ -412,17 +481,14 @@ export const ScanReceiptPage: React.FC = () => {
 
       const firstPageLines = recognizedPages[0].text.split('\n').map(line => line.trim()).filter(Boolean);
       const totalResult = extractReceiptTotal(merged.text);
-      const foundMerchant = firstPageLines.find(line => /[a-zA-Z]{4,}/.test(line)) || firstPageLines[0] || '';
+      const foundMerchant = findMerchantLine(firstPageLines);
       const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s.&-]/g, '').substring(0, 40).trim();
 
       setAmount(totalResult.amount ? totalResult.amount.toFixed(2) : '0.00');
       setMerchant(cleanMerchant || 'Esercente sconosciuto');
 
-      const fullTextLower = normalizeSearchText(merged.text);
       let matchedCategoryId = '';
       let matchedSubcategoryId = '';
-      let suggestedCategoryName = '';
-      let categoriesForItemMatching = categories;
 
       if (household) {
         const { data: rules } = await supabase
@@ -433,8 +499,7 @@ export const ScanReceiptPage: React.FC = () => {
           .order('use_count', { ascending: false });
 
         const merchantLower = normalizeSearchText(cleanMerchant);
-        const rule = rules?.find(candidate => normalizeSearchText(candidate.match_text) === merchantLower)
-          || rules?.find(candidate => fullTextLower.includes(normalizeSearchText(candidate.match_text)));
+        const rule = rules?.find(candidate => normalizeSearchText(candidate.match_text) === merchantLower);
         if (rule) {
           matchedCategoryId = rule.category_id;
           matchedSubcategoryId = rule.subcategory_id || '';
@@ -445,15 +510,6 @@ export const ScanReceiptPage: React.FC = () => {
         const categoryMatch = classifyReceiptText(merged.text, categories, subcategories);
         matchedCategoryId = categoryMatch.categoryId;
         matchedSubcategoryId = categoryMatch.subcategoryId;
-        suggestedCategoryName = categoryMatch.suggestedCategoryName || '';
-
-        if (!matchedCategoryId && suggestedCategoryName) {
-          const createdCategory = await ensureExpenseCategory(suggestedCategoryName);
-          if (createdCategory) {
-            matchedCategoryId = createdCategory.id;
-            categoriesForItemMatching = [...categories, createdCategory];
-          }
-        }
       }
 
       const receiptLines = merged.text.split('\n').map(line => line.trim()).filter(Boolean);
@@ -462,7 +518,7 @@ export const ScanReceiptPage: React.FC = () => {
         ? receiptLines.findIndex(line => normalizeSearchText(line) === totalSourceKey)
         : -1;
       const totalComesFromReceiptFooter = totalSourceIndex >= Math.floor(receiptLines.length * 0.55);
-      const extractedItems = extractReceiptItems(merged.text, categoriesForItemMatching, subcategories)
+      const extractedItems = extractReceiptItems(merged.text, categories, subcategories)
         .filter(item => !(
           totalResult.amount !== null
           && totalComesFromReceiptFooter
@@ -475,16 +531,8 @@ export const ScanReceiptPage: React.FC = () => {
 
       for (const item of reconciliation.items) {
         const learnedRule = findProductClassificationRule(item.description, productRules);
-        let itemCategoryId = learnedRule?.category_id || item.categoryId;
+        const itemCategoryId = learnedRule?.category_id || item.categoryId;
         const itemSubcategoryId = learnedRule?.subcategory_id || item.subcategoryId;
-
-        if (!itemCategoryId && item.suggestedCategoryName) {
-          const createdCategory = await ensureExpenseCategory(item.suggestedCategoryName);
-          if (createdCategory) {
-            itemCategoryId = createdCategory.id;
-            categoriesForItemMatching = [...categoriesForItemMatching, createdCategory];
-          }
-        }
 
         editableItems.push({
           ...item,
@@ -516,6 +564,7 @@ export const ScanReceiptPage: React.FC = () => {
       setArchiveError(error instanceof Error ? error.message : 'Errore durante il riconoscimento del testo.');
       setStatus('reviewing');
     } finally {
+      await worker?.terminate().catch(error => console.warn('Chiusura motore OCR fallita:', error));
       setScanProgress('');
     }
   };
@@ -550,6 +599,7 @@ export const ScanReceiptPage: React.FC = () => {
     : null;
 
   const handleConfirm = async () => {
+    if (saveInFlightRef.current) return;
     if (!household || pages.length === 0) {
       setArchiveError('Nucleo familiare o pagine non disponibili.');
       return;
@@ -559,7 +609,7 @@ export const ScanReceiptPage: React.FC = () => {
       .map(item => ({
         description: item.description.trim(),
         amount: Number(item.amountText.replace(',', '.')),
-        categoryId: item.categoryId || detectedCategoryId || '',
+        categoryId: item.categoryId || '',
         subcategoryId: item.subcategoryId || '',
       }))
       .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0);
@@ -587,24 +637,113 @@ export const ScanReceiptPage: React.FC = () => {
       if (!confirmed) return;
     }
 
+    saveInFlightRef.current = true;
     setArchiving(true);
     setArchiveError(null);
     try {
+      const totalAmount = receiptAmountNumber;
+      const categorizedItems = items.filter(item => item.categoryId);
+      const categoryIds = new Set(categorizedItems.map(item => item.categoryId));
+      const subcategoryIds = new Set(items.filter(item => item.subcategoryId).map(item => item.subcategoryId));
+      const allItemsShareCategory = items.length > 0 && categorizedItems.length === items.length && categoryIds.size === 1;
+      const allItemsShareSubcategory = allItemsShareCategory && subcategoryIds.size === 1
+        && items.every(item => item.subcategoryId);
+      const transactionCategoryId = items.length === 0
+        ? detectedCategoryId || null
+        : allItemsShareCategory ? [...categoryIds][0] : null;
+      const transactionSubcategoryId = items.length === 0
+        ? detectedSubcategoryId || null
+        : allItemsShareSubcategory ? [...subcategoryIds][0] : null;
+
+      const { data: transaction, error: transactionError } = await supabase
+        .from('transactions')
+        .insert([{
+          household_id: household.id,
+          account_id: selectedAccountId,
+          document_id: null,
+          type: 'expense',
+          status: 'confirmed',
+          source: 'receipt_ocr',
+          payment_method: paymentMethod,
+          cash_impact_date: getCashImpactDate(date, paymentMethod),
+          frequency,
+          transaction_date: date,
+          description: `Acquisto ${merchant || 'da scontrino'}`,
+          merchant: merchant.trim() || null,
+          amount: totalAmount,
+          category_id: transactionCategoryId,
+          subcategory_id: transactionSubcategoryId,
+          is_shared: true,
+          inserted_by: user?.id || null,
+          notes: notes.trim() || null,
+        }])
+        .select()
+        .single();
+
+      if (transactionError || !transaction) {
+        throw new Error(transactionError?.message || 'Transazione non salvata.');
+      }
+
+      if (items.length > 0) {
+        const itemRows = items.map(item => ({
+          household_id: household.id,
+          transaction_id: transaction.id,
+          description: item.description,
+          amount: item.amount,
+          category_id: item.categoryId || null,
+          subcategory_id: item.subcategoryId || null,
+          is_confirmed: true,
+        }));
+        const { error: itemError } = await supabase.from('transaction_items').insert(itemRows);
+        if (itemError) {
+          await supabase.from('transactions').delete().eq('id', transaction.id);
+          throw new Error(`Articoli non salvati: ${itemError.message}`);
+        }
+
+        await saveProductClassificationRules({
+          householdId: household.id,
+          userId: user?.id || null,
+          products: items.map(item => ({
+            description: item.description,
+            categoryId: item.categoryId || null,
+            subcategoryId: item.subcategoryId || null,
+          })),
+        }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
+      }
+
       const timestamp = Date.now();
       const files = await Promise.all(pages.map((page, index) => (
         dataUrlToFile(page.image, `scontrino-${timestamp}-pagina-${index + 1}.jpg`)
       )));
-      const totalAmount = receiptAmountNumber;
-      const document = await uploadArchiveDocumentPages({
-        householdId: household.id,
-        household,
-        uploadedBy: user?.id || null,
-        files,
-        type: 'receipt',
-        documentDate: date,
-        vendorName: merchant || 'Scontrino',
-        totalAmount,
-      });
+
+      let document;
+      try {
+        document = await uploadArchiveDocumentPages({
+          householdId: household.id,
+          household,
+          uploadedBy: user?.id || null,
+          files,
+          type: 'receipt',
+          documentDate: date,
+          vendorName: merchant || 'Scontrino',
+          totalAmount,
+        });
+      } catch (documentError) {
+        navigate('/transazioni', {
+          replace: true,
+          state: {
+            createdTransactionId: transaction.id,
+            warning: `Transazione salvata. Non sono riuscito ad archiviare le foto: ${documentError instanceof Error ? documentError.message : 'errore archivio'}`,
+          },
+        });
+        return;
+      }
+
+      const { error: linkError } = await supabase
+        .from('transactions')
+        .update({ document_id: document.id, updated_at: new Date().toISOString() })
+        .eq('id', transaction.id)
+        .eq('household_id', household.id);
 
       const averageConfidence = ocrPages.length > 0
         ? ocrPages.reduce((sum, page) => sum + page.confidence, 0) / ocrPages.length
@@ -635,75 +774,22 @@ export const ScanReceiptPage: React.FC = () => {
       }]);
       if (ocrError) console.error('Testo OCR non archiviato:', ocrError);
 
-      const categorizedItems = items.filter(item => item.categoryId);
-      const categoryIds = new Set(categorizedItems.map(item => item.categoryId));
-      const subcategoryIds = new Set(items.filter(item => item.subcategoryId).map(item => item.subcategoryId));
-      const allItemsShareCategory = items.length > 0 && categorizedItems.length === items.length && categoryIds.size === 1;
-      const allItemsShareSubcategory = allItemsShareCategory && subcategoryIds.size === 1
-        && items.every(item => item.subcategoryId);
-
-      const { data: transaction, error: transactionError } = await supabase
-        .from('transactions')
-        .insert([{
-          household_id: household.id,
-          account_id: selectedAccountId,
-          document_id: document.id,
-          type: 'expense',
-          status: 'confirmed',
-          source: 'receipt_ocr',
-          payment_method: paymentMethod,
-          cash_impact_date: getCashImpactDate(date, paymentMethod),
-          frequency,
-          transaction_date: date,
-          description: `Acquisto ${merchant || 'da scontrino'}`,
-          merchant: merchant.trim() || null,
-          amount: totalAmount,
-          category_id: allItemsShareCategory ? [...categoryIds][0] : null,
-          subcategory_id: allItemsShareSubcategory ? [...subcategoryIds][0] : null,
-          is_shared: true,
-          inserted_by: user?.id || null,
-          notes: notes.trim() || null,
-        }])
-        .select()
-        .single();
-
-      if (transactionError || !transaction) {
-        await deleteArchiveDocument(document).catch(cleanupError => console.warn('Pulizia documento fallita:', cleanupError));
-        throw new Error(transactionError?.message || 'Transazione non salvata.');
-      }
-
-      if (items.length > 0) {
-        const itemRows = items.map(item => ({
-          household_id: household.id,
-          transaction_id: transaction.id,
-          description: item.description,
-          amount: item.amount,
-          category_id: item.categoryId || null,
-          subcategory_id: item.subcategoryId || null,
-          is_confirmed: true,
-        }));
-        const { error: itemError } = await supabase.from('transaction_items').insert(itemRows);
-        if (itemError) {
-          await supabase.from('transactions').delete().eq('id', transaction.id);
-          await deleteArchiveDocument(document).catch(cleanupError => console.warn('Pulizia documento fallita:', cleanupError));
-          throw new Error(`Articoli non salvati: ${itemError.message}`);
-        }
-
-        await saveProductClassificationRules({
-          householdId: household.id,
-          userId: user?.id || null,
-          products: items.map(item => ({
-            description: item.description,
-            categoryId: item.categoryId || null,
-            subcategoryId: item.subcategoryId || null,
-          })),
-        }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
-      }
-
-      navigate('/transazioni', { replace: true });
+      navigate('/transazioni', {
+        replace: true,
+        state: linkError
+          ? {
+              createdTransactionId: transaction.id,
+              warning: 'Transazione e documento salvati, ma il collegamento tra i due non e riuscito. Il documento resta recuperabile nell archivio.',
+            }
+          : {
+              createdTransactionId: transaction.id,
+              notice: 'Scontrino e transazione salvati correttamente.',
+            },
+      });
     } catch (error) {
       setArchiveError(error instanceof Error ? error.message : 'Non riesco ad archiviare lo scontrino multipagina.');
     } finally {
+      saveInFlightRef.current = false;
       setArchiving(false);
     }
   };
@@ -895,6 +981,10 @@ export const ScanReceiptPage: React.FC = () => {
                   Aggiungi riga
                 </Button>
               </div>
+
+              <p className={styles.learningNotice}>
+                Le correzioni a categoria e sottocategoria migliorano i riconoscimenti futuri dei prodotti per il tuo nucleo familiare. Le regole apprese restano private e non vengono condivise con altre famiglie.
+              </p>
 
               {receiptItems.length === 0 && <p className="text-warning fs-sm">Nessun articolo riconosciuto. Puoi aggiungere le righe manualmente.</p>}
               {receiptItems.map(item => {

@@ -200,7 +200,7 @@ export const AnnualAnalysisPage: React.FC = () => {
     const actualByMonth: Record<number, number> = {};
 
     budgetRows.forEach(row => {
-      if (!row.category_id || row.subcategory_id) return;
+      if (!row.category_id) return;
       plannedByMonth[row.month] = (plannedByMonth[row.month] || 0) + Number(row.planned_amount || 0);
     });
     incomeRows.forEach(row => {

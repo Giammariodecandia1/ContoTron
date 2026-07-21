@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Tesseract from 'tesseract.js';
-import { ExternalLink, FileText, Images, Trash2, UploadCloud, X } from 'lucide-react';
+import { ExternalLink, FileText, Images, ListPlus, Trash2, UploadCloud, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
@@ -29,6 +30,15 @@ type DocumentUploaderProfile = {
 
 type ArchiveDocument = DocumentWithUrl & {
   uploaded_by_profile?: DocumentUploaderProfile | null;
+  transaction_id?: string | null;
+  ocr_data?: {
+    items?: Array<{
+      description?: string;
+      amount?: number;
+      category_id?: string | null;
+      subcategory_id?: string | null;
+    }>;
+  } | null;
 };
 
 const documentTypes: Array<{ value: DocumentType; label: string }> = [
@@ -53,6 +63,7 @@ const monthOptions = Array.from({ length: 12 }, (_, index) => {
 });
 
 export const DocumentsPage: React.FC = () => {
+  const navigate = useNavigate();
   const { household } = useHousehold();
   const { user } = useAuth();
   const today = new Date();
@@ -128,15 +139,32 @@ export const DocumentsPage: React.FC = () => {
       const documentRows = data || [];
       const documentIds = documentRows.map(doc => doc.id);
       let ocrByDocumentId: Record<string, string | null> = {};
+      let ocrDataByDocumentId: Record<string, ArchiveDocument['ocr_data']> = {};
+      let transactionByDocumentId: Record<string, string> = {};
 
       if (documentIds.length > 0) {
         const { data: ocrRows } = await supabase
           .from('ocr_jobs')
-          .select('document_id, extracted_text')
+          .select('document_id, extracted_text, extracted_json')
           .in('document_id', documentIds);
 
         ocrByDocumentId = (ocrRows || []).reduce<Record<string, string | null>>((acc, row) => {
           acc[row.document_id] = row.extracted_text || null;
+          return acc;
+        }, {});
+        ocrDataByDocumentId = (ocrRows || []).reduce<Record<string, ArchiveDocument['ocr_data']>>((acc, row) => {
+          acc[row.document_id] = (row.extracted_json || null) as ArchiveDocument['ocr_data'];
+          return acc;
+        }, {});
+
+        const { data: transactionRows, error: transactionError } = await supabase
+          .from('transactions')
+          .select('id, document_id')
+          .eq('household_id', householdId)
+          .in('document_id', documentIds);
+        if (transactionError) throw transactionError;
+        transactionByDocumentId = (transactionRows || []).reduce<Record<string, string>>((acc, row) => {
+          if (row.document_id) acc[row.document_id] = row.id;
           return acc;
         }, {});
       }
@@ -148,6 +176,8 @@ export const DocumentsPage: React.FC = () => {
         url: pagesByDocumentId[doc.id]?.[0]?.url
           || '',
         ocr_text: ocrByDocumentId[doc.id] || null,
+        ocr_data: ocrDataByDocumentId[doc.id] || null,
+        transaction_id: transactionByDocumentId[doc.id] || null,
       }));
 
       setDocuments(withUrls as ArchiveDocument[]);
@@ -307,6 +337,30 @@ export const DocumentsPage: React.FC = () => {
     }
   };
 
+  const handleCreateTransaction = (doc: ArchiveDocument) => {
+    const ocrItems = (doc.ocr_data?.items || [])
+      .map(item => ({
+        description: item.description?.trim() || '',
+        amount: Number(item.amount || 0),
+        categoryId: item.category_id || undefined,
+        subcategoryId: item.subcategory_id || undefined,
+      }))
+      .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0);
+
+    navigate('/transazioni/nuova', {
+      state: {
+        type: 'expense',
+        amount: doc.total_amount ? String(doc.total_amount) : '',
+        date: doc.document_date || new Date().toISOString().split('T')[0],
+        merchant: doc.vendor_name || '',
+        description: `Acquisto ${doc.vendor_name || 'da scontrino'}`,
+        frequency: 'other',
+        documentId: doc.id,
+        items: ocrItems,
+      },
+    });
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -457,6 +511,11 @@ export const DocumentsPage: React.FC = () => {
                         <div className={styles.storageMeta}>
                           {isGoogleDriveDocument(doc) ? 'Google Drive personale' : 'Archivio interno Contotron'}
                         </div>
+                        {doc.type === 'receipt' && !doc.transaction_id && (
+                          <div className={styles.orphanWarning}>
+                            Questo scontrino non ha ancora una transazione collegata.
+                          </div>
+                        )}
                         {isGoogleDriveDocument(doc) && doc.uploaded_by !== user?.id && (
                           <div className={styles.accessNote}>
                             File nel Drive di un altro membro: puoi vedere dati e OCR; il link potrebbe richiedere permessi Google.
@@ -476,6 +535,17 @@ export const DocumentsPage: React.FC = () => {
                           <a href={doc.url} target="_blank" rel="noreferrer">
                             <ExternalLink size={14} /> Apri documento
                           </a>
+                        )}
+                        {doc.type === 'receipt' && !doc.transaction_id && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            icon={<ListPlus size={14} />}
+                            onClick={() => handleCreateTransaction(doc)}
+                          >
+                            Crea transazione
+                          </Button>
                         )}
                         <Button
                           type="button"

@@ -72,7 +72,8 @@ export const useTransactions = () => {
           inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)
         `)
         .eq('household_id', householdId)
-        .order('transaction_date', { ascending: false });
+        .order('transaction_date', { ascending: false })
+        .order('created_at', { ascending: false });
 
       if (year && month) {
         // Construct date range for the month
@@ -90,7 +91,27 @@ export const useTransactions = () => {
 
       const { data, error: fetchError } = await query;
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        console.warn('Caricamento dettagli transazioni fallito, uso elenco essenziale:', fetchError);
+        let fallbackQuery = supabase
+          .from('transactions')
+          .select('*')
+          .eq('household_id', householdId)
+          .order('transaction_date', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        if (year && month) {
+          const startDay = budgetMonthStartDay;
+          const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
+          const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
+          fallbackQuery = fallbackQuery.gte('transaction_date', startDate).lte('transaction_date', endDate);
+        }
+        if (categoryId) fallbackQuery = fallbackQuery.eq('category_id', categoryId);
+
+        const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+        if (fallbackError) throw fallbackError;
+        return (fallbackData || []) as Transaction[];
+      }
       return (data || []) as Transaction[];
     } catch (err: unknown) {
       console.error('Error fetching transactions:', err);

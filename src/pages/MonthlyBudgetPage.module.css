@@ -157,6 +157,63 @@
   color: var(--color-gray-800);
 }
 
+.categoryRow {
+  background: var(--color-white);
+}
+
+.categoryToggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--color-gray-900);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-weight: 700;
+  gap: var(--space-2);
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.categoryToggle small {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  margin-left: auto;
+}
+
+.derivedAmount {
+  color: var(--color-gray-900);
+}
+
+.calculatedLabel {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.subcategoryRow td {
+  background: var(--color-gray-50);
+  padding-block: var(--space-2);
+}
+
+.subcategoryRow td:first-child {
+  padding-left: calc(var(--space-3) + 28px);
+}
+
+.subcategoryName {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.unallocatedRow td {
+  background: var(--color-warning-bg);
+}
+
 .inputAmount {
   width: 100px;
   padding: var(--space-2);
@@ -258,6 +315,12 @@
     background: var(--color-white);
     padding: var(--space-3);
   }
+
+  .budgetTable tr.subcategoryRow {
+    border-left: 3px solid var(--color-primary);
+    margin-left: var(--space-3);
+    width: calc(100% - var(--space-3));
+  }
   
   .budgetTable td {
     border: none;
@@ -272,6 +335,18 @@
     font-size: 0.8rem;
     color: var(--color-gray-500);
     text-transform: uppercase;
+  }
+
+  .subcategoryRow td:first-child {
+    padding-left: 0;
+  }
+
+  .categoryToggle {
+    max-width: 72%;
+  }
+
+  .categoryToggle small {
+    display: none;
   }
   
   .inputAmount {

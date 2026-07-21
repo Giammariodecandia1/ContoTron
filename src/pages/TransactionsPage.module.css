@@ -13,6 +13,38 @@
   margin-bottom: var(--space-1);
 }
 
+.headerActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.message {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  border-radius: var(--border-radius-md);
+  font-size: var(--text-sm);
+}
+
+.success {
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.warning {
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+}
+
+.error {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.recentlyCreated {
+  border-radius: var(--border-radius-md);
+  background: var(--color-primary-light);
+}
+
 .tableToolbar {
   padding: var(--space-4) 0;
   display: flex;
@@ -83,5 +115,9 @@
 
   .header button {
     width: 100%;
+  }
+
+  .headerActions {
+    flex-direction: column-reverse;
   }
 }

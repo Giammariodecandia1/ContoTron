@@ -176,6 +176,17 @@
   padding: var(--space-2);
 }
 
+.orphanWarning {
+  padding: var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 35%, transparent);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .deleteDocumentButton {
   align-self: flex-start;
   margin-top: var(--space-1);

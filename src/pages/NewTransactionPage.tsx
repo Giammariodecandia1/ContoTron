@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft } from 'lucide-react';
@@ -55,6 +55,7 @@ export const NewTransactionPage: React.FC = () => {
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submissionInFlightRef = useRef(false);
 
   const filteredCategories = categories.filter(c => c.type === transactionType);
   const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
@@ -98,6 +99,7 @@ export const NewTransactionPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submissionInFlightRef.current) return;
     setError(null);
 
     const amountNum = parseFloat(amount);
@@ -132,6 +134,7 @@ export const NewTransactionPage: React.FC = () => {
       frequency,
     };
 
+    submissionInFlightRef.current = true;
     const res = isEditMode && transactionId
       ? await updateTransaction(transactionId, txData)
       : await addTransaction({
@@ -159,6 +162,7 @@ export const NewTransactionPage: React.FC = () => {
           .insert(itemRows);
 
         if (itemError) {
+          submissionInFlightRef.current = false;
           setError(`Transazione salvata, ma articoli non salvati: ${itemError.message}`);
           return;
         }
@@ -171,15 +175,21 @@ export const NewTransactionPage: React.FC = () => {
             categoryId: item.category_id,
             subcategoryId: item.subcategory_id,
           })),
-        });
+        }).catch(classificationError => console.warn('Apprendimento prodotti non completato:', classificationError));
       }
     }
 
     if (res) {
-      navigate('/transazioni');
+      navigate('/transazioni', {
+        state: {
+          createdTransactionId: res.id,
+          notice: isEditMode ? 'Modifiche salvate correttamente.' : 'Transazione salvata correttamente.',
+        },
+      });
     } else {
       setError(isEditMode ? 'Errore durante il salvataggio delle modifiche' : 'Errore durante il salvataggio');
     }
+    submissionInFlightRef.current = false;
   };
 
   return (

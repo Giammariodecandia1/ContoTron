@@ -82,19 +82,28 @@ export const useBudget = () => {
     }
   }, [householdId]);
 
-  const upsertBudgetTarget = async (categoryId: string, amount: number, year: number, month: number) => {
+  const upsertBudgetTarget = async (
+    categoryId: string,
+    amount: number,
+    year: number,
+    month: number,
+    subcategoryId: string | null = null,
+  ) => {
     if (!householdId) return null;
     
     // Non settare loading a true qui, altrimenti l'UI scatta ad ogni tasto
     try {
-      const { data: existingRows, error: lookupError } = await supabase
+      const baseLookup = supabase
         .from('budget_targets')
         .select('id')
         .eq('household_id', householdId)
         .eq('year', year)
         .eq('month', month)
-        .eq('category_id', categoryId)
-        .is('subcategory_id', null)
+        .eq('category_id', categoryId);
+      const lookup = subcategoryId
+        ? baseLookup.eq('subcategory_id', subcategoryId)
+        : baseLookup.is('subcategory_id', null);
+      const { data: existingRows, error: lookupError } = await lookup
         .order('updated_at', { ascending: false })
         .limit(1);
 
@@ -121,7 +130,7 @@ export const useBudget = () => {
           year,
           month,
           category_id: categoryId,
-          subcategory_id: null,
+          subcategory_id: subcategoryId,
           planned_amount: amount,
         })
         .select()

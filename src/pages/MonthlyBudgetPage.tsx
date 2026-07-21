@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
-import { ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
@@ -13,10 +13,11 @@ type BudgetTransactionItem = {
   transaction_id: string;
   amount: number;
   category_id: string | null;
+  subcategory_id: string | null;
 };
 
 export const MonthlyBudgetPage: React.FC = () => {
-  const { household, accounts, categories } = useHousehold();
+  const { household, accounts, categories, subcategories } = useHousehold();
   const { fetchTransactions } = useTransactions();
   const { fetchBudgetTargets, upsertBudgetTarget, loading: budgetLoading } = useBudget();
 
@@ -25,7 +26,10 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [selectedMonth, setSelectedMonth] = useState(today.getMonth() + 1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [transactionItems, setTransactionItems] = useState<BudgetTransactionItem[]>([]);
-  const [budgets, setBudgets] = useState<Record<string, number>>({});
+  const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
+  const [subcategoryBudgets, setSubcategoryBudgets] = useState<Record<string, number>>({});
+  const [categoryTotalDrafts, setCategoryTotalDrafts] = useState<Record<string, string>>({});
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [recurringMessage, setRecurringMessage] = useState<string | null>(null);
   const [recurringError, setRecurringError] = useState<string | null>(null);
@@ -85,7 +89,7 @@ export const MonthlyBudgetPage: React.FC = () => {
       if (transactionIds.length > 0) {
         const { data: itemData, error: itemError } = await supabase
           .from('transaction_items')
-          .select('transaction_id, amount, category_id')
+          .select('transaction_id, amount, category_id, subcategory_id')
           .eq('household_id', householdId)
           .in('transaction_id', transactionIds);
         if (itemError) throw itemError;
@@ -99,13 +103,24 @@ export const MonthlyBudgetPage: React.FC = () => {
       const targets = await fetchBudgetTargets(year, month);
       if (loadRequestRef.current !== requestId) return;
       
-      const budgetMap: Record<string, number> = {};
+      const categoryBudgetMap: Record<string, number> = {};
+      const subcategoryBudgetMap: Record<string, number> = {};
       targets.forEach(t => {
-        if (t.category_id) {
-          budgetMap[t.category_id] = t.planned_amount;
-        }
+        if (!t.category_id) return;
+        if (t.subcategory_id) subcategoryBudgetMap[t.subcategory_id] = Number(t.planned_amount || 0);
+        else categoryBudgetMap[t.category_id] = Number(t.planned_amount || 0);
       });
-      setBudgets(budgetMap);
+      setCategoryBudgets(categoryBudgetMap);
+      setSubcategoryBudgets(subcategoryBudgetMap);
+      const categoryTotalDraftMap: Record<string, string> = {};
+      categories.filter(category => category.type === 'expense').forEach(category => {
+        const allocated = subcategories
+          .filter(subcategory => subcategory.category_id === category.id)
+          .reduce((sum, subcategory) => sum + (subcategoryBudgetMap[subcategory.id] || 0), 0);
+        const total = (categoryBudgetMap[category.id] || 0) + allocated;
+        categoryTotalDraftMap[category.id] = total > 0 ? String(total) : '';
+      });
+      setCategoryTotalDrafts(categoryTotalDraftMap);
       const hasCategoryTargets = targets.some(target => !!target.category_id);
       if (!hasCategoryTargets) {
         setPrefillNotice('Nessun budget previsto salvato per questo mese.');
@@ -120,7 +135,7 @@ export const MonthlyBudgetPage: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [accounts, fetchBudgetTargets, fetchTransactions, householdId, month, year]);
+  }, [accounts, categories, fetchBudgetTargets, fetchTransactions, householdId, month, subcategories, year]);
 
   useEffect(() => {
     if (!householdId) return;
@@ -146,19 +161,72 @@ export const MonthlyBudgetPage: React.FC = () => {
     setSelectedMonth(prev => prev + 1);
   };
 
-  const handleBudgetChange = (categoryId: string, val: string) => {
-    const num = parseFloat(val) || 0;
-    setBudgets(prev => ({ ...prev, [categoryId]: num }));
+  const subcategoryPlannedTotal = (categoryId: string, budgets = subcategoryBudgets) => (
+    subcategories
+      .filter(subcategory => subcategory.category_id === categoryId)
+      .reduce((sum, subcategory) => sum + (budgets[subcategory.id] || 0), 0)
+  );
+
+  const handleCategoryTotalChange = (categoryId: string, val: string) => {
+    setCategoryTotalDrafts(prev => ({ ...prev, [categoryId]: val }));
+    if (!val.trim()) return;
+    const requestedTotal = parseFloat(val) || 0;
+    const allocated = subcategoryPlannedTotal(categoryId);
+    setCategoryBudgets(prev => ({
+      ...prev,
+      [categoryId]: Math.max(0, requestedTotal - allocated),
+    }));
   };
 
-  const handleBudgetBlur = async (categoryId: string) => {
-    const amount = budgets[categoryId] || 0;
-    await upsertBudgetTarget(categoryId, amount, year, month);
+  const handleCategoryTotalBlur = async (categoryId: string, val: string) => {
+    const allocated = subcategoryPlannedTotal(categoryId);
+    const parsedTotal = parseFloat(val);
+    const requestedTotal = Number.isFinite(parsedTotal) ? parsedTotal : allocated;
+    const finalTotal = Math.max(allocated, requestedTotal);
+    const unallocatedAmount = finalTotal - allocated;
+    setCategoryBudgets(prev => ({ ...prev, [categoryId]: unallocatedAmount }));
+    setCategoryTotalDrafts(prev => ({ ...prev, [categoryId]: finalTotal > 0 ? String(finalTotal) : '' }));
+    const saved = await upsertBudgetTarget(categoryId, unallocatedAmount, year, month);
+    if (!saved) setLoadError('Non riesco a salvare il totale della categoria. Riprova.');
+  };
+
+  const handleSubcategoryBudgetChange = (categoryId: string, subcategoryId: string, val: string) => {
+    const num = parseFloat(val) || 0;
+    const previousAmount = subcategoryBudgets[subcategoryId] || 0;
+    const delta = num - previousAmount;
+    const nextSubcategoryBudgets = { ...subcategoryBudgets, [subcategoryId]: num };
+    setSubcategoryBudgets(nextSubcategoryBudgets);
+    if (delta !== 0) {
+      const nextUnallocated = Math.max(0, (categoryBudgets[categoryId] || 0) - delta);
+      const nextTotal = nextUnallocated + subcategoryPlannedTotal(categoryId, nextSubcategoryBudgets);
+      setCategoryBudgets(prev => ({ ...prev, [categoryId]: nextUnallocated }));
+      setCategoryTotalDrafts(prev => ({ ...prev, [categoryId]: nextTotal > 0 ? String(nextTotal) : '' }));
+    }
+  };
+
+  const handleSubcategoryBudgetBlur = async (categoryId: string, subcategoryId: string) => {
+    const amount = subcategoryBudgets[subcategoryId] || 0;
+    const saved = await Promise.all([
+      upsertBudgetTarget(categoryId, amount, year, month, subcategoryId),
+      upsertBudgetTarget(categoryId, categoryBudgets[categoryId] || 0, year, month),
+    ]);
+    if (saved.some(result => !result)) setLoadError('Non riesco a salvare la ripartizione della categoria. Riprova.');
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategoryIds(previous => {
+      const next = new Set(previous);
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
+      return next;
+    });
   };
 
   // Calculate actuals
-  const actualsByCategory = useMemo(() => {
-    const map: Record<string, number> = {};
+  const actuals = useMemo(() => {
+    const byCategory: Record<string, number> = {};
+    const bySubcategory: Record<string, number> = {};
+    const unallocatedByCategory: Record<string, number> = {};
     const transactionById = new Map(transactions.map(transaction => [transaction.id, transaction]));
     const itemsByTransaction = new Map<string, BudgetTransactionItem[]>();
     transactionItems.forEach(item => {
@@ -168,27 +236,54 @@ export const MonthlyBudgetPage: React.FC = () => {
       itemsByTransaction.set(item.transaction_id, group);
     });
 
+    const addAmount = (categoryId: string | null, subcategoryId: string | null, amount: number) => {
+      const resolvedCategoryId = categoryId || 'uncategorized';
+      byCategory[resolvedCategoryId] = (byCategory[resolvedCategoryId] || 0) + amount;
+      if (subcategoryId) {
+        bySubcategory[subcategoryId] = (bySubcategory[subcategoryId] || 0) + amount;
+      } else {
+        unallocatedByCategory[resolvedCategoryId] = (unallocatedByCategory[resolvedCategoryId] || 0) + amount;
+      }
+    };
+
     transactions.forEach(transaction => {
       const itemGroup = itemsByTransaction.get(transaction.id) || [];
       const itemTotal = itemGroup.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (itemTotal <= 0) {
-        const categoryId = transaction.category_id || 'uncategorized';
-        map[categoryId] = (map[categoryId] || 0) + Number(transaction.amount || 0);
+        addAmount(transaction.category_id, transaction.subcategory_id, Number(transaction.amount || 0));
         return;
       }
 
       itemGroup.forEach(item => {
-        const categoryId = item.category_id || 'uncategorized';
         const allocatedAmount = Number(item.amount || 0) * Number(transaction.amount || 0) / itemTotal;
-        map[categoryId] = (map[categoryId] || 0) + allocatedAmount;
+        addAmount(item.category_id, item.subcategory_id, allocatedAmount);
       });
     });
-    return map;
+    return { byCategory, bySubcategory, unallocatedByCategory };
   }, [transactionItems, transactions]);
 
   const expenseCategories = categories.filter(c => c.type === 'expense').sort((a, b) => a.name.localeCompare(b.name));
 
-  const totalPlanned = expenseCategories.reduce((acc, cat) => acc + (budgets[cat.id] || 0), 0);
+  const subcategoriesByCategory = useMemo(() => {
+    const map = new Map<string, typeof subcategories>();
+    subcategories.forEach(subcategory => {
+      const group = map.get(subcategory.category_id) || [];
+      group.push(subcategory);
+      map.set(subcategory.category_id, group);
+    });
+    map.forEach(group => group.sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)));
+    return map;
+  }, [subcategories]);
+
+  const plannedForCategory = (categoryId: string) => (
+    (categoryBudgets[categoryId] || 0)
+    + (subcategoriesByCategory.get(categoryId) || []).reduce(
+      (sum, subcategory) => sum + (subcategoryBudgets[subcategory.id] || 0),
+      0,
+    )
+  );
+
+  const totalPlanned = expenseCategories.reduce((acc, cat) => acc + plannedForCategory(cat.id), 0);
   const totalActual = transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
   const totalDiff = totalPlanned - totalActual;
 
@@ -276,48 +371,109 @@ export const MonthlyBudgetPage: React.FC = () => {
             </thead>
             <tbody>
               {expenseCategories.map(cat => {
-                const planned = budgets[cat.id] || 0;
-                const actual = actualsByCategory[cat.id] || 0;
+                const categorySubcategories = subcategoriesByCategory.get(cat.id) || [];
+                const hasSubcategories = categorySubcategories.length > 0;
+                const isExpanded = expandedCategoryIds.has(cat.id);
+                const planned = plannedForCategory(cat.id);
+                const actual = actuals.byCategory[cat.id] || 0;
                 const diff = planned - actual;
-                
                 const percent = planned > 0 ? Math.min((actual / planned) * 100, 100) : (actual > 0 ? 100 : 0);
                 const progressClass = percent > 90 ? styles.danger : percent > 75 ? styles.warning : '';
 
                 return (
-                  <tr key={cat.id}>
-                    <td data-label="Categoria">
-                      <div className={styles.categoryName}>{cat.name}</div>
-                      <div className={styles.progressWrapper}>
-                        <div className={`${styles.progressBar} ${progressClass}`} style={{ width: `${percent}%` }}></div>
-                      </div>
-                    </td>
-                    <td data-label="Previsto" className={styles.amount}>
-                      <input 
-                        type="number" 
-                        step="1"
-                        className={styles.inputAmount} 
-                        value={budgets[cat.id] === 0 && actual === 0 ? '' : budgets[cat.id]} 
-                        onChange={(e) => handleBudgetChange(cat.id, e.target.value)}
-                        onBlur={() => handleBudgetBlur(cat.id)}
-                        placeholder="0"
-                      /> €
-                    </td>
-                    <td data-label="Effettivo" className={styles.amount}>
-                      {actual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
-                    </td>
-                    <td data-label="Differenza" className={`${styles.amount} ${diff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                      {diff > 0 ? '+' : ''}{diff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
-                    </td>
-                  </tr>
+                  <React.Fragment key={cat.id}>
+                    <tr className={styles.categoryRow}>
+                      <td data-label="Categoria">
+                        {hasSubcategories ? (
+                          <button
+                            type="button"
+                            className={styles.categoryToggle}
+                            onClick={() => toggleCategory(cat.id)}
+                            aria-expanded={isExpanded}
+                          >
+                            {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                            <span>{cat.name}</span>
+                            <small>{categorySubcategories.length} sottocategorie</small>
+                          </button>
+                        ) : (
+                          <div className={styles.categoryName}>{cat.name}</div>
+                        )}
+                        <div className={styles.progressWrapper}>
+                          <div className={`${styles.progressBar} ${progressClass}`} style={{ width: `${percent}%` }}></div>
+                        </div>
+                      </td>
+                      <td data-label="Previsto" className={styles.amount}>
+                        <><input
+                          type="number"
+                          min={subcategoryPlannedTotal(cat.id)}
+                          step="0.01"
+                          className={styles.inputAmount}
+                          value={categoryTotalDrafts[cat.id] ?? (planned || '')}
+                          onChange={event => handleCategoryTotalChange(cat.id, event.target.value)}
+                          onBlur={event => handleCategoryTotalBlur(cat.id, event.currentTarget.value)}
+                          aria-label={`Totale previsto ${cat.name}`}
+                          placeholder="0"
+                        /> €</>
+                      </td>
+                      <td data-label="Effettivo" className={styles.amount}>
+                        {actual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                      </td>
+                      <td data-label="Differenza" className={`${styles.amount} ${diff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
+                        {diff > 0 ? '+' : ''}{diff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                      </td>
+                    </tr>
+
+                    {hasSubcategories && isExpanded && (
+                      <>
+                        <tr className={`${styles.subcategoryRow} ${styles.unallocatedRow}`}>
+                          <td data-label="Voce"><div className={styles.subcategoryName}>Non ripartito</div></td>
+                          <td data-label="Previsto" className={styles.amount}>
+                            <strong>{(categoryBudgets[cat.id] || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                            <small className={styles.calculatedLabel}>calcolato</small>
+                          </td>
+                          <td data-label="Effettivo" className={styles.amount}>{(actuals.unallocatedByCategory[cat.id] || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                          <td data-label="Differenza" className={`${styles.amount} ${(categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0) >= 0 ? styles.diffPositive : styles.diffNegative}`}>
+                            {((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)) > 0 ? '+' : ''}{((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                          </td>
+                        </tr>
+                        {categorySubcategories.map(subcategory => {
+                          const subcategoryPlanned = subcategoryBudgets[subcategory.id] || 0;
+                          const subcategoryActual = actuals.bySubcategory[subcategory.id] || 0;
+                          const subcategoryDiff = subcategoryPlanned - subcategoryActual;
+                          return (
+                            <tr key={subcategory.id} className={styles.subcategoryRow}>
+                              <td data-label="Sottocategoria"><div className={styles.subcategoryName}>{subcategory.name}</div></td>
+                              <td data-label="Previsto" className={styles.amount}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className={styles.inputAmount}
+                                  value={subcategoryBudgets[subcategory.id] || ''}
+                                  onChange={event => handleSubcategoryBudgetChange(cat.id, subcategory.id, event.target.value)}
+                                  onBlur={() => handleSubcategoryBudgetBlur(cat.id, subcategory.id)}
+                                  placeholder="0"
+                                /> €
+                              </td>
+                              <td data-label="Effettivo" className={styles.amount}>{subcategoryActual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                              <td data-label="Differenza" className={`${styles.amount} ${subcategoryDiff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
+                                {subcategoryDiff > 0 ? '+' : ''}{subcategoryDiff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </>
+                    )}
+                  </React.Fragment>
                 );
               })}
 
-              {(actualsByCategory.uncategorized || 0) > 0 && (
+              {(actuals.byCategory.uncategorized || 0) > 0 && (
                 <tr className={styles.uncategorizedRow}>
                   <td data-label="Categoria"><div className={styles.categoryName}>Non classificato</div></td>
                   <td data-label="Previsto" className={styles.amount}>0,00 €</td>
-                  <td data-label="Effettivo" className={styles.amount}>{actualsByCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
-                  <td data-label="Differenza" className={`${styles.amount} ${styles.diffNegative}`}>-{actualsByCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                  <td data-label="Effettivo" className={styles.amount}>{actuals.byCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                  <td data-label="Differenza" className={`${styles.amount} ${styles.diffNegative}`}>-{actuals.byCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
                 </tr>
               )}
             </tbody>

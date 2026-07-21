@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { ListPlus, Pencil, Plus } from 'lucide-react';
+import { ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react';
 import { useTransactions, useHousehold } from '../hooks';
 import { Button } from '../components/ui/Button';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { paymentMethodLabels } from '../lib/paymentTiming';
 import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
 import type { Transaction } from '../types/database';
@@ -17,10 +17,16 @@ type TransactionListItem = Transaction & {
 };
 
 export const TransactionsPage: React.FC = () => {
-  const { fetchTransactions, loading, deleteTransaction } = useTransactions();
+  const { fetchTransactions, loading, error, deleteTransaction } = useTransactions();
   const { household } = useHousehold();
   const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
   const navigate = useNavigate();
+  const location = useLocation();
+  const routeState = (location.state || {}) as {
+    createdTransactionId?: string;
+    notice?: string;
+    warning?: string;
+  };
 
   const loadTxs = useCallback(async () => {
     const data = await fetchTransactions();
@@ -52,10 +58,23 @@ export const TransactionsPage: React.FC = () => {
           <h1 className={styles.title}>Transazioni</h1>
           <p className="text-muted">Gestisci entrate, uscite e trasferimenti.</p>
         </div>
-        <Button icon={<Plus size={18} />} onClick={() => navigate('/transazioni/nuova')}>
-          Nuova Transazione
-        </Button>
+        <div className={styles.headerActions}>
+          <Button variant="secondary" icon={<RefreshCw size={17} />} onClick={() => void loadTxs()} disabled={loading}>
+            Aggiorna
+          </Button>
+          <Button icon={<Plus size={18} />} onClick={() => navigate('/transazioni/nuova')}>
+            Nuova Transazione
+          </Button>
+        </div>
       </header>
+
+      {routeState.notice && <div className={`${styles.message} ${styles.success}`}>{routeState.notice}</div>}
+      {routeState.warning && <div className={`${styles.message} ${styles.warning}`}>{routeState.warning}</div>}
+      {error && (
+        <div className={`${styles.message} ${styles.error}`}>
+          Non riesco a caricare l'elenco completo: {error}
+        </div>
+      )}
 
       <Card>
         {loading ? (
@@ -71,7 +90,7 @@ export const TransactionsPage: React.FC = () => {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {transactions.map(tx => (
-              <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: '1px solid var(--border-color)' }}>
+              <div key={tx.id} className={tx.id === routeState.createdTransactionId ? styles.recentlyCreated : undefined} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', borderBottom: '1px solid var(--border-color)' }}>
                 <div>
                   <div style={{ fontWeight: '600' }}>{tx.description}</div>
                   <div className="text-muted fs-sm">

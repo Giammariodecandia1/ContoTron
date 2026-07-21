@@ -79,6 +79,33 @@ const categoryKeywords: Record<string, string[]> = {
     'pane',
     'ortofrutta',
     'mensa',
+    'acqua minerale',
+    'min naturale',
+    'levissima',
+    'verdura',
+    'frutta',
+    'pomodoro',
+    'patate',
+    'insalata',
+    'mozzarella',
+    'pollo',
+    'carne',
+    'peperoni',
+    'rucola',
+    'cetrioli',
+    'aglio',
+    'prezzemolo',
+    'albicocche',
+    'pesche',
+    'fagiolini',
+    'banane',
+    'arance',
+    'anguria',
+    'cipolla',
+    'formaggio',
+    'salame',
+    'capocollo',
+    'prosciutto',
   ],
   Trasporti: [
     'benzina',
@@ -140,6 +167,13 @@ const categoryKeywords: Record<string, string[]> = {
     'profumeria',
     'pannolini',
     'pediatra',
+    'dentifricio',
+    'colgate',
+    'rasoio',
+    'rasoi',
+    'gillette',
+    'crema',
+    'lozione',
   ],
   Assicurazione: ['assicurazione', 'polizza', 'unipol', 'genertel', 'allianz', 'axa', 'prima'],
   Imposte: ['tasse', 'f24', 'imu', 'tari', 'bollo', 'agenzia entrate', 'inps'],
@@ -156,6 +190,8 @@ const strongTotalWords = [
   'totale vendita',
   'totale corrispettivo',
   'importo totale',
+  'importo pagato',
+  'pagamento elettronico',
   'totale',
 ];
 
@@ -237,7 +273,9 @@ export const mergeReceiptPageTexts = (pageTexts: string[]): MergedReceiptText =>
 
 const normalizeMoneyText = (value: string) => (
   value
-    .replace(/[Oo]/g, '0')
+    .replace(/\b[Oo](?=\s*[,.]\s*\d{2}\b)/g, '0')
+    .replace(/(\d)[Oo](?=\d|[,.])/g, (_, digit: string) => `${digit}0`)
+    .replace(/([,.]\s*)[Oo](?=\d)/g, (_, prefix: string) => `${prefix}0`)
     .replace(/\s+([,.])\s+/g, '$1')
 );
 
@@ -264,6 +302,17 @@ const parseAmountsFromLine = (line: string) => {
 };
 
 const containsAny = (line: string, words: string[]) => words.some(word => line.includes(word));
+
+const containsKeyword = (haystack: string, keyword: string) => {
+  const normalizedKeyword = normalizeSearchText(keyword);
+  if (!normalizedKeyword) return false;
+
+  const paddedHaystack = ` ${haystack} `;
+  if (!paddedHaystack.includes(` ${normalizedKeyword} `)) return false;
+
+  return !paddedHaystack.includes(` no ${normalizedKeyword} `)
+    && !paddedHaystack.includes(` senza ${normalizedKeyword} `);
+};
 
 export const extractReceiptTotal = (text: string): ReceiptTotalResult => {
   const lines = text
@@ -344,7 +393,7 @@ const findMatchingSavedSubcategory = (
   [...subcategories]
     .filter(subcategory => {
       const name = normalizeSearchText(subcategory.name);
-      return name.length >= 3 && haystack.includes(name);
+      return name.length >= 3 && containsKeyword(haystack, name);
     })
     .sort((a, b) => b.name.length - a.name.length)[0]
 );
@@ -356,7 +405,7 @@ const findMatchingSavedCategory = (
   [...categories]
     .filter(category => {
       const name = normalizeSearchText(category.name);
-      return name.length >= 3 && haystack.includes(name);
+      return name.length >= 3 && containsKeyword(haystack, name);
     })
     .sort((a, b) => b.name.length - a.name.length)[0]
 );
@@ -387,7 +436,7 @@ export const classifyReceiptText = (
   }
 
   for (const [categoryName, keywords] of Object.entries(categoryKeywords)) {
-    const matchedKeyword = keywords.find(keyword => haystack.includes(normalizeSearchText(keyword)));
+    const matchedKeyword = keywords.find(keyword => containsKeyword(haystack, keyword));
     if (!matchedKeyword) continue;
 
     const category = findCategoryByName(categories, categoryName);
@@ -436,6 +485,13 @@ const itemRejectWords = [
   'imponibile',
   'aliquota',
   'pagamento',
+  'pagato',
+  'importo pagato',
+  'pagamento elettronico',
+  'metodo di pagamento',
+  'forme di pagamento',
+  'numero di articoli',
+  'dettaglio pagamenti',
   'scontrino',
   'documento',
   'operatore',
@@ -448,12 +504,18 @@ const isTaxOrPercentageLine = (line: string) => {
   const normalizedTaxText = searchable.replace(/\b(?:1va|lva)\b/g, 'iva');
   const hasTaxWord = containsAny(normalizedTaxText, ['iva', 'aliquota', 'imponibile', 'imposta']);
   const hasPercentage = /%|[%o0°]\s*\/\s*[o0]/i.test(line);
-  return hasTaxWord || hasPercentage;
+  if (hasTaxWord) return true;
+  if (!hasPercentage) return false;
+
+  // Product rows often contain a VAT percentage followed by the real price.
+  // A percentage by itself is fiscal metadata; a remaining amount is a product.
+  return parseAmountsFromLine(line).length === 0;
 };
 
 const cleanupItemDescription = (line: string) => (
-  normalizeMoneyText(line)
-    .replace(/(?:EUR|EURO)?\s*(\d{1,4}(?:[.\s]\d{3})*|\d+)\s*[,.]\s*\d{2}/gi, ' ')
+  line
+    .replace(/\b\d{1,2}(?:[,.]\d{1,2})?\s*%/g, ' ')
+    .replace(/(?:EUR|EURO)?\s*([0-9Oo]{1,4}(?:[.\s][0-9Oo]{3})*|[0-9Oo]+)\s*[,.]\s*[0-9Oo]{2}/gi, ' ')
     .replace(/\b\d{6,}\b/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '')
@@ -470,8 +532,10 @@ const isUnitPriceOnlyLine = (line: string) => {
     .replace(/\b(?:net|netto|kg|g|gr|l|lt|ml|cl|pz|pezzi|eur|euro|x)\b/g, ' ')
     .replace(/\s+/g, '')
     .length >= 4;
+  const hasEachPriceFormula = /\b(?:cad|cadauno|prezzo\s+unitario)\b.*\b(?:pz|pezzi|qta|quantita)\b/i.test(searchable);
 
-  return amounts.length >= 1 && amounts.length <= 2 && hasUnitFormula && (hasPerUnitMarker || !hasProductName);
+  return amounts.length >= 1 && amounts.length <= 2
+    && (hasEachPriceFormula || (hasUnitFormula && (hasPerUnitMarker || !hasProductName)));
 };
 
 export const extractReceiptItems = (
