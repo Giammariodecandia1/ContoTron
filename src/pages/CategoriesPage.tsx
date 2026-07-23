@@ -20,7 +20,6 @@ export const CategoriesPage: React.FC = () => {
   const { household, categories, subcategories, refreshData } = useHousehold();
   const [newExpenseCategory, setNewExpenseCategory] = useState('');
   const [newCategoryType, setNewCategoryType] = useState<Extract<TransactionType, 'expense' | 'income'>>('expense');
-  const [newCategorySpendingType, setNewCategorySpendingType] = useState<SpendingType>('variable');
   const [newSubcategoryMap, setNewSubcategoryMap] = useState<Record<string, string>>({});
   const [newSubcategoryTypeMap, setNewSubcategoryTypeMap] = useState<Record<string, SpendingType>>({});
   const [newFoodCharacteristicMap, setNewFoodCharacteristicMap] = useState<Record<string, FoodCharacteristic>>({});
@@ -57,7 +56,7 @@ export const CategoriesPage: React.FC = () => {
           household_id: household.id,
           name,
           type: newCategoryType,
-          spending_type: newCategoryType === 'expense' ? newCategorySpendingType : 'variable',
+          spending_type: 'variable',
           sort_order: 100
         }])
         .select('id, name')
@@ -263,31 +262,6 @@ export const CategoriesPage: React.FC = () => {
     }
   };
 
-  const handleUpdateCategoryType = async (id: string, spendingType: SpendingType) => {
-    if (!household) return;
-
-    setLoading(true);
-    setSaveMessage(null);
-    setSaveError(null);
-
-    try {
-      const { error } = await supabase
-        .from('categories')
-        .update({ spending_type: spendingType })
-        .eq('id', id)
-        .eq('household_id', household.id);
-
-      if (error) throw error;
-      await refreshData();
-      setSaveMessage(`Tipo della categoria aggiornato: ${getSpendingTypeLabel(spendingType)}.`);
-    } catch (err) {
-      console.error('Errore durante modifica tipo categoria:', err);
-      setSaveError('Impossibile salvare il tipo della categoria.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleUpdateFoodCharacteristic = async (id: string, foodCharacteristic: FoodCharacteristic) => {
     if (!household) return;
 
@@ -396,23 +370,6 @@ export const CategoriesPage: React.FC = () => {
                           </>
                         )}
                       </div>
-                      {cat.type === 'expense' && (
-                        <select
-                          className={styles.spendingTypeSelect}
-                          value={cat.spending_type || 'variable'}
-                          onClick={event => event.stopPropagation()}
-                          onChange={event => {
-                            event.stopPropagation();
-                            void handleUpdateCategoryType(cat.id, event.target.value as SpendingType);
-                          }}
-                          disabled={loading}
-                          aria-label={`Tipo spesa categoria ${cat.name}`}
-                        >
-                          {spendingTypeOptions.map(option => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      )}
                       <div className={styles.rowActions}>
                         <button
                           className={styles.editBtn}
@@ -588,19 +545,6 @@ export const CategoriesPage: React.FC = () => {
               <option value="expense">Uscita</option>
               <option value="income">Entrata</option>
             </select>
-            {newCategoryType === 'expense' && (
-              <select
-                value={newCategorySpendingType}
-                onChange={event => setNewCategorySpendingType(event.target.value as SpendingType)}
-                className={styles.input}
-                disabled={loading}
-                aria-label="Tipo spesa nuova categoria"
-              >
-                {spendingTypeOptions.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            )}
             <input
               type="text"
               placeholder="Nuova categoria..."

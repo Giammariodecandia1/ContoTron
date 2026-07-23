@@ -28,6 +28,11 @@ const monthNames = [
 
 const monthShortNames = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 
+const monthColors = [
+  '#2563eb', '#0d9488', '#d97706', '#dc2626', '#7c3aed', '#db2777',
+  '#0891b2', '#65a30d', '#ea580c', '#4f46e5', '#059669', '#b45309',
+];
+
 type BudgetRow = {
   month: number;
   planned_amount: number;
@@ -76,8 +81,7 @@ const ExpenseChart: React.FC<{
   valueKey: ChartValueKey;
   average: number;
   currency: string;
-  baseColor: string;
-}> = ({ data, valueKey, average, currency, baseColor }) => (
+}> = ({ data, valueKey, average, currency }) => (
   <div className={styles.chart}>
     <ResponsiveContainer width="100%" height="100%">
       <ComposedChart data={data} margin={{ top: 28, right: 12, left: 0, bottom: 0 }}>
@@ -111,12 +115,19 @@ const ExpenseChart: React.FC<{
         <Bar dataKey={valueKey} name={valueKey} radius={[4, 4, 0, 0]} maxBarSize={42}>
           {data.map(row => {
             const value = row[valueKey];
-            const fill = row.plannedIncome > 0 && value > row.plannedIncome
+            const warningColor = row.plannedIncome > 0 && value > row.plannedIncome
               ? '#dc2626'
               : value > average
                 ? '#d97706'
-                : baseColor;
-            return <Cell key={`${valueKey}-${row.month}`} fill={fill} />;
+                : undefined;
+            return (
+              <Cell
+                key={`${valueKey}-${row.month}`}
+                fill={monthColors[(row.month - 1) % monthColors.length]}
+                stroke={warningColor}
+                strokeWidth={warningColor ? 2 : 0}
+              />
+            );
           })}
           <LabelList dataKey={valueKey} position="top" formatter={value => compactNumber(Number(value || 0))} fill="var(--color-gray-700)" fontSize={10} />
         </Bar>
@@ -279,6 +290,7 @@ export const AnnualAnalysisPage: React.FC = () => {
           {!analysis.hasIncomeTargets && (
             <div className={styles.notice}>Le entrate previste non sono ancora compilate per questo anno. I grafici mostrano comunque spese e medie.</div>
           )}
+          <div className={styles.notice}>Ogni mese mantiene lo stesso colore nel previsionale e nel consuntivo. Il bordo evidenzia gli eventuali sforamenti.</div>
 
           <div className={styles.chartGrid}>
             <Card title="Spese previste" icon={<BarChart3 size={20} />}>
@@ -287,7 +299,6 @@ export const AnnualAnalysisPage: React.FC = () => {
                 valueKey="plannedExpense"
                 average={analysis.plannedAverage}
                 currency={currency}
-                baseColor="#2563eb"
               />
               <div className={styles.statsGrid}>
                 <div><span>Totale anno</span><strong>{exactCurrency(analysis.plannedTotal, currency)}</strong></div>
@@ -303,7 +314,6 @@ export const AnnualAnalysisPage: React.FC = () => {
                 valueKey="actualExpense"
                 average={analysis.actualAverage}
                 currency={currency}
-                baseColor="#059669"
               />
               <div className={styles.statsGrid}>
                 <div><span>Totale registrato</span><strong>{exactCurrency(analysis.actualTotal, currency)}</strong></div>
