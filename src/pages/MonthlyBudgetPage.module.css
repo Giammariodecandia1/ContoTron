@@ -210,6 +210,19 @@
   font-weight: 500;
 }
 
+.autoBudgetBadge {
+  background: var(--color-info-bg);
+  border-radius: 999px;
+  color: var(--color-info);
+  display: inline-block;
+  font-size: var(--text-xs);
+  font-style: normal;
+  font-weight: 800;
+  margin-left: var(--space-2);
+  padding: 2px var(--space-2);
+  white-space: nowrap;
+}
+
 .unallocatedRow td {
   background: var(--color-warning-bg);
 }

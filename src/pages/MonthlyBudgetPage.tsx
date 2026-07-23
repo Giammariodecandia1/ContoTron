@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
-import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
@@ -28,6 +28,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [transactionItems, setTransactionItems] = useState<BudgetTransactionItem[]>([]);
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
   const [subcategoryBudgets, setSubcategoryBudgets] = useState<Record<string, number>>({});
+  const [automaticBudgetKeys, setAutomaticBudgetKeys] = useState<Set<string>>(new Set());
   const [categoryTotalDrafts, setCategoryTotalDrafts] = useState<Record<string, string>>({});
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -105,13 +106,18 @@ export const MonthlyBudgetPage: React.FC = () => {
       
       const categoryBudgetMap: Record<string, number> = {};
       const subcategoryBudgetMap: Record<string, number> = {};
+      const nextAutomaticBudgetKeys = new Set<string>();
       targets.forEach(t => {
         if (!t.category_id) return;
+        if (t.notes === 'AUTO_SPESE_FISSE') {
+          nextAutomaticBudgetKeys.add(`${t.category_id}:${t.subcategory_id || 'category'}`);
+        }
         if (t.subcategory_id) subcategoryBudgetMap[t.subcategory_id] = Number(t.planned_amount || 0);
         else categoryBudgetMap[t.category_id] = Number(t.planned_amount || 0);
       });
       setCategoryBudgets(categoryBudgetMap);
       setSubcategoryBudgets(subcategoryBudgetMap);
+      setAutomaticBudgetKeys(nextAutomaticBudgetKeys);
       const categoryTotalDraftMap: Record<string, string> = {};
       categories.filter(category => category.type === 'expense').forEach(category => {
         const allocated = subcategories
@@ -161,6 +167,31 @@ export const MonthlyBudgetPage: React.FC = () => {
     setSelectedMonth(prev => prev + 1);
   };
 
+  const handleClearBudgetMonth = async () => {
+    if (!householdId) return;
+    const monthLabel = `${monthNames[month - 1]} ${year}`;
+    if (!window.confirm(
+      `Azzerare il budget previsto di ${monthLabel}?\n\n`
+      + 'Le transazioni non verranno eliminate. Le spese fisse attive saranno reinserite automaticamente se il mese e gia iniziato.',
+    )) return;
+
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const { error: deleteError } = await supabase
+        .from('budget_targets')
+        .delete()
+        .eq('household_id', householdId)
+        .eq('year', year)
+        .eq('month', month);
+      if (deleteError) throw deleteError;
+      await loadData();
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : `Impossibile azzerare il budget di ${monthLabel}.`);
+      setLoading(false);
+    }
+  };
+
   const subcategoryPlannedTotal = (categoryId: string, budgets = subcategoryBudgets) => (
     subcategories
       .filter(subcategory => subcategory.category_id === categoryId)
@@ -192,16 +223,14 @@ export const MonthlyBudgetPage: React.FC = () => {
 
   const handleSubcategoryBudgetChange = (categoryId: string, subcategoryId: string, val: string) => {
     const num = parseFloat(val) || 0;
-    const previousAmount = subcategoryBudgets[subcategoryId] || 0;
-    const delta = num - previousAmount;
     const nextSubcategoryBudgets = { ...subcategoryBudgets, [subcategoryId]: num };
     setSubcategoryBudgets(nextSubcategoryBudgets);
-    if (delta !== 0) {
-      const nextUnallocated = Math.max(0, (categoryBudgets[categoryId] || 0) - delta);
-      const nextTotal = nextUnallocated + subcategoryPlannedTotal(categoryId, nextSubcategoryBudgets);
-      setCategoryBudgets(prev => ({ ...prev, [categoryId]: nextUnallocated }));
-      setCategoryTotalDrafts(prev => ({ ...prev, [categoryId]: nextTotal > 0 ? String(nextTotal) : '' }));
-    }
+    const nextTotal = (categoryBudgets[categoryId] || 0)
+      + subcategoryPlannedTotal(categoryId, nextSubcategoryBudgets);
+    setCategoryTotalDrafts(prev => ({
+      ...prev,
+      [categoryId]: nextTotal > 0 ? String(nextTotal) : '',
+    }));
   };
 
   const handleSubcategoryBudgetBlur = async (categoryId: string, subcategoryId: string) => {
@@ -325,6 +354,9 @@ export const MonthlyBudgetPage: React.FC = () => {
           <Button size="sm" variant="secondary" icon={<RefreshCw size={16} />} onClick={loadData} disabled={loading || budgetLoading}>
             Aggiorna
           </Button>
+          <Button size="sm" variant="danger" icon={<Trash2 size={16} />} onClick={handleClearBudgetMonth} disabled={loading || budgetLoading}>
+            Azzera mese
+          </Button>
         </div>
       </div>
 
@@ -374,6 +406,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                 const categorySubcategories = subcategoriesByCategory.get(cat.id) || [];
                 const hasSubcategories = categorySubcategories.length > 0;
                 const isExpanded = expandedCategoryIds.has(cat.id);
+                const hasAutomaticCategoryBudget = automaticBudgetKeys.has(`${cat.id}:category`);
                 const planned = plannedForCategory(cat.id);
                 const actual = actuals.byCategory[cat.id] || 0;
                 const diff = planned - actual;
@@ -394,9 +427,13 @@ export const MonthlyBudgetPage: React.FC = () => {
                             {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                             <span>{cat.name}</span>
                             <small>{categorySubcategories.length} sottocategorie</small>
+                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
                           </button>
                         ) : (
-                          <div className={styles.categoryName}>{cat.name}</div>
+                          <div className={styles.categoryName}>
+                            {cat.name}
+                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
+                          </div>
                         )}
                         <div className={styles.progressWrapper}>
                           <div className={`${styles.progressBar} ${progressClass}`} style={{ width: `${percent}%` }}></div>
@@ -440,9 +477,15 @@ export const MonthlyBudgetPage: React.FC = () => {
                           const subcategoryPlanned = subcategoryBudgets[subcategory.id] || 0;
                           const subcategoryActual = actuals.bySubcategory[subcategory.id] || 0;
                           const subcategoryDiff = subcategoryPlanned - subcategoryActual;
+                          const isAutomaticBudget = automaticBudgetKeys.has(`${cat.id}:${subcategory.id}`);
                           return (
                             <tr key={subcategory.id} className={styles.subcategoryRow}>
-                              <td data-label="Sottocategoria"><div className={styles.subcategoryName}>{subcategory.name}</div></td>
+                              <td data-label="Sottocategoria">
+                                <div className={styles.subcategoryName}>
+                                  {subcategory.name}
+                                  {isAutomaticBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
+                                </div>
+                              </td>
                               <td data-label="Previsto" className={styles.amount}>
                                 <input
                                   type="number"

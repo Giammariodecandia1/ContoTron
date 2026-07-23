@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -40,6 +40,7 @@ export const RecurringRulesPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
   const [description, setDescription] = useState('');
   const [reason, setReason] = useState('');
@@ -100,6 +101,7 @@ export const RecurringRulesPage: React.FC = () => {
   }, [fetchRules]);
 
   const resetForm = () => {
+    setEditingRuleId(null);
     setDescription('');
     setReason('');
     setMerchant('');
@@ -111,7 +113,24 @@ export const RecurringRulesPage: React.FC = () => {
     setNotes('');
   };
 
-  const handleCreateRule = async (event: React.FormEvent) => {
+  const handleEditRule = (rule: RecurringRule) => {
+    setEditingRuleId(rule.id);
+    setDescription(rule.description || '');
+    setReason(rule.reason_code || 'other');
+    setMerchant(rule.merchant || '');
+    setAmount(String(Number(rule.amount || 0)));
+    setAccountId(rule.account_id || accounts[0]?.id || '');
+    setCategoryId(rule.category_id || '');
+    setSubcategoryId(rule.subcategory_id || '');
+    setStartDate(rule.start_date);
+    setDurationMonths(rule.duration_months ? String(rule.duration_months) : '');
+    setNotes(rule.notes || '');
+    setMessage(null);
+    setError(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveRule = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!householdId) return;
 
@@ -134,31 +153,48 @@ export const RecurringRulesPage: React.FC = () => {
     setError(null);
 
     try {
-      const { error: insertError } = await supabase
-        .from('recurring_rules')
-        .insert([{
-          household_id: householdId,
-          account_id: accountId || accounts[0]?.id || null,
-          type: 'expense',
-          description: finalDescription,
-          merchant: merchant.trim() || null,
-          amount: parsedAmount,
-          category_id: categoryId || null,
-          subcategory_id: subcategoryId || null,
-          frequency: 'monthly',
-          reason_code: reason,
-          duration_months: parsedDuration,
-          start_date: startDate,
-          end_date: calculatedEndDate,
-          next_due_date: startDate,
-          is_active: true,
-          notes: notes.trim() || null,
-        }]);
+      const payload = {
+        account_id: accountId || accounts[0]?.id || null,
+        type: 'expense' as const,
+        description: finalDescription,
+        merchant: merchant.trim() || null,
+        amount: parsedAmount,
+        category_id: categoryId || null,
+        subcategory_id: subcategoryId || null,
+        frequency: 'monthly',
+        reason_code: reason,
+        duration_months: parsedDuration,
+        start_date: startDate,
+        end_date: calculatedEndDate,
+        next_due_date: startDate,
+        notes: notes.trim() || null,
+        updated_at: new Date().toISOString(),
+      };
 
-      if (insertError) throw insertError;
+      if (editingRuleId) {
+        const { error: updateError } = await supabase
+          .from('recurring_rules')
+          .update(payload)
+          .eq('id', editingRuleId)
+          .eq('household_id', householdId);
+        if (updateError) throw updateError;
+      } else {
+        const { error: insertError } = await supabase
+          .from('recurring_rules')
+          .insert([{
+            ...payload,
+            household_id: householdId,
+            is_active: true,
+          }]);
+        if (insertError) throw insertError;
+      }
+
+      const wasEditing = Boolean(editingRuleId);
       resetForm();
       await fetchRules();
-      setMessage('Spesa fissa salvata. Dal prossimo caricamento del budget mensile verra generata automaticamente.');
+      setMessage(wasEditing
+        ? 'Spesa fissa modificata. Le nuove impostazioni valgono dalle prossime generazioni mensili.'
+        : 'Spesa fissa salvata. Comparira automaticamente nel budget quando inizia il mese.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile salvare la spesa fissa.');
     } finally {
@@ -205,6 +241,7 @@ export const RecurringRulesPage: React.FC = () => {
         .eq('household_id', householdId);
 
       if (deleteError) throw deleteError;
+      if (editingRuleId === rule.id) resetForm();
       await fetchRules();
       setMessage('Regola eliminata. Le transazioni gia generate restano nello storico.');
     } catch (err) {
@@ -227,10 +264,10 @@ export const RecurringRulesPage: React.FC = () => {
       </header>
 
       <div className={styles.grid}>
-        <Card title="Nuova spesa fissa" icon={<Plus size={20} />}>
+        <Card title={editingRuleId ? 'Modifica spesa fissa' : 'Nuova spesa fissa'} icon={editingRuleId ? <Pencil size={20} /> : <Plus size={20} />}>
           <form
             className={styles.form}
-            onSubmit={handleCreateRule}
+            onSubmit={handleSaveRule}
             onKeyDown={event => {
               const target = event.target as HTMLElement;
               if (event.key === 'Enter' && target.tagName !== 'TEXTAREA' && target.tagName !== 'BUTTON') {
@@ -326,9 +363,16 @@ export const RecurringRulesPage: React.FC = () => {
               <textarea className={styles.textarea} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Promemoria interno opzionale" />
             </div>
 
-            <Button type="submit" disabled={saving}>
-              {saving ? 'Salvataggio...' : 'Salva spesa fissa'}
-            </Button>
+            <div className={styles.formActions}>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Salvataggio...' : editingRuleId ? 'Salva modifiche' : 'Salva spesa fissa'}
+              </Button>
+              {editingRuleId && (
+                <Button type="button" variant="secondary" onClick={resetForm} disabled={saving}>
+                  Annulla modifica
+                </Button>
+              )}
+            </div>
           </form>
         </Card>
 
@@ -364,6 +408,9 @@ export const RecurringRulesPage: React.FC = () => {
                     </div>
                   </div>
                   <div className={styles.ruleActions}>
+                    <Button variant="secondary" size="sm" icon={<Pencil size={14} />} onClick={() => handleEditRule(rule)} disabled={saving}>
+                      Modifica
+                    </Button>
                     <Button variant="secondary" size="sm" onClick={() => handleToggleActive(rule)} disabled={saving}>
                       {rule.is_active ? 'Disattiva' : 'Riattiva'}
                     </Button>

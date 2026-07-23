@@ -27,52 +27,9 @@ export const useBudget = () => {
 
       if (fetchError) throw fetchError;
 
-      // Se ci sono già dati, li ritorniamo
-      if (data && data.length > 0) {
-        return data as BudgetTarget[];
-      }
-
-      // 2. PRECOMPILAZIONE (Auto-fill) se il mese corrente è vuoto
-      // Cerchiamo i dati del mese precedente (stesso anno, o dicembre dell'anno precedente se mese = 1)
-      const prevMonth = month === 1 ? 12 : month - 1;
-      const prevYear = month === 1 ? year - 1 : year;
-
-      const { data: prevData, error: prevError } = await supabase
-        .from('budget_targets')
-        .select('*')
-        .eq('household_id', householdId)
-        .eq('year', prevYear)
-        .eq('month', prevMonth);
-
-      if (prevError) throw prevError;
-
-      // TODO in futuro: incrociare prevData con i dati storici dello *stesso mese* (es. Agosto dell'anno prima per le vacanze).
-      // Per il momento facciamo la copia esatta del mese scorso (che è la regola più usata nell'Excel di partenza).
-
-      if (prevData && prevData.length > 0) {
-        // Cloniamo i dati per il mese corrente
-        const newTargets = prevData.map(t => ({
-          household_id: householdId,
-          year,
-          month,
-          category_id: t.category_id,
-          subcategory_id: t.subcategory_id,
-          planned_amount: t.planned_amount,
-          notes: t.notes
-        }));
-
-        // Salviamo i nuovi target precompilati
-        const { data: insertedData, error: insertError } = await supabase
-          .from('budget_targets')
-          .insert(newTargets)
-          .select();
-
-        if (insertError) throw insertError;
-        return (insertedData || []) as BudgetTarget[];
-      }
-
-      // Se non ci sono nemmeno dati del mese scorso, ritorna array vuoto (sarà l'utente a compilare da zero la prima volta)
-      return [];
+      // I budget dei mesi restano indipendenti. Le sole cifre automatiche
+      // arrivano dalle spese fisse attive quando il mese ha inizio.
+      return (data || []) as BudgetTarget[];
     } catch (err: unknown) {
       console.error('Error fetching/prefilling budget targets:', err);
       setError(errorMessage(err));
@@ -113,7 +70,11 @@ export const useBudget = () => {
       if (existingId) {
         const { data, error: updateError } = await supabase
           .from('budget_targets')
-          .update({ planned_amount: amount, updated_at: new Date().toISOString() })
+          .update({
+            planned_amount: amount,
+            notes: null,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', existingId)
           .eq('household_id', householdId)
           .select()

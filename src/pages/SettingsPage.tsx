@@ -16,6 +16,11 @@ import {
   GoogleDriveAuthError,
   requestGoogleDriveConnection,
 } from '../lib/googleDriveStorage';
+import {
+  getFontScale,
+  saveFontScale,
+  type FontScale,
+} from '../lib/fontScalePreference';
 import type { DocumentStorageProvider } from '../types/database';
 import styles from './SettingsPage.module.css';
 
@@ -30,10 +35,16 @@ export const SettingsPage: React.FC = () => {
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const [fontScale, setFontScale] = useState<FontScale>(() => getFontScale());
 
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
   const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
   const fromDriveSetup = useMemo(() => new URLSearchParams(location.search).get('driveSetup') === '1', [location.search]);
+
+  const handleFontScaleChange = (nextScale: FontScale) => {
+    setFontScale(nextScale);
+    saveFontScale(nextScale);
+  };
 
   const handleStorageChange = async (provider: DocumentStorageProvider) => {
     if (!household || storageSaving || provider === documentStorageProvider) return;
@@ -223,6 +234,30 @@ export const SettingsPage: React.FC = () => {
               Sistema
             </button>
           </div>
+          <div className={styles.preferenceDivider} />
+          <div className={styles.preferenceHeader}>
+            <strong>Dimensione caratteri</strong>
+            <span className="text-muted fs-sm">La scelta viene applicata subito a tutta l'app.</span>
+          </div>
+          <div className={styles.fontScaleToggle} role="group" aria-label="Dimensione caratteri applicazione">
+            {([
+              ['normal', 'Normale', '100%'],
+              ['large', 'Grande', '112%'],
+              ['xlarge', 'Molto grande', '125%'],
+            ] as const).map(([value, label, percentage]) => (
+              <button
+                key={value}
+                type="button"
+                className={fontScale === value ? styles.fontScaleActive : ''}
+                aria-pressed={fontScale === value}
+                onClick={() => handleFontScaleChange(value)}
+              >
+                <span>{label}</span>
+                <small>{percentage}</small>
+              </button>
+            ))}
+          </div>
+          <p className={styles.fontPreview}>Anteprima: entrate, uscite e budget familiare.</p>
         </Card>
 
         <Card title="Account" icon={<LogOut size={20} />}>

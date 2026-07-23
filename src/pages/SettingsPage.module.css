@@ -43,6 +43,65 @@
   font-weight: 700;
 }
 
+.preferenceDivider {
+  border-top: 1px solid var(--color-gray-200);
+  margin: var(--space-5) 0;
+}
+
+.preferenceHeader {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.preferenceHeader strong {
+  color: var(--color-gray-900);
+}
+
+.fontScaleToggle {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--space-3);
+}
+
+.fontScaleToggle button {
+  align-items: center;
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-height: 58px;
+  padding: var(--space-2);
+}
+
+.fontScaleToggle button:hover {
+  background: var(--color-gray-100);
+}
+
+.fontScaleToggle button small {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+}
+
+.fontScaleToggle .fontScaleActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.fontPreview {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-100);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-800);
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+}
+
 .nucleusPreview {
   background: var(--color-gray-50);
   border: 1px solid var(--color-gray-200);
@@ -178,6 +237,10 @@
   }
 
   .themeToggle {
+    grid-template-columns: 1fr;
+  }
+
+  .fontScaleToggle {
     grid-template-columns: 1fr;
   }
 

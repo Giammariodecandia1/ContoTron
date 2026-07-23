@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Upload } from 'lucide-react';
 import { MobileNavigation, Sidebar } from './Sidebar';
-import { useAuth } from '../../hooks';
+import { useAuth, useHousehold } from '../../hooks';
+import { ensureMonthlyRecurringTransactions } from '../../lib/recurringTransactions';
 import styles from './AppLayout.module.css';
 
 interface AppLayoutProps {
@@ -11,6 +12,21 @@ interface AppLayoutProps {
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const { user } = useAuth();
+  const { household, accounts } = useHousehold();
+  const householdId = household?.id || null;
+
+  useEffect(() => {
+    if (!householdId) return;
+    const now = new Date();
+    void ensureMonthlyRecurringTransactions({
+      householdId,
+      accounts,
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    }).catch(error => {
+      console.error('Impossibile sincronizzare le spese fisse del mese:', error);
+    });
+  }, [accounts, householdId]);
 
   return (
     <div className={styles.appContainer}>

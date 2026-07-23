@@ -285,6 +285,13 @@ export const DashboardPage: React.FC = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [budgetTargets, categories, selectedYear, transactionItems, transactions]);
 
+  const categoryHistogramRows = useMemo(
+    () => [...annualCategoryRows]
+      .filter(row => row.actualTotal > 0)
+      .sort((a, b) => b.actualTotal - a.actualTotal),
+    [annualCategoryRows],
+  );
+
   const handleIncomeChange = (month: number, value: string) => {
     setIncomeDrafts(prev => ({ ...prev, [month]: value }));
   };
@@ -507,6 +514,33 @@ export const DashboardPage: React.FC = () => {
                 </div>
               </section>
             ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Spese annuali per categoria ${selectedYear}`}>
+        <p className="text-muted fs-sm">
+          Consuntivo ordinato automaticamente dalla categoria con la spesa maggiore a quella con la spesa minore.
+        </p>
+        {categoryHistogramRows.length === 0 ? (
+          <div className={styles.empty}>Nessuna spesa categorizzata per l'anno selezionato.</div>
+        ) : (
+          <div className={styles.categoryHistogram} role="list" aria-label={`Spese per categoria ${selectedYear}`}>
+            {categoryHistogramRows.map(row => {
+              const maxValue = categoryHistogramRows[0]?.actualTotal || 1;
+              const width = Math.max(2, (row.actualTotal / maxValue) * 100);
+              return (
+                <div key={row.id} className={styles.histogramRow} role="listitem">
+                  <div className={styles.histogramHeader}>
+                    <span>{row.name}</span>
+                    <strong>{currency(row.actualTotal, currencyCode)}</strong>
+                  </div>
+                  <div className={styles.histogramTrack} aria-hidden="true">
+                    <div className={styles.histogramBar} style={{ width: `${width}%` }} />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </Card>
