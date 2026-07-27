@@ -7,29 +7,16 @@ import { HouseholdProvider } from './contexts/HouseholdContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { applyFontScale, getFontScale } from './lib/fontScalePreference';
 
-const redirectLegacyNetlifyOrigin = () => {
-  if (window.location.hostname !== 'contotronapp.netlify.app') return false;
+applyFontScale(getFontScale());
 
-  const canonicalUrl = new URL(window.location.href);
-  canonicalUrl.protocol = 'https:';
-  canonicalUrl.hostname = 'contotron.netlify.app';
-  canonicalUrl.port = '';
-  window.location.replace(canonicalUrl.toString());
-  return true;
-};
-
-if (!redirectLegacyNetlifyOrigin()) {
-  applyFontScale(getFontScale());
-
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <ThemeProvider>
-        <AuthProvider>
-          <HouseholdProvider>
-            <App />
-          </HouseholdProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </StrictMode>,
-  );
-}
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <ThemeProvider>
+      <AuthProvider>
+        <HouseholdProvider>
+          <App />
+        </HouseholdProvider>
+      </AuthProvider>
+    </ThemeProvider>
+  </StrictMode>,
+);

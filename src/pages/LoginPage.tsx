@@ -8,8 +8,6 @@ import styles from './LoginPage.module.css';
 
 type AuthMode = 'login' | 'register';
 
-const CANONICAL_APP_ORIGIN = 'https://contotron.netlify.app';
-
 export const LoginPage: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [displayName, setDisplayName] = useState('');
@@ -27,8 +25,7 @@ export const LoginPage: React.FC = () => {
   };
 
   const getAuthRedirectUrl = () => {
-    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    return new URL('/login', isLocal ? window.location.origin : CANONICAL_APP_ORIGIN).toString();
+    return new URL('/login', window.location.origin).toString();
   };
 
   const handleLogin = async () => {
