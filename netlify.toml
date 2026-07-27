@@ -3,6 +3,12 @@
   publish = "dist"
 
 [[redirects]]
+  from = "https://contotronapp.netlify.app/*"
+  to = "https://contotron.netlify.app/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

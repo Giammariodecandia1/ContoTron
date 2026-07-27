@@ -8,7 +8,7 @@ import styles from './LoginPage.module.css';
 
 type AuthMode = 'login' | 'register';
 
-const CANONICAL_APP_ORIGIN = 'https://contotronapp.netlify.app';
+const CANONICAL_APP_ORIGIN = 'https://contotron.netlify.app';
 
 export const LoginPage: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
