@@ -7,6 +7,7 @@ import {
   ArrowDown,
   ArrowUp,
   Camera,
+  CheckCircle2,
   Crop as CropIcon,
   Monitor,
   Plus,
@@ -317,11 +318,14 @@ export const ScanReceiptPage: React.FC = () => {
   const [mergedOcrText, setMergedOcrText] = useState('');
   const [removedOverlapLines, setRemovedOverlapLines] = useState(0);
   const [archiving, setArchiving] = useState(false);
+  const [quickSaveMode, setQuickSaveMode] = useState(false);
+  const [quickCategoryId, setQuickCategoryId] = useState('');
+  const [preparingQuickSave, setPreparingQuickSave] = useState(false);
 
   const webcamRef = useRef<Webcam>(null);
   const saveInFlightRef = useRef(false);
   const navigate = useNavigate();
-  const { household, accounts, categories, subcategories } = useHousehold();
+  const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const documentStorageStatus = getDocumentStorageStatus(household);
@@ -341,6 +345,8 @@ export const ScanReceiptPage: React.FC = () => {
     setOcrPages([]);
     setMergedOcrText('');
     setRemovedOverlapLines(0);
+    setQuickSaveMode(false);
+    setQuickCategoryId('');
   };
 
   const resetAll = () => {
@@ -589,6 +595,61 @@ export const ScanReceiptPage: React.FC = () => {
     }]);
   };
 
+  const enableQuickSave = async () => {
+    if (!household) {
+      setArchiveError('Nucleo familiare non disponibile.');
+      return;
+    }
+
+    setPreparingQuickSave(true);
+    setArchiveError(null);
+    try {
+      let genericCategoryId = categories.find(category => (
+        category.type === 'expense' && normalizeSearchText(category.name) === 'spesa'
+      ))?.id || '';
+
+      if (!genericCategoryId) {
+        const { data, error } = await supabase
+          .from('categories')
+          .insert([{
+            household_id: household.id,
+            name: 'Spesa',
+            type: 'expense',
+            spending_type: 'variable',
+            sort_order: 99,
+          }])
+          .select('id')
+          .single();
+
+        if (error || !data) {
+          const { data: existingCategory, error: lookupError } = await supabase
+            .from('categories')
+            .select('id')
+            .eq('household_id', household.id)
+            .eq('type', 'expense')
+            .ilike('name', 'Spesa')
+            .maybeSingle();
+
+          if (lookupError || !existingCategory) {
+            throw new Error(error?.message || lookupError?.message || 'Categoria Spesa non disponibile.');
+          }
+          genericCategoryId = existingCategory.id;
+        } else {
+          genericCategoryId = data.id;
+        }
+
+        await refreshData();
+      }
+
+      setQuickCategoryId(genericCategoryId);
+      setQuickSaveMode(true);
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Non riesco ad attivare il salvataggio rapido.');
+    } finally {
+      setPreparingQuickSave(false);
+    }
+  };
+
   const receiptItemsTotal = useMemo(() => receiptItems.reduce((sum, item) => {
     const value = Number(item.amountText.replace(',', '.'));
     return sum + (Number.isFinite(value) ? value : 0);
@@ -630,7 +691,12 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
-    if (receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
+    if (quickSaveMode && !quickCategoryId) {
+      setArchiveError('La categoria generale Spesa non e disponibile. Riattiva il salvataggio rapido.');
+      return;
+    }
+
+    if (!quickSaveMode && receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
       const confirmed = window.confirm(
         `La somma degli articoli (${receiptItemsTotal.toFixed(2)} EUR) differisce dal totale (${receiptAmountNumber.toFixed(2)} EUR) di ${receiptDifference.toFixed(2)} EUR. Vuoi procedere comunque?`,
       );
@@ -642,16 +708,26 @@ export const ScanReceiptPage: React.FC = () => {
     setArchiveError(null);
     try {
       const totalAmount = receiptAmountNumber;
-      const categorizedItems = items.filter(item => item.categoryId);
+      const accountingItems = quickSaveMode
+        ? [{
+            description: `Spesa presso ${merchant.trim() || 'esercente non indicato'}`,
+            amount: totalAmount,
+            categoryId: quickCategoryId,
+            subcategoryId: '',
+          }]
+        : items;
+      const categorizedItems = accountingItems.filter(item => item.categoryId);
       const categoryIds = new Set(categorizedItems.map(item => item.categoryId));
-      const subcategoryIds = new Set(items.filter(item => item.subcategoryId).map(item => item.subcategoryId));
-      const allItemsShareCategory = items.length > 0 && categorizedItems.length === items.length && categoryIds.size === 1;
+      const subcategoryIds = new Set(accountingItems.filter(item => item.subcategoryId).map(item => item.subcategoryId));
+      const allItemsShareCategory = accountingItems.length > 0
+        && categorizedItems.length === accountingItems.length
+        && categoryIds.size === 1;
       const allItemsShareSubcategory = allItemsShareCategory && subcategoryIds.size === 1
-        && items.every(item => item.subcategoryId);
-      const transactionCategoryId = items.length === 0
+        && accountingItems.every(item => item.subcategoryId);
+      const transactionCategoryId = accountingItems.length === 0
         ? detectedCategoryId || null
         : allItemsShareCategory ? [...categoryIds][0] : null;
-      const transactionSubcategoryId = items.length === 0
+      const transactionSubcategoryId = accountingItems.length === 0
         ? detectedSubcategoryId || null
         : allItemsShareSubcategory ? [...subcategoryIds][0] : null;
 
@@ -684,8 +760,8 @@ export const ScanReceiptPage: React.FC = () => {
         throw new Error(transactionError?.message || 'Transazione non salvata.');
       }
 
-      if (items.length > 0) {
-        const itemRows = items.map(item => ({
+      if (accountingItems.length > 0) {
+        const itemRows = accountingItems.map(item => ({
           household_id: household.id,
           transaction_id: transaction.id,
           description: item.description,
@@ -700,15 +776,17 @@ export const ScanReceiptPage: React.FC = () => {
           throw new Error(`Articoli non salvati: ${itemError.message}`);
         }
 
-        await saveProductClassificationRules({
-          householdId: household.id,
-          userId: user?.id || null,
-          products: items.map(item => ({
-            description: item.description,
-            categoryId: item.categoryId || null,
-            subcategoryId: item.subcategoryId || null,
-          })),
-        }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
+        if (!quickSaveMode) {
+          await saveProductClassificationRules({
+            householdId: household.id,
+            userId: user?.id || null,
+            products: items.map(item => ({
+              description: item.description,
+              categoryId: item.categoryId || null,
+              subcategoryId: item.subcategoryId || null,
+            })),
+          }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
+        }
       }
 
       const timestamp = Date.now();
@@ -756,6 +834,8 @@ export const ScanReceiptPage: React.FC = () => {
         extracted_text: mergedOcrText,
         extracted_json: {
           source: 'scan_receipt_multipage',
+          accounting_mode: quickSaveMode ? 'generic_expense' : 'detailed_items',
+          accounting_category_id: quickSaveMode ? quickCategoryId : null,
           page_count: pages.length,
           removed_overlap_lines: removedOverlapLines,
           pages: ocrPages,
@@ -971,7 +1051,35 @@ export const ScanReceiptPage: React.FC = () => {
 
             {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
 
-            <div className={styles.itemsReview}>
+            <div className={`${styles.quickSavePanel} ${quickSaveMode ? styles.quickSavePanelActive : ''}`}>
+              <div>
+                <h3>{quickSaveMode ? 'Classificazione rapida attiva' : 'Vuoi evitare la classificazione articolo per articolo?'}</h3>
+                <p>
+                  {quickSaveMode
+                    ? `Il totale di ${Number.isFinite(receiptAmountNumber) ? receiptAmountNumber.toFixed(2) : '0.00'} EUR verra registrato nella categoria Spesa, senza sottocategorie. Foto e testo OCR resteranno archiviati.`
+                    : "Registra l'intero totale nella categoria generale Spesa. E utile per scontrini molto lunghi o quando vuoi completare la registrazione in pochi secondi."}
+                </p>
+              </div>
+              {quickSaveMode ? (
+                <Button type="button" variant="secondary" onClick={() => {
+                  setQuickSaveMode(false);
+                  setQuickCategoryId('');
+                }}>
+                  Usa il dettaglio articoli
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  icon={<CheckCircle2 size={18} />}
+                  onClick={enableQuickSave}
+                  disabled={preparingQuickSave}
+                >
+                  {preparingQuickSave ? 'Preparazione...' : 'Assegna tutto a Spesa'}
+                </Button>
+              )}
+            </div>
+
+            {!quickSaveMode && <div className={styles.itemsReview}>
               <div className={styles.itemsHeader}>
                 <div>
                   <h3>Articoli rilevati</h3>
@@ -1021,7 +1129,7 @@ export const ScanReceiptPage: React.FC = () => {
                     : `Differenza: ${receiptDifference.toFixed(2)} EUR`}
                 </span>
               </div>
-            </div>
+            </div>}
 
             <p className="text-muted fs-sm text-center">
               {drivePending
@@ -1032,7 +1140,11 @@ export const ScanReceiptPage: React.FC = () => {
             <div className={styles.actionRow}>
               <Button variant="secondary" onClick={() => setStatus('reviewing')} disabled={archiving}>Rivedi foto</Button>
               <Button onClick={handleConfirm} disabled={archiving}>
-                {archiving ? 'Salvataggio completo...' : 'Salva scontrino e transazione'}
+                {archiving
+                  ? 'Salvataggio completo...'
+                  : quickSaveMode
+                    ? 'Salva tutto come Spesa'
+                    : 'Salva scontrino e transazione'}
               </Button>
             </div>
           </div>
