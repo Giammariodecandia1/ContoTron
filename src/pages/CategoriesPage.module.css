@@ -40,12 +40,6 @@
   color: var(--color-danger);
 }
 
-@media (min-width: 768px) {
-  .grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-
 .categoryList {
   display: flex;
   flex-direction: column;
@@ -123,7 +117,8 @@
 }
 
 .subcategoryItem span {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .subcategoryText {
@@ -283,16 +278,29 @@
     flex-direction: column;
   }
 
-  .categoryItem,
   .subcategoryItem {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .categoryNameContainer,
+  .categoryNameContainer {
+    flex-wrap: wrap;
+  }
+
+  .subcategoryText,
   .rowActions,
   .spendingTypeSelect {
+    max-width: none;
     width: 100%;
+  }
+
+  .subcategoryItem {
+    gap: var(--space-3);
+    padding: var(--space-3);
+  }
+
+  .subcategoriesContainer {
+    padding-inline: var(--space-2);
   }
 
   .rowActions {

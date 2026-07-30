@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Camera, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Card } from '../components/ui/Card';
-import { ExpenseCharts } from '../components/dashboard/ExpenseCharts';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import type { Transaction } from '../types/database';
@@ -200,9 +199,6 @@ export const DashboardPage: React.FC = () => {
       ...total,
       plannedDelta: total.plannedIncome - total.plannedExpense,
       actualDelta: total.plannedIncome - total.actualExpense,
-      averagePlannedIncome: total.plannedIncome / 12,
-      averagePlannedExpense: total.plannedExpense / 12,
-      averageActualExpense: total.actualExpense / 12,
     };
   }, [annualRows]);
 
@@ -290,6 +286,10 @@ export const DashboardPage: React.FC = () => {
       .filter(row => row.actualTotal > 0)
       .sort((a, b) => b.actualTotal - a.actualTotal),
     [annualCategoryRows],
+  );
+  const categoryHistogramTotal = useMemo(
+    () => categoryHistogramRows.reduce((sum, row) => sum + row.actualTotal, 0),
+    [categoryHistogramRows],
   );
 
   const handleIncomeChange = (month: number, value: string) => {
@@ -462,26 +462,6 @@ export const DashboardPage: React.FC = () => {
                     </tr>
                   );
                 })}
-                <tr className={styles.totalRow}>
-                  <td data-label="Mese">Totale</td>
-                  <td data-label="Entrate previste">{currency(totals.plannedIncome, currencyCode)}</td>
-                  <td data-label="Uscite previste">{currency(totals.plannedExpense, currencyCode)}</td>
-                  <td data-label="Delta previsto" className={totals.plannedDelta >= 0 ? styles.positive : styles.negative}>
-                    {currency(totals.plannedDelta, currencyCode)}
-                  </td>
-                  <td data-label="Uscite effettive">{currency(totals.actualExpense, currencyCode)}</td>
-                  <td data-label="Delta reale" className={totals.actualDelta >= 0 ? styles.positive : styles.negative}>
-                    {currency(totals.actualDelta, currencyCode)}
-                  </td>
-                </tr>
-                <tr className={styles.averageRow}>
-                  <td data-label="Mese">Media mese</td>
-                  <td data-label="Entrate previste">{currency(totals.averagePlannedIncome, currencyCode)}</td>
-                  <td data-label="Uscite previste">{currency(totals.averagePlannedExpense, currencyCode)}</td>
-                  <td data-label="Delta previsto">{currency(totals.plannedDelta / 12, currencyCode)}</td>
-                  <td data-label="Uscite effettive">{currency(totals.averageActualExpense, currencyCode)}</td>
-                  <td data-label="Delta reale">{currency(totals.actualDelta / 12, currencyCode)}</td>
-                </tr>
               </tbody>
             </table>
           </div>
@@ -529,11 +509,17 @@ export const DashboardPage: React.FC = () => {
             {categoryHistogramRows.map(row => {
               const maxValue = categoryHistogramRows[0]?.actualTotal || 1;
               const width = Math.max(2, (row.actualTotal / maxValue) * 100);
+              const percentage = categoryHistogramTotal > 0
+                ? (row.actualTotal / categoryHistogramTotal) * 100
+                : 0;
               return (
                 <div key={row.id} className={styles.histogramRow} role="listitem">
                   <div className={styles.histogramHeader}>
                     <span>{row.name}</span>
-                    <strong>{currency(row.actualTotal, currencyCode)}</strong>
+                    <strong>
+                      {currency(row.actualTotal, currencyCode)}
+                      <small>{percentage.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</small>
+                    </strong>
                   </div>
                   <div className={styles.histogramTrack} aria-hidden="true">
                     <div className={styles.histogramBar} style={{ width: `${width}%` }} />
@@ -544,10 +530,6 @@ export const DashboardPage: React.FC = () => {
           </div>
         )}
       </Card>
-
-      {transactions.length > 0 && (
-        <ExpenseCharts transactions={transactions} selectedYear={selectedYear} />
-      )}
     </div>
   );
 };

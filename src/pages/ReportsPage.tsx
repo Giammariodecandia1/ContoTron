@@ -29,6 +29,7 @@ const documentTypeLabels: Record<string, string> = {
 interface ReportTransaction {
   id: string;
   transaction_date: string;
+  cash_impact_date?: string | null;
   description: string;
   merchant: string | null;
   amount: number;
@@ -74,7 +75,10 @@ interface ReportItem {
   amount: number;
   category_id: string | null;
   subcategory_id: string | null;
-  transactions?: { transaction_date?: string | null } | null;
+  transactions?: {
+    transaction_date?: string | null;
+    cash_impact_date?: string | null;
+  } | null;
 }
 
 interface SummaryRow {
@@ -106,8 +110,7 @@ interface SpendingTypeReportRow {
   name: string;
   planned: number;
   actual: number;
-  plannedCount: number;
-  actualCount: number;
+  subcategoryCount: number;
   plannedPercent: number;
   actualPercent: number;
 }
@@ -128,6 +131,11 @@ const getYearRange = (year: number) => ({
   start: `${year}-01-01`,
   end: `${year}-12-31`,
 });
+
+const budgetImpactDate = (transaction: {
+  transaction_date?: string | null;
+  cash_impact_date?: string | null;
+}) => transaction.cash_impact_date || transaction.transaction_date || '';
 
 const normalizeKey = (value: string) => (
   value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -225,12 +233,13 @@ export const ReportsPage: React.FC = () => {
     setError(null);
 
     try {
+      const transactionStart = `${year - 1}-12-01`;
       const [txResult, docResult, budgetResult, incomeResult, itemResult] = await Promise.all([
         supabase
           .from('transactions')
           .select(`*, accounts!transactions_account_id_fkey(name), categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)`)
           .eq('household_id', householdId)
-          .gte('transaction_date', yearRange.start)
+          .gte('transaction_date', transactionStart)
           .lte('transaction_date', yearRange.end)
           .neq('status', 'deleted')
           .order('transaction_date', { ascending: true }),
@@ -253,8 +262,10 @@ export const ReportsPage: React.FC = () => {
           .eq('year', year),
         supabase
           .from('transaction_items')
-          .select('id, transaction_id, description, amount, category_id, subcategory_id, transactions!inner(transaction_date)')
-          .eq('household_id', householdId),
+          .select('id, transaction_id, description, amount, category_id, subcategory_id, transactions!inner(transaction_date, cash_impact_date)')
+          .eq('household_id', householdId)
+          .gte('transactions.transaction_date', transactionStart)
+          .lte('transactions.transaction_date', yearRange.end),
       ]);
 
       if (txResult.error) throw txResult.error;
@@ -263,12 +274,15 @@ export const ReportsPage: React.FC = () => {
       if (incomeResult.error) throw incomeResult.error;
       if (itemResult.error) throw itemResult.error;
 
-      setTransactions((txResult.data || []) as ReportTransaction[]);
+      setTransactions(((txResult.data || []) as ReportTransaction[]).filter(transaction => {
+        const date = budgetImpactDate(transaction);
+        return date >= yearRange.start && date <= yearRange.end;
+      }));
       setDocuments((docResult.data || []) as ReportDocument[]);
       setBudgetTargets((budgetResult.data || []) as ReportBudgetTarget[]);
       setIncomeTargets((incomeResult.data || []) as ReportIncomeTarget[]);
       setItems(((itemResult.data || []) as unknown as ReportItem[]).filter(item => {
-        const date = item.transactions?.transaction_date || '';
+        const date = budgetImpactDate(item.transactions || {});
         return date >= yearRange.start && date <= yearRange.end;
       }));
     } catch (err) {
@@ -285,7 +299,10 @@ export const ReportsPage: React.FC = () => {
 
   const report = useMemo(() => {
     const annualValidTransactions = transactions.filter(tx => tx.status !== 'rejected');
-    const monthlyTransactions = annualValidTransactions.filter(tx => tx.transaction_date >= monthRange.start && tx.transaction_date <= monthRange.end);
+    const monthlyTransactions = annualValidTransactions.filter(tx => {
+      const date = budgetImpactDate(tx);
+      return date >= monthRange.start && date <= monthRange.end;
+    });
     const expenses = monthlyTransactions.filter(tx => tx.type === 'expense');
     const incomes = monthlyTransactions.filter(tx => tx.type === 'income');
     const monthlyBudgetTargets = budgetTargets.filter(target => target.month === month);
@@ -293,7 +310,7 @@ export const ReportsPage: React.FC = () => {
       !!document.document_date && document.document_date >= monthRange.start && document.document_date <= monthRange.end
     ));
     const monthlyItems = items.filter(item => {
-      const date = item.transactions?.transaction_date || '';
+      const date = budgetImpactDate(item.transactions || {});
       return date >= monthRange.start && date <= monthRange.end;
     });
     const monthlyExpenseById = new Map(expenses.map(tx => [tx.id, tx]));
@@ -420,7 +437,7 @@ export const ReportsPage: React.FC = () => {
     ));
     const weeklyAmounts = Array.from({ length: 52 }, () => 0);
     annualFoodExpenses.forEach(tx => {
-      const date = new Date(`${tx.transaction_date}T00:00:00`);
+      const date = new Date(`${budgetImpactDate(tx)}T00:00:00`);
       const week = getIsoWeek(date);
       weeklyAmounts[week - 1] += Number(tx.amount || 0);
     });
@@ -428,7 +445,7 @@ export const ReportsPage: React.FC = () => {
       if (!annualItemizedIds.has(transactionId)) return;
       const transaction = annualExpenseById.get(transactionId);
       if (!transaction) return;
-      const date = new Date(`${transaction.transaction_date}T00:00:00`);
+      const date = new Date(`${budgetImpactDate(transaction)}T00:00:00`);
       const week = getIsoWeek(date);
       group.filter(item => foodCategoryIds.has(item.category_id || '')).forEach(item => {
         weeklyAmounts[week - 1] += allocatedItemAmount(item, group, Number(transaction.amount || 0));
@@ -454,8 +471,7 @@ export const ReportsPage: React.FC = () => {
         name: option.label,
         planned: 0,
         actual: 0,
-        plannedCount: 0,
-        actualCount: 0,
+        subcategoryCount: 0,
         plannedPercent: 0,
         actualPercent: 0,
       }]),
@@ -474,9 +490,12 @@ export const ReportsPage: React.FC = () => {
       const row = spendingTypeMap.get(spendingType) || spendingTypeMap.get('variable');
       if (!row) return;
       row[field] += amount;
-      if (field === 'planned') row.plannedCount += 1;
-      else row.actualCount += 1;
     };
+    subcategories.forEach(subcategory => {
+      const row = spendingTypeMap.get(resolveSpendingType(subcategory.category_id, subcategory.id))
+        || spendingTypeMap.get('variable');
+      if (row) row.subcategoryCount += 1;
+    });
 
     const targetsByCategory = new Map<string, ReportBudgetTarget[]>();
     monthlyBudgetTargets.filter(target => target.category_id).forEach(target => {
@@ -578,7 +597,7 @@ export const ReportsPage: React.FC = () => {
       foodMedian,
       monthlyDocuments,
     };
-  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategoryById, transactions]);
+  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategories, subcategoryById, transactions]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');
@@ -608,7 +627,7 @@ export const ReportsPage: React.FC = () => {
     lines.push({ text: '', gapAfter: 4 });
     lines.push({ text: 'Tipi di spesa: previsione e consuntivo', size: 14, bold: true });
     report.spendingTypeRows.forEach(row => lines.push({
-      text: `${row.name}: previsto ${money(row.planned)} (${formatPercent(row.plannedPercent)}), consuntivo ${money(row.actual)} (${formatPercent(row.actualPercent)}), voci ${row.actualCount}`,
+      text: `${row.name}: previsto ${money(row.planned)} (${formatPercent(row.plannedPercent)}), consuntivo ${money(row.actual)} (${formatPercent(row.actualPercent)}), sottocategorie ${row.subcategoryCount}`,
     }));
 
     lines.push({ text: '', gapAfter: 4 });
@@ -656,8 +675,8 @@ export const ReportsPage: React.FC = () => {
     {
       name: 'Tipi di spesa',
       rows: [
-        ['Tipo spesa', 'Previsione', '% previsione', 'Consuntivo', '% consuntivo', 'Voci previste', 'Voci effettive'],
-        ...report.spendingTypeRows.map(row => [row.name, row.planned, row.plannedPercent / 100, row.actual, row.actualPercent / 100, row.plannedCount, row.actualCount]),
+        ['Tipo spesa', 'Previsione', '% previsione', 'Consuntivo', '% consuntivo', 'Sottocategorie'],
+        ...report.spendingTypeRows.map(row => [row.name, row.planned, row.plannedPercent / 100, row.actual, row.actualPercent / 100, row.subcategoryCount]),
       ],
     },
     {
@@ -790,7 +809,7 @@ export const ReportsPage: React.FC = () => {
               <div className={styles.tableWrap}>
                 <table className={styles.table}>
                   <thead>
-                    <tr><th>Tipo spesa</th><th>Previsione</th><th>% previsione</th><th>Consuntivo</th><th>% consuntivo</th><th>Voci</th></tr>
+                    <tr><th>Tipo spesa</th><th>Previsione</th><th>% previsione</th><th>Consuntivo</th><th>% consuntivo</th><th>Sottocategorie</th></tr>
                   </thead>
                   <tbody>
                     {report.spendingTypeRows.map(row => (
@@ -800,7 +819,7 @@ export const ReportsPage: React.FC = () => {
                         <td>{formatPercent(row.plannedPercent)}</td>
                         <td>{formatCurrency(row.actual, currency)}</td>
                         <td>{formatPercent(row.actualPercent)}</td>
-                        <td>{row.actualCount}</td>
+                        <td>{row.subcategoryCount}</td>
                       </tr>
                     ))}
                     <tr className={styles.totalTypeRow}>
@@ -809,7 +828,7 @@ export const ReportsPage: React.FC = () => {
                       <td>{formatPercent(report.typedPlannedTotal > 0 ? 100 : 0)}</td>
                       <td>{formatCurrency(report.typedActualTotal, currency)}</td>
                       <td>{formatPercent(report.typedActualTotal > 0 ? 100 : 0)}</td>
-                      <td>{report.spendingTypeRows.reduce((sum, row) => sum + row.actualCount, 0)}</td>
+                      <td>{report.spendingTypeRows.reduce((sum, row) => sum + row.subcategoryCount, 0)}</td>
                     </tr>
                   </tbody>
                 </table>

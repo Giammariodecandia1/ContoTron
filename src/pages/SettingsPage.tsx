@@ -1,14 +1,32 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { CalendarClock, Cloud, Database, Info, LogOut, Monitor, Moon, Settings as SettingsIcon, Sun, Tag, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  CalendarClock,
+  CheckCircle2,
+  Cloud,
+  Database,
+  Info,
+  LogOut,
+  Monitor,
+  Moon,
+  Settings as SettingsIcon,
+  Sun,
+  Tag,
+  Users,
+} from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth, useHousehold, useTheme } from '../hooks';
+import {
+  useAuth,
+  useHousehold,
+  usePersonalDriveConnection,
+  useTheme,
+} from '../hooks';
 import {
   documentStorageDescriptions,
   documentStorageLabels,
   getDocumentStorageProvider,
-  getDocumentStorageStatus,
   saveDocumentStoragePreference,
 } from '../lib/documentStoragePreference';
 import {
@@ -38,7 +56,15 @@ export const SettingsPage: React.FC = () => {
   const [fontScale, setFontScale] = useState<FontScale>(() => getFontScale());
 
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
-  const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
+  const {
+    connection: personalDriveConnection,
+    loading: driveStatusLoading,
+    error: driveStatusError,
+    refresh: refreshPersonalDriveConnection,
+    setConnection: setPersonalDriveConnection,
+  } = usePersonalDriveConnection(household, userId);
+  const personalDriveReady = personalDriveConnection?.status === 'ready'
+    && Boolean(personalDriveConnection.folderId);
   const fromDriveSetup = useMemo(() => new URLSearchParams(location.search).get('driveSetup') === '1', [location.search]);
 
   const handleFontScaleChange = (nextScale: FontScale) => {
@@ -75,8 +101,16 @@ export const SettingsPage: React.FC = () => {
 
     try {
       const folder = await ensureHouseholdDriveFolder(household, userId);
+      setPersonalDriveConnection({
+        status: 'ready',
+        folderId: folder.id,
+        folderName: folder.name,
+        connectedAt: new Date().toISOString(),
+        source: 'database',
+      });
       await refreshData();
-      setStorageMessage(`Google Drive collegato. Cartella famiglia: ${folder.name}.`);
+      await refreshPersonalDriveConnection();
+      setStorageMessage(`Google Drive personale collegato. I tuoi nuovi scontrini andranno nella cartella ${folder.name}.`);
       if (location.search.includes('connectDrive=1')) {
         navigate('/impostazioni', { replace: true });
       }
@@ -94,7 +128,16 @@ export const SettingsPage: React.FC = () => {
     } finally {
       setDriveConnecting(false);
     }
-  }, [driveConnecting, household, location.search, navigate, refreshData, userId]);
+  }, [
+    driveConnecting,
+    household,
+    location.search,
+    navigate,
+    refreshData,
+    refreshPersonalDriveConnection,
+    setPersonalDriveConnection,
+    userId,
+  ]);
 
   useEffect(() => {
     const shouldConnectDrive = new URLSearchParams(location.search).get('connectDrive') === '1';
@@ -102,7 +145,6 @@ export const SettingsPage: React.FC = () => {
       shouldConnectDrive
       && household
       && documentStorageProvider === 'google_drive'
-      && documentStorageStatus !== 'ready'
       && !driveConnecting
     ) {
       const connectTimer = window.setTimeout(() => {
@@ -111,7 +153,7 @@ export const SettingsPage: React.FC = () => {
 
       return () => window.clearTimeout(connectTimer);
     }
-  }, [connectGoogleDrive, documentStorageProvider, documentStorageStatus, driveConnecting, household, location.search]);
+  }, [connectGoogleDrive, documentStorageProvider, driveConnecting, household, location.search]);
 
   return (
     <div className={styles.page}>
@@ -144,7 +186,6 @@ export const SettingsPage: React.FC = () => {
         <Card title="Archivio documenti" icon={<Cloud size={20} />}>
           <p className="text-muted fs-sm">
             Formula attiva: {documentStorageLabels[documentStorageProvider]}.
-            {documentStorageStatus === 'pending_connection' && " Google Drive e' ancora da collegare."}
           </p>
           {fromDriveSetup && documentStorageProvider === 'google_drive' && (
             <div className={`${styles.feedback} ${styles.warning}`}>
@@ -153,6 +194,36 @@ export const SettingsPage: React.FC = () => {
           )}
           {storageMessage && <div className={`${styles.feedback} ${styles.success}`}>{storageMessage}</div>}
           {storageError && <div className={`${styles.feedback} ${styles.error}`}>{storageError}</div>}
+          {driveStatusError && <div className={`${styles.feedback} ${styles.error}`}>{driveStatusError}</div>}
+
+          <div className={`${styles.storageStatus} ${
+            documentStorageProvider === 'google_drive' && !personalDriveReady
+              ? styles.storageStatusWarning
+              : styles.storageStatusReady
+          }`}>
+            {documentStorageProvider === 'google_drive' && !personalDriveReady
+              ? <AlertTriangle size={22} />
+              : <CheckCircle2 size={22} />}
+            <div>
+              <strong>
+                {documentStorageProvider === 'supabase'
+                  ? 'Archivio interno attivo'
+                  : driveStatusLoading
+                    ? 'Verifica del tuo Google Drive...'
+                    : personalDriveReady
+                      ? 'Google Drive personale attivo'
+                      : 'Google Drive scelto ma non collegato'}
+              </strong>
+              <p>
+                {documentStorageProvider === 'supabase'
+                  ? 'I nuovi scontrini vengono salvati nello storage privato Contotron del nucleo.'
+                  : personalDriveReady
+                    ? `I file caricati da ${user?.email || 'questo account'} vengono salvati nel suo Drive, cartella ${personalDriveConnection?.folderName || 'Contotron'}.`
+                    : `L account ${user?.email || 'corrente'} deve ancora autorizzare Google Drive. Fino ad allora useremo l archivio interno provvisorio.`}
+              </p>
+            </div>
+          </div>
+
           <div className={styles.storageOptions}>
             <button
               type="button"
@@ -188,20 +259,20 @@ export const SettingsPage: React.FC = () => {
               >
                 {driveConnecting
                   ? 'Collegamento...'
-                  : documentStorageStatus === 'ready'
+                  : personalDriveReady
                     ? 'Ricollega Google Drive'
                     : 'Collega Google Drive'}
               </Button>
-              {documentStorageStatus === 'ready' && (
+              {personalDriveReady && (
                 <span className="text-muted fs-sm">
-                  Cartella: {household?.google_drive_folder_name || 'Contotron'}
+                  Account: {user?.email || 'Google corrente'} · Cartella: {personalDriveConnection?.folderName || 'Contotron'}
                 </span>
               )}
             </div>
           )}
           {documentStorageProvider === 'google_drive' && (
-            <div className={`${styles.feedback} ${styles.warning}`}>
-              Nota: per far salvare tutti direttamente nel Drive del proprietario servira una funzione backend sicura. Dal browser non conserveremo token Google di altri account.
+            <div className={styles.privacyNote}>
+              Ogni membro autorizza separatamente il proprio Drive. Contotron non condivide token Google e puo gestire soltanto i file creati dall app.
             </div>
           )}
         </Card>

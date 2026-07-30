@@ -20,7 +20,7 @@ export const Card: React.FC<CardProps> = ({
     <div className={`${styles.card} ${className || ''}`} {...props}>
       {(title || icon || action) && (
         <div className={styles.header}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div className={styles.heading}>
             {icon && <span className={styles.icon}>{icon}</span>}
             {title && <h3 className={styles.title}>{title}</h3>}
           </div>

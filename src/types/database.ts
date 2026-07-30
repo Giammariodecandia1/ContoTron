@@ -106,6 +106,16 @@ export interface HouseholdMember {
   created_at: string;
 }
 
+export interface MemberGoogleDriveConnection {
+  household_id: string;
+  user_id: string;
+  status: DocumentStorageStatus;
+  folder_id: string | null;
+  folder_name: string | null;
+  connected_at: string | null;
+  updated_at: string;
+}
+
 export interface Account {
   id: string;
   household_id: string;

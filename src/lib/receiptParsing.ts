@@ -538,17 +538,13 @@ const isUnitPriceOnlyLine = (line: string) => {
     && (hasEachPriceFormula || (hasUnitFormula && (hasPerUnitMarker || !hasProductName)));
 };
 
-export const extractReceiptItems = (
-  text: string,
-  categories: Category[],
-  subcategories: Subcategory[],
-): ReceiptItemResult[] => {
+const buildReceiptCandidateLines = (text: string) => {
   const lines = text
     .split('\n')
     .map(line => line.trim())
     .filter(Boolean);
 
-  const candidateLines = lines.map((line, index) => {
+  return lines.map((line, index) => {
     if (parseAmountsFromLine(line).length > 0 || !/[a-zA-Z]{2,}/.test(line)) return line;
     const nextLine = lines[index + 1] || '';
     const nextHasAmount = parseAmountsFromLine(nextLine).length > 0;
@@ -556,6 +552,21 @@ export const extractReceiptItems = (
     if (!nextHasAmount || nextHasProductText || isUnitPriceOnlyLine(nextLine) || isTaxOrPercentageLine(nextLine)) return line;
     return `${line} ${nextLine}`;
   });
+};
+
+export const countReceiptItemLikeLines = (text: string) => (
+  buildReceiptCandidateLines(text).filter(line => (
+    /[a-zA-Z]{2,}/.test(line)
+    && parseAmountsFromLine(line).length > 0
+  )).length
+);
+
+export const extractReceiptItems = (
+  text: string,
+  categories: Category[],
+  subcategories: Subcategory[],
+): ReceiptItemResult[] => {
+  const candidateLines = buildReceiptCandidateLines(text);
 
   return candidateLines
     .flatMap((line, index) => {

@@ -240,8 +240,17 @@
 }
 
 .histogramHeader strong {
+  align-items: baseline;
   color: var(--color-gray-900);
+  display: flex;
+  gap: var(--space-2);
   white-space: nowrap;
+}
+
+.histogramHeader strong small {
+  color: var(--color-primary);
+  font-size: var(--text-xs);
+  font-weight: 800;
 }
 
 .histogramTrack {
@@ -274,16 +283,6 @@
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
   outline: none;
-}
-
-.totalRow {
-  background: var(--color-gray-50);
-  font-weight: 800;
-}
-
-.averageRow {
-  background: var(--color-primary-light);
-  font-weight: 800;
 }
 
 .mobileScanCard {
@@ -415,8 +414,4 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .totalRow,
-  .averageRow {
-    background: transparent;
-  }
 }

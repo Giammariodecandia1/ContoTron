@@ -44,6 +44,101 @@
   min-width: 0;
 }
 
+.annualReports {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.reportTable {
+  border-collapse: collapse;
+  margin-top: var(--space-3);
+  min-width: 680px;
+  width: 100%;
+}
+
+.reportTable th,
+.reportTable td {
+  border-bottom: 1px solid var(--color-gray-200);
+  padding: var(--space-3);
+  text-align: right;
+}
+
+.reportTable th {
+  color: var(--color-gray-600);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.reportTable th:first-child,
+.reportTable td:first-child {
+  text-align: left;
+}
+
+.totalReportRow {
+  background: var(--color-gray-50);
+  color: var(--color-gray-900);
+  font-weight: 800;
+}
+
+.typeBars {
+  border-top: 1px solid var(--color-gray-200);
+  display: grid;
+  gap: var(--space-5);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+.typeBarRow {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.typeBarRow > div {
+  align-items: center;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 44px minmax(120px, 1fr) 64px;
+}
+
+.typeBarRow span,
+.typeBarRow em {
+  color: var(--color-gray-600);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+
+.typeBarRow em {
+  font-weight: 800;
+  text-align: right;
+}
+
+.typeBarRow i {
+  background: var(--color-gray-100);
+  border-radius: 999px;
+  display: block;
+  height: 12px;
+  overflow: hidden;
+}
+
+.typeBarRow i b {
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.plannedBar {
+  background: var(--color-primary);
+}
+
+.actualBar {
+  background: var(--color-success);
+}
+
 .statsGrid {
   border-top: 1px solid var(--color-gray-200);
   display: grid;

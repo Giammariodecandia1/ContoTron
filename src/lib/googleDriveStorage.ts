@@ -3,7 +3,11 @@ import {
   getLocalGoogleDriveFolder,
   markLocalGoogleDriveConnected,
 } from './documentStoragePreference';
-import type { Household } from '../types/database';
+import type {
+  DocumentStorageStatus,
+  Household,
+  MemberGoogleDriveConnection,
+} from '../types/database';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -25,6 +29,20 @@ export interface GoogleDriveFile {
   webContentLink?: string;
   size?: string;
 }
+
+export interface PersonalDriveConnection {
+  status: DocumentStorageStatus;
+  folderId: string | null;
+  folderName: string | null;
+  connectedAt: string | null;
+  source: 'database' | 'legacy' | 'local' | 'none';
+}
+
+const isConnectionSchemaMissing = (error: { code?: string; message?: string } | null) => (
+  error?.code === '42P01'
+  || error?.code === 'PGRST205'
+  || Boolean(error?.message?.toLowerCase().includes('member_google_drive_connections'))
+);
 
 const escapeDriveQueryValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
@@ -121,42 +139,105 @@ const folderNameForHousehold = (household: Household) => (
   household.google_drive_folder_name || `Contotron - ${household.name}`
 );
 
-export const ensureHouseholdDriveFolder = async (household: Household, userId?: string | null) => {
-  const localFolder = getLocalGoogleDriveFolder(household.id);
-  if (household.google_drive_folder_id) {
+export const getPersonalDriveConnection = async (
+  household: Household,
+  userId?: string | null,
+): Promise<PersonalDriveConnection> => {
+  if (!userId) {
     return {
-      id: household.google_drive_folder_id,
-      name: household.google_drive_folder_name || folderNameForHousehold(household),
+      status: 'pending_connection',
+      folderId: null,
+      folderName: null,
+      connectedAt: null,
+      source: 'none',
     };
   }
 
+  const { data, error } = await supabase
+    .from('member_google_drive_connections')
+    .select('*')
+    .eq('household_id', household.id)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (error && !isConnectionSchemaMissing(error)) throw error;
+
+  if (data) {
+    const connection = data as MemberGoogleDriveConnection;
+    return {
+      status: connection.status,
+      folderId: connection.folder_id,
+      folderName: connection.folder_name,
+      connectedAt: connection.connected_at,
+      source: 'database',
+    };
+  }
+
+  if (
+    household.document_storage_connected_by === userId
+    && household.google_drive_folder_id
+  ) {
+    return {
+      status: household.document_storage_status || 'ready',
+      folderId: household.google_drive_folder_id,
+      folderName: household.google_drive_folder_name || folderNameForHousehold(household),
+      connectedAt: household.document_storage_connected_at || null,
+      source: 'legacy',
+    };
+  }
+
+  const localFolder = getLocalGoogleDriveFolder(household.id, userId);
   if (localFolder) {
-    return localFolder;
+    return {
+      status: 'ready',
+      folderId: localFolder.id,
+      folderName: localFolder.name,
+      connectedAt: null,
+      source: 'local',
+    };
+  }
+
+  return {
+    status: 'pending_connection',
+    folderId: null,
+    folderName: null,
+    connectedAt: null,
+    source: 'none',
+  };
+};
+
+export const ensureHouseholdDriveFolder = async (household: Household, userId?: string | null) => {
+  if (!userId) {
+    throw new GoogleDriveAuthError('Account Contotron non disponibile per collegare Google Drive.');
+  }
+
+  const connection = await getPersonalDriveConnection(household, userId);
+  if (connection.status === 'ready' && connection.folderId) {
+    return {
+      id: connection.folderId,
+      name: connection.folderName || folderNameForHousehold(household),
+    };
   }
 
   const folderName = folderNameForHousehold(household);
   const folder = await ensureFolder(folderName);
+  const connectedAt = new Date().toISOString();
 
   const { error } = await supabase
-    .from('households')
-    .update({
-      document_storage_provider: 'google_drive',
-      document_storage_status: 'ready',
-      google_drive_folder_id: folder.id,
-      google_drive_folder_name: folder.name,
-      document_storage_connected_by: userId || null,
-      document_storage_connected_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', household.id);
+    .from('member_google_drive_connections')
+    .upsert({
+      household_id: household.id,
+      user_id: userId,
+      status: 'ready',
+      folder_id: folder.id,
+      folder_name: folder.name,
+      connected_at: connectedAt,
+      updated_at: connectedAt,
+    }, { onConflict: 'household_id,user_id' });
 
   if (error) {
-    const schemaMissing = error.message?.toLowerCase().includes('google_drive_folder_id')
-      || error.message?.toLowerCase().includes('document_storage_provider')
-      || error.code === '42703';
-
-    if (!schemaMissing) throw error;
-    markLocalGoogleDriveConnected(household.id, { id: folder.id, name: folder.name });
+    if (!isConnectionSchemaMissing(error)) throw error;
+    markLocalGoogleDriveConnected(household.id, { id: folder.id, name: folder.name }, userId);
   }
 
   return folder;

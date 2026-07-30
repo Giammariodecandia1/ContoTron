@@ -277,6 +277,47 @@
   text-align: left;
 }
 
+.lineAudit {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: var(--space-3);
+}
+
+.lineAudit > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lineAudit span {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.lineAudit strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-xl);
+}
+
+.lineAudit p {
+  grid-column: 1 / -1;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.lineAuditWarning {
+  color: var(--color-warning);
+}
+
+.lineAuditOk {
+  color: var(--color-success);
+}
+
 .quickSavePanel {
   display: flex;
   align-items: center;
@@ -369,6 +410,33 @@
   color: var(--color-gray-700);
   font-size: var(--text-sm);
   line-height: 1.5;
+}
+
+.storageDestination {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-4) 0;
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+}
+
+.storageDestination strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+}
+
+.storageDestination span {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.storageDestinationPending {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: rgba(245, 158, 11, 0.45);
 }
 
 .reconciliationOk {

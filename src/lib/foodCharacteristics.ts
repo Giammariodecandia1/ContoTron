@@ -12,5 +12,5 @@ export const foodCharacteristicOptions = Object.entries(foodCharacteristicLabels
 }));
 
 export const getFoodCharacteristicLabel = (value?: string | null) => (
-  value ? foodCharacteristicLabels[value as FoodCharacteristic] || value : 'Non definita'
+  value ? foodCharacteristicLabels[value as FoodCharacteristic] || value : foodCharacteristicLabels.necessary
 );

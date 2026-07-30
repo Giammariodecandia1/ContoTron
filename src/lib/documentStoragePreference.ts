@@ -17,13 +17,16 @@ export const documentStorageLabels: Record<DocumentStorageProvider, string> = {
 
 export const documentStorageDescriptions: Record<DocumentStorageProvider, string> = {
   supabase: 'Soluzione semplice e subito attiva. I documenti ottimizzati restano nello storage privato collegato al database.',
-  google_drive: 'Pensata per usare una cartella Drive del nucleo. Il Drive unico del proprietario richiede un collegamento backend sicuro.',
+  google_drive: 'Ogni membro collega il proprio Google Drive personale. Contotron salva solo i file caricati da quell account.',
 };
 
-const storageKey = (householdId: string) => `contotron_document_storage_${householdId}`;
+const storageKey = (householdId: string, userId?: string | null) => (
+  `contotron_document_storage_${householdId}${userId ? `_${userId}` : ''}`
+);
 
-const readLocalState = (householdId: string): LocalDocumentStorageState | null => {
-  const raw = localStorage.getItem(storageKey(householdId));
+const readLocalState = (householdId: string, userId?: string | null): LocalDocumentStorageState | null => {
+  const raw = localStorage.getItem(storageKey(householdId, userId))
+    || localStorage.getItem(storageKey(householdId));
   if (!raw) return null;
 
   if (raw === 'google_drive' || raw === 'supabase') {
@@ -50,8 +53,12 @@ const readLocalState = (householdId: string): LocalDocumentStorageState | null =
   return null;
 };
 
-const writeLocalState = (householdId: string, state: LocalDocumentStorageState) => {
-  localStorage.setItem(storageKey(householdId), JSON.stringify(state));
+const writeLocalState = (
+  householdId: string,
+  state: LocalDocumentStorageState,
+  userId?: string | null,
+) => {
+  localStorage.setItem(storageKey(householdId, userId), JSON.stringify(state));
 };
 
 export const getDocumentStorageProvider = (household?: Household | null): DocumentStorageProvider => {
@@ -67,8 +74,8 @@ export const getDocumentStorageStatus = (household?: Household | null): Document
   return readLocalState(household.id)?.status || (getDocumentStorageProvider(household) === 'google_drive' ? 'pending_connection' : 'ready');
 };
 
-export const getLocalGoogleDriveFolder = (householdId: string) => {
-  const localState = readLocalState(householdId);
+export const getLocalGoogleDriveFolder = (householdId: string, userId?: string | null) => {
+  const localState = readLocalState(householdId, userId);
   if (!localState?.googleDriveFolderId) return null;
 
   return {
@@ -80,13 +87,14 @@ export const getLocalGoogleDriveFolder = (householdId: string) => {
 export const markLocalGoogleDriveConnected = (
   householdId: string,
   folder: { id: string; name: string },
+  userId?: string | null,
 ) => {
   writeLocalState(householdId, {
     provider: 'google_drive',
     status: 'ready',
     googleDriveFolderId: folder.id,
     googleDriveFolderName: folder.name,
-  });
+  }, userId);
 };
 
 export const saveDocumentStoragePreference = async (

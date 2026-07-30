@@ -8,22 +8,40 @@
   flex-direction: column;
 }
 
-.cardHeader {
-  padding: var(--space-4) var(--space-5);
+.header {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-gray-50) 72%, transparent);
   border-bottom: 1px solid var(--color-gray-100);
   display: flex;
+  gap: var(--space-3);
   justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+}
+
+.heading {
   align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.cardTitle {
+.title {
+  color: var(--color-gray-900);
+  font-size: var(--text-xl);
+  font-weight: 800;
+  line-height: 1.25;
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-gray-800);
 }
 
-.cardAction {
+.icon {
+  align-items: center;
+  color: var(--color-primary);
+  display: flex;
+  flex: 0 0 auto;
+}
+
+.action {
+  align-items: center;
   display: flex;
   gap: var(--space-2);
 }
@@ -31,4 +49,19 @@
 .cardBody {
   padding: var(--space-5);
   flex: 1;
+}
+
+@media (max-width: 640px) {
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .title {
+    font-size: var(--text-lg);
+  }
+
+  .action {
+    width: 100%;
+  }
 }

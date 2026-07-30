@@ -31,6 +31,7 @@ export const OnboardingPage: React.FC = () => {
   const [initialBalance, setInitialBalance] = useState('');
   const [useTemplate, setUseTemplate] = useState(true);
   const [documentStorageProvider, setDocumentStorageProvider] = useState<DocumentStorageProvider>('supabase');
+  const [driveChoiceConfirmed, setDriveChoiceConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -287,22 +288,45 @@ export const OnboardingPage: React.FC = () => {
                     type="radio"
                     name="documentStorage"
                     checked={documentStorageProvider === provider}
-                    onChange={() => setDocumentStorageProvider(provider)}
+                    onChange={() => {
+                      setDocumentStorageProvider(provider);
+                      if (provider !== 'google_drive') setDriveChoiceConfirmed(false);
+                    }}
                   />
                   <div>
                     <strong>{documentStorageLabels[provider]}</strong>
                     <div className="fs-sm text-muted">{documentStorageDescriptions[provider]}</div>
                     {provider === 'google_drive' && (
-                      <div className={styles.optionNote}>Dopo il setup collegheremo Google Drive dal pannello impostazioni.</div>
+                      <div className={styles.optionNote}>Dopo il setup autorizzerai il tuo account Google personale.</div>
                     )}
                   </div>
                 </label>
               ))}
             </div>
+            {documentStorageProvider === 'google_drive' && (
+              <label className={styles.driveAcknowledgement}>
+                <input
+                  type="checkbox"
+                  checked={driveChoiceConfirmed}
+                  onChange={event => setDriveChoiceConfirmed(event.target.checked)}
+                />
+                <span>
+                  Ho capito che ogni membro collega il proprio Google Drive. Contotron potra gestire solo i file creati dall app; se il collegamento non e attivo, gli scontrini saranno salvati nell archivio interno di sicurezza.
+                </span>
+              </label>
+            )}
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
               <Button variant="secondary" onClick={() => setStep(2)}>Indietro</Button>
-              <Button onClick={handleComplete} disabled={loading} style={{ flex: 1 }}>
-                {loading ? 'Creazione in corso...' : 'Completa Setup'}
+              <Button
+                onClick={handleComplete}
+                disabled={loading || (documentStorageProvider === 'google_drive' && !driveChoiceConfirmed)}
+                style={{ flex: 1 }}
+              >
+                {loading
+                  ? 'Creazione in corso...'
+                  : documentStorageProvider === 'google_drive'
+                    ? 'Crea nucleo e collega Drive'
+                    : 'Completa Setup'}
               </Button>
             </div>
           </div>

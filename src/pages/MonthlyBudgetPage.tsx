@@ -77,7 +77,7 @@ export const MonthlyBudgetPage: React.FC = () => {
 
     // 1. Fetch transactions for the current month
     try {
-      const txs = await fetchTransactions(month, year);
+      const txs = await fetchTransactions(month, year, undefined, 'cash_impact');
       if (loadRequestRef.current !== requestId) return;
       const validTransactions = txs.filter(t => (
         t.type === 'expense'

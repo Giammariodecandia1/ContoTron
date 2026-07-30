@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
-import { useAuth, useHousehold } from '../hooks';
+import { useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
 import {
   formatMonthKey,
   deleteArchiveDocument,
@@ -18,7 +18,6 @@ import {
 import {
   documentStorageLabels,
   getDocumentStorageProvider,
-  getDocumentStorageStatus,
 } from '../lib/documentStoragePreference';
 import type { Document, DocumentType, OcrJob } from '../types/database';
 import styles from './DocumentsPage.module.css';
@@ -91,8 +90,13 @@ export const DocumentsPage: React.FC = () => {
   const [searchText, setSearchText] = useState('');
 
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
-  const documentStorageStatus = useMemo(() => getDocumentStorageStatus(household), [household]);
-  const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+  const {
+    connection: personalDriveConnection,
+    loading: personalDriveLoading,
+  } = usePersonalDriveConnection(household, user?.id);
+  const personalDriveReady = personalDriveConnection?.status === 'ready'
+    && Boolean(personalDriveConnection.folderId);
+  const drivePending = documentStorageProvider === 'google_drive' && !personalDriveReady;
   const uploaderLabel = (doc: ArchiveDocument) => {
     const profile = doc.uploaded_by_profile;
     const name = profile?.display_name || profile?.email || 'Sconosciuto';
@@ -287,9 +291,7 @@ export const DocumentsPage: React.FC = () => {
 
       const usedGoogleDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
       let uploadMessage = 'Documento archiviato correttamente.';
-      if (drivePending) {
-        uploadMessage = "Documento archiviato nell'archivio interno provvisorio. Google Drive e' ancora da collegare.";
-      } else if (documentStorageProvider === 'google_drive' && !usedGoogleDrive) {
+      if (documentStorageProvider === 'google_drive' && !usedGoogleDrive) {
         uploadMessage = "Google Drive non e' disponibile ora: documento salvato nell'archivio interno provvisorio.";
       } else if (usedGoogleDrive) {
         uploadMessage = 'Documento archiviato nel tuo Google Drive. Gli altri membri vedranno dati, OCR e chi lo ha caricato.';
@@ -380,7 +382,14 @@ export const DocumentsPage: React.FC = () => {
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
             {drivePending && (
               <div className={`${styles.message} ${styles.warning}`}>
-                Formula scelta: {documentStorageLabels.google_drive}. Il collegamento Drive non e' ancora attivo, quindi i nuovi file vengono salvati temporaneamente nell'archivio interno.
+                {personalDriveLoading
+                  ? 'Verifica del collegamento al tuo Google Drive...'
+                  : `Formula scelta: ${documentStorageLabels.google_drive}. L account ${user?.email || 'corrente'} deve ancora collegare il proprio Drive; nel frattempo i nuovi file vengono salvati nell archivio interno.`}
+              </div>
+            )}
+            {documentStorageProvider === 'google_drive' && personalDriveReady && (
+              <div className={`${styles.message} ${styles.success}`}>
+                Destinazione personale attiva: {user?.email || 'account Google corrente'} · cartella {personalDriveConnection?.folderName || 'Contotron'}.
               </div>
             )}
 

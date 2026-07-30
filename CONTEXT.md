@@ -1,3 +1,11 @@
+# DOCUMENTO OBSOLETO
+
+Lo stato aggiornato del progetto e il passaggio di consegne sono in
+`newstard.md`. Leggere quel file prima di qualsiasi modifica.
+
+Il contenuto seguente descrive una fase iniziale ormai superata e non deve essere
+usato per dedurre lo stato corrente di autenticazione, RLS, categorie o OCR.
+
 # Contesto Progetto: FamilyLedger
 
 Questo file contiene lo stato completo del progetto "FamilyLedger", utile per riprendere rapidamente lo sviluppo in qualsiasi momento senza dover ispezionare l'intero codice.

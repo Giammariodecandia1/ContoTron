@@ -55,7 +55,8 @@ export const useTransactions = () => {
   const fetchTransactions = useCallback(async (
     month?: number,
     year?: number,
-    categoryId?: string
+    categoryId?: string,
+    dateBasis: 'transaction' | 'cash_impact' = 'transaction',
   ): Promise<Transaction[]> => {
     if (!householdId) return [];
     
@@ -76,13 +77,15 @@ export const useTransactions = () => {
         .order('created_at', { ascending: false });
 
       if (year && month) {
-        // Construct date range for the month
-        const startDay = budgetMonthStartDay;
-        // Basic month filtering (can be improved based on budget_month_start_day)
+        // Budget and annual analysis use calendar months based on the date on
+        // which the amount affects availability. The transaction list keeps
+        // using the household's accounting-period start day.
+        const startDay = dateBasis === 'cash_impact' ? 1 : budgetMonthStartDay;
         const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
         const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
+        const dateColumn = dateBasis === 'cash_impact' ? 'cash_impact_date' : 'transaction_date';
         
-        query = query.gte('transaction_date', startDate).lte('transaction_date', endDate);
+        query = query.gte(dateColumn, startDate).lte(dateColumn, endDate);
       }
 
       if (categoryId) {
@@ -101,10 +104,11 @@ export const useTransactions = () => {
           .order('created_at', { ascending: false });
 
         if (year && month) {
-          const startDay = budgetMonthStartDay;
+          const startDay = dateBasis === 'cash_impact' ? 1 : budgetMonthStartDay;
           const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
           const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
-          fallbackQuery = fallbackQuery.gte('transaction_date', startDate).lte('transaction_date', endDate);
+          const dateColumn = dateBasis === 'cash_impact' ? 'cash_impact_date' : 'transaction_date';
+          fallbackQuery = fallbackQuery.gte(dateColumn, startDate).lte(dateColumn, endDate);
         }
         if (categoryId) fallbackQuery = fallbackQuery.eq('category_id', categoryId);
 

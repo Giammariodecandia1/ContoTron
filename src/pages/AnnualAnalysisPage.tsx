@@ -17,7 +17,9 @@ import { BarChart3, RefreshCw } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
+import { foodCharacteristicOptions, getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
 import { formatCurrency } from '../lib/money';
+import { spendingTypeOptions } from '../lib/spendingTypes';
 import { supabase } from '../lib/supabaseClient';
 import styles from './AnnualAnalysisPage.module.css';
 
@@ -46,11 +48,22 @@ type IncomeRow = {
 };
 
 type ExpenseRow = {
+  id: string;
   amount: number;
   type: string;
   status: string;
   transaction_date: string;
   cash_impact_date: string | null;
+  category_id: string | null;
+  subcategory_id: string | null;
+};
+
+type ExpenseItemRow = {
+  id: string;
+  transaction_id: string;
+  amount: number;
+  category_id: string | null;
+  subcategory_id: string | null;
 };
 
 type AnalysisRow = {
@@ -63,6 +76,24 @@ type AnalysisRow = {
 };
 
 type ChartValueKey = 'plannedExpense' | 'actualExpense';
+
+type AnnualBreakdownRow = {
+  id: string;
+  name: string;
+  planned: number;
+  actual: number;
+  subcategoryCount: number;
+  plannedPercent: number;
+  actualPercent: number;
+};
+
+type FoodCharacteristicRow = {
+  id: string;
+  name: string;
+  amount: number;
+  count: number;
+  percent: number;
+};
 
 const exactCurrency = (value: number, currency: string) => formatCurrency(value, currency);
 
@@ -146,7 +177,7 @@ const ExpenseChart: React.FC<{
 );
 
 export const AnnualAnalysisPage: React.FC = () => {
-  const { household } = useHousehold();
+  const { household, categories, subcategories } = useHousehold();
   const today = useMemo(() => new Date(), []);
   const currentYear = today.getFullYear();
   const householdId = household?.id || null;
@@ -155,6 +186,7 @@ export const AnnualAnalysisPage: React.FC = () => {
   const [budgetRows, setBudgetRows] = useState<BudgetRow[]>([]);
   const [incomeRows, setIncomeRows] = useState<IncomeRow[]>([]);
   const [expenseRows, setExpenseRows] = useState<ExpenseRow[]>([]);
+  const [expenseItemRows, setExpenseItemRows] = useState<ExpenseItemRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -166,7 +198,7 @@ export const AnnualAnalysisPage: React.FC = () => {
     try {
       const transactionStart = `${selectedYear - 1}-12-01`;
       const transactionEnd = `${selectedYear}-12-31`;
-      const [budgetResult, incomeResult, transactionResult] = await Promise.all([
+      const [budgetResult, incomeResult, transactionResult, itemResult] = await Promise.all([
         supabase
           .from('budget_targets')
           .select('month, planned_amount, category_id, subcategory_id')
@@ -179,20 +211,28 @@ export const AnnualAnalysisPage: React.FC = () => {
           .eq('year', selectedYear),
         supabase
           .from('transactions')
-          .select('amount, type, status, transaction_date, cash_impact_date')
+          .select('id, amount, type, status, transaction_date, cash_impact_date, category_id, subcategory_id')
           .eq('household_id', householdId)
           .gte('transaction_date', transactionStart)
           .lte('transaction_date', transactionEnd)
           .neq('status', 'deleted'),
+        supabase
+          .from('transaction_items')
+          .select('id, transaction_id, amount, category_id, subcategory_id, transactions!inner(transaction_date)')
+          .eq('household_id', householdId)
+          .gte('transactions.transaction_date', transactionStart)
+          .lte('transactions.transaction_date', transactionEnd),
       ]);
 
       if (budgetResult.error) throw budgetResult.error;
       if (incomeResult.error) throw incomeResult.error;
       if (transactionResult.error) throw transactionResult.error;
+      if (itemResult.error) throw itemResult.error;
 
       setBudgetRows((budgetResult.data || []) as BudgetRow[]);
       setIncomeRows((incomeResult.data || []) as IncomeRow[]);
       setExpenseRows((transactionResult.data || []) as ExpenseRow[]);
+      setExpenseItemRows((itemResult.data || []) as unknown as ExpenseItemRow[]);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Impossibile caricare l analisi annuale.');
     } finally {
@@ -217,10 +257,13 @@ export const AnnualAnalysisPage: React.FC = () => {
     incomeRows.forEach(row => {
       incomeByMonth[row.month] = Number(row.planned_income || 0);
     });
-    expenseRows.forEach(row => {
+    const validAnnualExpenses = expenseRows.filter(row => {
       if (row.type !== 'expense' || row.status === 'rejected') return;
       const impactDate = new Date(`${row.cash_impact_date || row.transaction_date}T00:00:00`);
-      if (impactDate.getFullYear() !== selectedYear) return;
+      return impactDate.getFullYear() === selectedYear;
+    });
+    validAnnualExpenses.forEach(row => {
+      const impactDate = new Date(`${row.cash_impact_date || row.transaction_date}T00:00:00`);
       const month = impactDate.getMonth() + 1;
       actualByMonth[month] = (actualByMonth[month] || 0) + Number(row.amount || 0);
     });
@@ -244,6 +287,127 @@ export const AnnualAnalysisPage: React.FC = () => {
     const plannedPeak = [...rows].sort((a, b) => b.plannedExpense - a.plannedExpense)[0];
     const actualPeak = [...actualComparableRows].sort((a, b) => b.actualExpense - a.actualExpense)[0];
 
+    const categoryById = new Map(categories.map(category => [category.id, category]));
+    const subcategoryById = new Map(subcategories.map(subcategory => [subcategory.id, subcategory]));
+    const foodCategoryIds = new Set(
+      categories
+        .filter(category => category.name.trim().toLocaleLowerCase('it-IT') === 'alimentari')
+        .map(category => category.id),
+    );
+    const expenseById = new Map(validAnnualExpenses.map(row => [row.id, row]));
+    const itemsByTransaction = new Map<string, ExpenseItemRow[]>();
+    expenseItemRows.forEach(item => {
+      if (!expenseById.has(item.transaction_id)) return;
+      const group = itemsByTransaction.get(item.transaction_id) || [];
+      group.push(item);
+      itemsByTransaction.set(item.transaction_id, group);
+    });
+    const itemizedTransactionIds = new Set(
+      Array.from(itemsByTransaction.entries())
+        .filter(([, group]) => group.reduce((sum, item) => sum + Number(item.amount || 0), 0) > 0)
+        .map(([transactionId]) => transactionId),
+    );
+    const allocatedAmount = (item: ExpenseItemRow, group: ExpenseItemRow[], transactionAmount: number) => {
+      const itemTotal = group.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      return itemTotal > 0 ? Number(item.amount || 0) * transactionAmount / itemTotal : 0;
+    };
+
+    const spendingTypeMap = new Map<string, AnnualBreakdownRow>(
+      spendingTypeOptions.map(option => [option.value, {
+        id: option.value,
+        name: option.label,
+        planned: 0,
+        actual: 0,
+        subcategoryCount: 0,
+        plannedPercent: 0,
+        actualPercent: 0,
+      }]),
+    );
+    const resolveSpendingType = (categoryId?: string | null, subcategoryId?: string | null) => (
+      subcategoryById.get(subcategoryId || '')?.spending_type
+      || categoryById.get(categoryId || '')?.spending_type
+      || 'variable'
+    );
+    const addSpendingType = (
+      categoryId: string | null,
+      subcategoryId: string | null,
+      field: 'planned' | 'actual',
+      amount: number,
+    ) => {
+      const row = spendingTypeMap.get(resolveSpendingType(categoryId, subcategoryId))
+        || spendingTypeMap.get('variable');
+      if (!row) return;
+      row[field] += amount;
+    };
+    subcategories.forEach(subcategory => {
+      const row = spendingTypeMap.get(resolveSpendingType(subcategory.category_id, subcategory.id))
+        || spendingTypeMap.get('variable');
+      if (row) row.subcategoryCount += 1;
+    });
+
+    budgetRows
+      .filter(row => row.category_id)
+      .forEach(row => addSpendingType(row.category_id, row.subcategory_id, 'planned', Number(row.planned_amount || 0)));
+    validAnnualExpenses
+      .filter(row => !itemizedTransactionIds.has(row.id))
+      .forEach(row => addSpendingType(row.category_id, row.subcategory_id, 'actual', Number(row.amount || 0)));
+    itemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = expenseById.get(transactionId);
+      if (!transaction) return;
+      group.forEach(item => addSpendingType(
+        item.category_id,
+        item.subcategory_id,
+        'actual',
+        allocatedAmount(item, group, Number(transaction.amount || 0)),
+      ));
+    });
+
+    const spendingTypeRows = Array.from(spendingTypeMap.values());
+    const spendingTypePlannedTotal = spendingTypeRows.reduce((sum, row) => sum + row.planned, 0);
+    const spendingTypeActualTotal = spendingTypeRows.reduce((sum, row) => sum + row.actual, 0);
+    spendingTypeRows.forEach(row => {
+      row.plannedPercent = spendingTypePlannedTotal > 0 ? (row.planned / spendingTypePlannedTotal) * 100 : 0;
+      row.actualPercent = spendingTypeActualTotal > 0 ? (row.actual / spendingTypeActualTotal) * 100 : 0;
+    });
+
+    const foodCharacteristicMap = new Map<string, FoodCharacteristicRow>(
+      foodCharacteristicOptions.map(option => [option.value, {
+        id: option.value,
+        name: option.label,
+        amount: 0,
+        count: 0,
+        percent: 0,
+      }]),
+    );
+    const addFoodCharacteristic = (subcategoryId: string | null, amount: number) => {
+      const characteristic = subcategoryById.get(subcategoryId || '')?.food_characteristic || 'necessary';
+      const row = foodCharacteristicMap.get(characteristic) || foodCharacteristicMap.get('necessary');
+      if (!row) return;
+      row.amount += amount;
+      row.count += 1;
+    };
+    validAnnualExpenses
+      .filter(row => !itemizedTransactionIds.has(row.id) && foodCategoryIds.has(row.category_id || ''))
+      .forEach(row => addFoodCharacteristic(row.subcategory_id, Number(row.amount || 0)));
+    itemsByTransaction.forEach((group, transactionId) => {
+      if (!itemizedTransactionIds.has(transactionId)) return;
+      const transaction = expenseById.get(transactionId);
+      if (!transaction) return;
+      group
+        .filter(item => foodCategoryIds.has(item.category_id || ''))
+        .forEach(item => addFoodCharacteristic(
+          item.subcategory_id,
+          allocatedAmount(item, group, Number(transaction.amount || 0)),
+        ));
+    });
+    const foodCharacteristicRows = Array.from(foodCharacteristicMap.values());
+    const foodCharacteristicTotal = foodCharacteristicRows.reduce((sum, row) => sum + row.amount, 0);
+    foodCharacteristicRows.forEach(row => {
+      row.percent = foodCharacteristicTotal > 0 ? (row.amount / foodCharacteristicTotal) * 100 : 0;
+      row.name = getFoodCharacteristicLabel(row.id);
+    });
+
     return {
       rows,
       plannedTotal,
@@ -258,8 +422,13 @@ export const AnnualAnalysisPage: React.FC = () => {
       plannedAboveIncome: rows.filter(row => row.plannedIncome > 0 && row.plannedExpense > row.plannedIncome).length,
       actualAboveIncome: actualComparableRows.filter(row => row.plannedIncome > 0 && row.actualExpense > row.plannedIncome).length,
       hasIncomeTargets: rows.some(row => row.plannedIncome > 0),
+      spendingTypeRows,
+      spendingTypePlannedTotal,
+      spendingTypeActualTotal,
+      foodCharacteristicRows,
+      foodCharacteristicTotal,
     };
-  }, [budgetRows, currentYear, expenseRows, incomeRows, selectedYear, today]);
+  }, [budgetRows, categories, currentYear, expenseItemRows, expenseRows, incomeRows, selectedYear, subcategories, today]);
 
   const imbalance = Math.max(0, analysis.plannedPeak.plannedExpense - analysis.plannedAverage);
 
@@ -320,6 +489,75 @@ export const AnnualAnalysisPage: React.FC = () => {
                 <div><span>Media su {analysis.actualMonthCount} mesi</span><strong>{exactCurrency(analysis.actualAverage, currency)}</strong></div>
                 <div><span>Mesi sopra media</span><strong>{analysis.actualAboveAverage}</strong></div>
                 <div><span>Mesi sopra entrata</span><strong className={analysis.actualAboveIncome > 0 ? styles.danger : ''}>{analysis.actualAboveIncome}</strong></div>
+              </div>
+            </Card>
+          </div>
+
+          <div className={styles.annualReports}>
+            <Card title={`Caratteristiche alimentari ${selectedYear}`}>
+              <p className="text-muted fs-sm">Riepilogo annuale delle spese Alimentari in base alla caratteristica assegnata alle sottocategorie.</p>
+              <div className={styles.tableWrap}>
+                <table className={styles.reportTable}>
+                  <thead>
+                    <tr><th>Caratteristica</th><th>Spesa</th><th>Percentuale</th><th>Voci</th></tr>
+                  </thead>
+                  <tbody>
+                    {analysis.foodCharacteristicRows.map(row => (
+                      <tr key={row.id}>
+                        <td><strong>{row.name}</strong></td>
+                        <td>{exactCurrency(row.amount, currency)}</td>
+                        <td>{row.percent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{row.count}</td>
+                      </tr>
+                    ))}
+                    <tr className={styles.totalReportRow}>
+                      <td>Totale</td>
+                      <td>{exactCurrency(analysis.foodCharacteristicTotal, currency)}</td>
+                      <td>{analysis.foodCharacteristicTotal > 0 ? '100,00%' : '0,00%'}</td>
+                      <td>{analysis.foodCharacteristicRows.reduce((sum, row) => sum + row.count, 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+
+            <Card title={`Tipi di spesa ${selectedYear}: previsione e consuntivo`}>
+              <p className="text-muted fs-sm">Confronto annuale calcolato dalle caratteristiche delle sottocategorie del nucleo.</p>
+              <div className={styles.tableWrap}>
+                <table className={styles.reportTable}>
+                  <thead>
+                    <tr><th>Tipo spesa</th><th>Previsione</th><th>% previsione</th><th>Consuntivo</th><th>% consuntivo</th><th>Sottocategorie</th></tr>
+                  </thead>
+                  <tbody>
+                    {analysis.spendingTypeRows.map(row => (
+                      <tr key={row.id}>
+                        <td><strong>{row.name}</strong></td>
+                        <td>{exactCurrency(row.planned, currency)}</td>
+                        <td>{row.plannedPercent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{exactCurrency(row.actual, currency)}</td>
+                        <td>{row.actualPercent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{row.subcategoryCount}</td>
+                      </tr>
+                    ))}
+                    <tr className={styles.totalReportRow}>
+                      <td>Totale</td>
+                      <td>{exactCurrency(analysis.spendingTypePlannedTotal, currency)}</td>
+                      <td>{analysis.spendingTypePlannedTotal > 0 ? '100,00%' : '0,00%'}</td>
+                      <td>{exactCurrency(analysis.spendingTypeActualTotal, currency)}</td>
+                      <td>{analysis.spendingTypeActualTotal > 0 ? '100,00%' : '0,00%'}</td>
+                      <td>{analysis.spendingTypeRows.reduce((sum, row) => sum + row.subcategoryCount, 0)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className={styles.typeBars}>
+                {analysis.spendingTypeRows.map(row => (
+                  <div key={`bars-${row.id}`} className={styles.typeBarRow}>
+                    <strong>{row.name}</strong>
+                    <div><span>Prev.</span><i><b className={styles.plannedBar} style={{ width: `${row.plannedPercent}%` }} /></i><em>{row.plannedPercent.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</em></div>
+                    <div><span>Cons.</span><i><b className={styles.actualBar} style={{ width: `${row.actualPercent}%` }} /></i><em>{row.actualPercent.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</em></div>
+                  </div>
+                ))}
               </div>
             </Card>
           </div>

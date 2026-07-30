@@ -1,5 +1,5 @@
 import { supabase } from './supabaseClient';
-import { getDocumentStorageProvider, getDocumentStorageStatus } from './documentStoragePreference';
+import { getDocumentStorageProvider } from './documentStoragePreference';
 import { GoogleDriveAuthError, uploadFileToGoogleDrive } from './googleDriveStorage';
 import type { Document, DocumentPage, DocumentType, Household } from '../types/database';
 
@@ -182,8 +182,7 @@ export const uploadArchiveDocument = async ({
   const storageFile = await optimizeArchiveFile(file);
   const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${safeFilename(storageFile.name)}`;
   const desiredProvider = getDocumentStorageProvider(household);
-  const storageStatus = getDocumentStorageStatus(household);
-  const canUseGoogleDrive = desiredProvider === 'google_drive' && storageStatus === 'ready' && !!household;
+  const canUseGoogleDrive = desiredProvider === 'google_drive' && !!household && !!uploadedBy;
 
   if (canUseGoogleDrive) {
     try {

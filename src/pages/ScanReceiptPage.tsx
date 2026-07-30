@@ -18,12 +18,13 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { useAuth, useHousehold } from '../hooks';
+import { useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
-import { getDocumentStorageProvider, getDocumentStorageStatus } from '../lib/documentStoragePreference';
+import { getDocumentStorageProvider } from '../lib/documentStoragePreference';
 import {
   classifyReceiptText,
+  countReceiptItemLikeLines,
   extractReceiptItems,
   extractReceiptTotal,
   mergeReceiptPageTexts,
@@ -314,6 +315,7 @@ export const ScanReceiptPage: React.FC = () => {
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [ocrHint, setOcrHint] = useState<string | null>(null);
   const [receiptItems, setReceiptItems] = useState<EditableReceiptItem[]>([]);
+  const [ocrCandidateLineCount, setOcrCandidateLineCount] = useState(0);
   const [ocrPages, setOcrPages] = useState<OcrPageResult[]>([]);
   const [mergedOcrText, setMergedOcrText] = useState('');
   const [removedOverlapLines, setRemovedOverlapLines] = useState(0);
@@ -328,8 +330,13 @@ export const ScanReceiptPage: React.FC = () => {
   const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
   const documentStorageProvider = getDocumentStorageProvider(household);
-  const documentStorageStatus = getDocumentStorageStatus(household);
-  const drivePending = documentStorageProvider === 'google_drive' && documentStorageStatus !== 'ready';
+  const {
+    connection: personalDriveConnection,
+    loading: personalDriveLoading,
+  } = usePersonalDriveConnection(household, user?.id);
+  const personalDriveReady = personalDriveConnection?.status === 'ready'
+    && Boolean(personalDriveConnection.folderId);
+  const drivePending = documentStorageProvider === 'google_drive' && !personalDriveReady;
   const activePage = pages[activePageIndex] || null;
   const expenseCategories = categories
     .filter(category => category.type === 'expense')
@@ -342,6 +349,7 @@ export const ScanReceiptPage: React.FC = () => {
     setArchiveError(null);
     setOcrHint(null);
     setReceiptItems([]);
+    setOcrCandidateLineCount(0);
     setOcrPages([]);
     setMergedOcrText('');
     setRemovedOverlapLines(0);
@@ -532,6 +540,7 @@ export const ScanReceiptPage: React.FC = () => {
           && Math.abs(item.amount - totalResult.amount) <= 0.01
         ));
       const reconciliation = reconcileReceiptItems(extractedItems, totalResult.amount);
+      const candidateLineCount = countReceiptItemLikeLines(merged.text);
       const productRules = household ? await loadProductClassificationRules(household.id) : [];
       const editableItems: EditableReceiptItem[] = [];
 
@@ -551,6 +560,7 @@ export const ScanReceiptPage: React.FC = () => {
       setDetectedCategoryId(matchedCategoryId);
       setDetectedSubcategoryId(matchedSubcategoryId);
       setReceiptItems(editableItems);
+      setOcrCandidateLineCount(candidateLineCount);
       setOcrPages(recognizedPages);
       setMergedOcrText(merged.text);
       setRemovedOverlapLines(merged.removedOverlapLines);
@@ -1094,6 +1104,24 @@ export const ScanReceiptPage: React.FC = () => {
                 Le correzioni a categoria e sottocategoria migliorano i riconoscimenti futuri dei prodotti per il tuo nucleo familiare. Le regole apprese restano private e non vengono condivise con altre famiglie.
               </p>
 
+              <div className={styles.lineAudit}>
+                <div>
+                  <span>Righe OCR con descrizione e prezzo</span>
+                  <strong>{ocrCandidateLineCount}</strong>
+                </div>
+                <div>
+                  <span>Articoli proposti</span>
+                  <strong>{receiptItems.length}</strong>
+                </div>
+                <p className={receiptItems.length < ocrCandidateLineCount ? styles.lineAuditWarning : styles.lineAuditOk}>
+                  {receiptItems.length < ocrCandidateLineCount
+                    ? `${ocrCandidateLineCount - receiptItems.length} righe non sono state proposte perché sembrano totali, IVA, pagamenti o prezzi unitari. Confronta il numero con lo scontrino e usa "Aggiungi riga" se manca un prodotto.`
+                    : receiptItems.length > ocrCandidateLineCount
+                      ? 'Sono presenti righe aggiunte manualmente oltre a quelle riconosciute dall OCR.'
+                      : 'Il numero delle righe proposte coincide con le righe prodotto individuate dall OCR.'}
+                </p>
+              </div>
+
               {receiptItems.length === 0 && <p className="text-warning fs-sm">Nessun articolo riconosciuto. Puoi aggiungere le righe manualmente.</p>}
               {receiptItems.map(item => {
                 const itemSubcategories = subcategories
@@ -1131,11 +1159,18 @@ export const ScanReceiptPage: React.FC = () => {
               </div>
             </div>}
 
-            <p className="text-muted fs-sm text-center">
-              {drivePending
-                ? "Le pagine verranno salvate nell'archivio interno provvisorio finche Google Drive non sara collegato."
-                : `Le ${pages.length} pagine verranno archiviate insieme come un unico documento.`}
-            </p>
+            <div className={`${styles.storageDestination} ${drivePending ? styles.storageDestinationPending : ''}`}>
+              <strong>Destinazione dello scontrino</strong>
+              <span>
+                {documentStorageProvider === 'supabase'
+                  ? `Archivio interno Contotron. Le ${pages.length} pagine saranno conservate come un unico documento.`
+                  : personalDriveLoading
+                    ? 'Verifica del collegamento al tuo Google Drive...'
+                    : personalDriveReady
+                      ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese.`
+                      : "Google Drive non e collegato a questo account: useremo l archivio interno provvisorio per non perdere lo scontrino."}
+              </span>
+            </div>
             {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}
             <div className={styles.actionRow}>
               <Button variant="secondary" onClick={() => setStatus('reviewing')} disabled={archiving}>Rivedi foto</Button>
