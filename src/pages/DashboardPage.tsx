@@ -202,6 +202,11 @@ export const DashboardPage: React.FC = () => {
     };
   }, [annualRows]);
 
+  const actualExpenseMonthCount = useMemo(
+    () => annualRows.filter(row => row.actualExpense > 0).length,
+    [annualRows],
+  );
+
   const annualCategoryRows = useMemo(() => {
     const planned = new Map<string, Record<number, number>>();
     const actual = new Map<string, Record<number, number>>();
@@ -392,10 +397,12 @@ export const DashboardPage: React.FC = () => {
         <Card>
           <div className={styles.kpiLabel}>Entrate previste anno</div>
           <p className={styles.kpiValue}>{currency(totals.plannedIncome, currencyCode)}</p>
+          <div className={styles.kpiTrend}>Media mensile: {currency(totals.plannedIncome / 12, currencyCode)}</div>
         </Card>
         <Card>
           <div className={styles.kpiLabel}>Uscite previste anno</div>
           <p className={styles.kpiValue}>{currency(totals.plannedExpense, currencyCode)}</p>
+          <div className={styles.kpiTrend}>Media mensile: {currency(totals.plannedExpense / 12, currencyCode)}</div>
         </Card>
         <Card>
           <div className={styles.kpiLabel}>Delta previsto</div>
@@ -410,6 +417,12 @@ export const DashboardPage: React.FC = () => {
         <Card>
           <div className={styles.kpiLabel}>Uscite effettive anno</div>
           <p className={styles.kpiValue}>{currency(totals.actualExpense, currencyCode)}</p>
+          <div className={styles.kpiTrend}>
+            Media su {actualExpenseMonthCount || 0} mesi: {currency(
+              actualExpenseMonthCount > 0 ? totals.actualExpense / actualExpenseMonthCount : 0,
+              currencyCode,
+            )}
+          </div>
         </Card>
       </div>
 

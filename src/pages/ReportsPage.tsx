@@ -631,18 +631,8 @@ export const ReportsPage: React.FC = () => {
     }));
 
     lines.push({ text: '', gapAfter: 4 });
-    lines.push({ text: `Alimentari ${year} - settimane 1-52`, size: 14, bold: true });
-    lines.push({ text: `Totale: ${money(report.foodTotal)} - Media settimanale: ${money(report.foodAverage)} - Mediana: ${money(report.foodMedian)}` });
-    report.foodWeeklyRows.forEach(row => lines.push({ text: `Settimana ${row.week}: ${money(row.amount)}` }));
-
-    lines.push({ text: '', gapAfter: 4 });
     lines.push({ text: 'Frequenza delle spese', size: 14, bold: true });
     report.frequencyRows.forEach(row => lines.push({ text: `${row.name}: ${money(row.amount)} (${row.count})` }));
-    lines.push({ text: 'Caratteristiche spesa alimentare', size: 14, bold: true });
-    report.foodCharacteristicRows.forEach(row => {
-      const percent = report.foodCharacteristicTotal > 0 ? (row.amount / report.foodCharacteristicTotal) * 100 : 0;
-      lines.push({ text: `${row.name}: ${money(row.amount)} - ${formatPercent(percent)} (${row.count})` });
-    });
 
     return lines;
   };
@@ -680,32 +670,8 @@ export const ReportsPage: React.FC = () => {
       ],
     },
     {
-      name: 'Alimentari settimane 1-52',
-      rows: [
-        ['Indicatore', 'Valore'],
-        ['Totale alimentari', report.foodTotal],
-        ['Media settimanale', report.foodAverage],
-        ['Mediana settimanale', report.foodMedian],
-        [],
-        ['Settimana', 'Spesa'],
-        ...report.foodWeeklyRows.map(row => [row.week, row.amount]),
-      ],
-    },
-    {
       name: 'Frequenze',
       rows: [['Frequenza', 'Spesa', 'Movimenti'], ...report.frequencyRows.map(row => [row.name, row.amount, row.count])],
-    },
-    {
-      name: 'Caratteristiche alimentari',
-      rows: [
-        ['Caratteristica', 'Spesa', 'Percentuale', 'Voci'],
-        ...report.foodCharacteristicRows.map(row => [
-          row.name,
-          row.amount,
-          report.foodCharacteristicTotal > 0 ? row.amount / report.foodCharacteristicTotal : 0,
-          row.count,
-        ]),
-      ],
     },
     {
       name: 'Persone e conti',
@@ -745,7 +711,7 @@ export const ReportsPage: React.FC = () => {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Consuntivo mensile</h1>
-          <p className="text-muted">Riepilogo del mese, tipi di spesa e analisi delle caratteristiche alimentari.</p>
+          <p className="text-muted">Riepilogo mensile di budget, categorie, tipi e frequenza delle spese.</p>
         </div>
         <div className={styles.headerActions}>
           <Button icon={<Download size={16} />} onClick={handleDownloadPdf} disabled={loading}>Genera PDF</Button>
@@ -844,42 +810,8 @@ export const ReportsPage: React.FC = () => {
               </div>
             </Card>
 
-            <Card title={`Alimentari ${year}: media e mediana settimanale`}>
-              <div className={styles.foodSummary}>
-                <div><span>Totale annuale</span><strong>{formatCurrency(report.foodTotal, currency)}</strong></div>
-                <div><span>Media settimanale</span><strong>{formatCurrency(report.foodAverage, currency)}</strong></div>
-                <div><span>Mediana settimanale</span><strong>{formatCurrency(report.foodMedian, currency)}</strong></div>
-              </div>
-              <div className={styles.weeklyBars}>
-                {report.foodWeeklyRows.map(row => {
-                  const maxAmount = Math.max(...report.foodWeeklyRows.map(item => item.amount), 1);
-                  const width = Math.max((row.amount / maxAmount) * 100, row.amount > 0 ? 4 : 0);
-                  return <div key={row.week} className={styles.weeklyRow}><span>Sett. {row.week}</span><div className={styles.weeklyBarTrack}><div className={styles.weeklyBar} style={{ width: `${width}%` }} /></div><strong>{formatCurrency(row.amount, currency)}</strong></div>;
-                })}
-              </div>
-            </Card>
-
             <Card title="Frequenza delle spese">
               <div className={styles.list}>{report.frequencyRows.length === 0 ? <div className={styles.empty}>Nessun dato</div> : report.frequencyRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} movimenti</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
-            </Card>
-
-            <Card title="Caratteristiche alimentari">
-              {report.foodCharacteristicRows.length === 0 ? (
-                <div className={styles.empty}>Assegna le caratteristiche alle sottocategorie Alimentari.</div>
-              ) : (
-                <div className={styles.tableWrap}>
-                  <table className={styles.table}>
-                    <thead><tr><th>Caratteristica</th><th>Spesa</th><th>Percentuale</th><th>Voci</th></tr></thead>
-                    <tbody>
-                      {report.foodCharacteristicRows.map(row => {
-                        const percent = report.foodCharacteristicTotal > 0 ? (row.amount / report.foodCharacteristicTotal) * 100 : 0;
-                        return <tr key={row.name}><td><strong>{row.name}</strong></td><td>{formatCurrency(row.amount, currency)}</td><td>{formatPercent(percent)}</td><td>{row.count}</td></tr>;
-                      })}
-                      <tr className={styles.totalTypeRow}><td>Totale</td><td>{formatCurrency(report.foodCharacteristicTotal, currency)}</td><td>{formatPercent(100)}</td><td>{report.foodCharacteristicRows.reduce((sum, row) => sum + row.count, 0)}</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </Card>
 
             <Card title="Persone e conti">

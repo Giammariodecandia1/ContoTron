@@ -17,6 +17,7 @@ const DocumentsPage = lazy(() => import('./pages/DocumentsPage').then(module => 
 const SearchPage = lazy(() => import('./pages/SearchPage').then(module => ({ default: module.SearchPage })));
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then(module => ({ default: module.ReportsPage })));
 const AnnualAnalysisPage = lazy(() => import('./pages/AnnualAnalysisPage').then(module => ({ default: module.AnnualAnalysisPage })));
+const FoodWeeklyAnalysisPage = lazy(() => import('./pages/FoodWeeklyAnalysisPage').then(module => ({ default: module.FoodWeeklyAnalysisPage })));
 const RecurringRulesPage = lazy(() => import('./pages/RecurringRulesPage').then(module => ({ default: module.RecurringRulesPage })));
 
 function App() {
@@ -51,6 +52,7 @@ function App() {
               <RouterRoute path="/ricerca" element={<SearchPage />} />
               <RouterRoute path="/report" element={<ReportsPage />} />
               <RouterRoute path="/analisi-annuale" element={<AnnualAnalysisPage />} />
+              <RouterRoute path="/analisi-alimentari" element={<FoodWeeklyAnalysisPage />} />
               <RouterRoute path="/scan" element={<ScanReceiptPage />} />
               <RouterRoute path="/impostazioni" element={<SettingsPage />} />
               <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />

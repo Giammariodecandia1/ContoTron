@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp } from 'lucide-react';
+import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket } from 'lucide-react';
 import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
@@ -10,6 +10,7 @@ const navItems = [
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/report', label: 'Consuntivo mensile', mobileLabel: 'Consuntivo', icon: <BarChart3 size={20} /> },
   { path: '/analisi-annuale', label: 'Analisi annuale', mobileLabel: 'Annuale', icon: <TrendingUp size={20} /> },
+  { path: '/analisi-alimentari', label: 'Analisi alimentari', mobileLabel: 'Alimentari', icon: <ShoppingBasket size={20} /> },
   { path: '/documenti', label: 'Documenti', icon: <FileText size={20} /> },
   { path: '/ricerca', label: 'Ricerca', icon: <Search size={20} /> },
   { path: '/impostazioni', label: 'Impostazioni', icon: <Settings size={20} /> },

@@ -293,3 +293,21 @@ Controlli autenticati completati:
 - layout mobile verificato a 390 x 844 senza overflow orizzontale;
 - form nuova transazione, spese fisse e acquisizione OCR verificati;
 - nessun errore JavaScript rilevato durante i controlli.
+
+## Integrazione note bis (2) - 30 luglio 2026
+
+Dal documento `NOTE BUDGET FAMILIARE GIAMMARIO bis (2).docx` sono stati
+ricostruiti i numeri Word e completati i punti segnalati:
+
+- punto 42: le medie mensili sono nuovamente visibili nei riquadri del
+  Dashboard, senza ripristinare le righe duplicate in fondo alla tabella;
+- punto 47: titoli pagina e titoli dei riquadri hanno gerarchia, contrasto,
+  peso e accento grafico piu evidenti;
+- punto 49: la tabella Caratteristiche alimentari resta nell'Analisi annuale
+  ed e stata rimossa dal Consuntivo mensile e dai relativi export;
+- punto 53: media e mediana settimanale Alimentari sono state spostate nella
+  pagina dedicata `/analisi-alimentari`, accessibile dalla navigazione desktop
+  e mobile.
+
+Verifiche successive: lint, build, controllo diff, bundle della nuova pagina e
+route locale superati.
