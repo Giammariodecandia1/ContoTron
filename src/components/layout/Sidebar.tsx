@@ -1,12 +1,13 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket } from 'lucide-react';
+import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale } from 'lucide-react';
 import { useAuth } from '../../hooks';
 import styles from './AppLayout.module.css';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
+  { path: '/split', label: 'Split', icon: <Scale size={20} /> },
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/report', label: 'Consuntivo mensile', mobileLabel: 'Consuntivo', icon: <BarChart3 size={20} /> },
   { path: '/analisi-annuale', label: 'Analisi annuale', mobileLabel: 'Annuale', icon: <TrendingUp size={20} /> },

@@ -206,6 +206,16 @@ export const DashboardPage: React.FC = () => {
     () => annualRows.filter(row => row.actualExpense > 0).length,
     [annualRows],
   );
+  const plannedIncomeAverage = totals.plannedIncome / 12;
+  const actualExpenseAverage = actualExpenseMonthCount > 0
+    ? totals.actualExpense / actualExpenseMonthCount
+    : 0;
+  const plannedExpenseIncidence = totals.plannedIncome > 0
+    ? totals.plannedExpense / totals.plannedIncome * 100
+    : 0;
+  const actualExpenseIncidence = plannedIncomeAverage > 0
+    ? actualExpenseAverage / plannedIncomeAverage * 100
+    : 0;
 
   const annualCategoryRows = useMemo(() => {
     const planned = new Map<string, Record<number, number>>();
@@ -403,6 +413,7 @@ export const DashboardPage: React.FC = () => {
           <div className={styles.kpiLabel}>Uscite previste anno</div>
           <p className={styles.kpiValue}>{currency(totals.plannedExpense, currencyCode)}</p>
           <div className={styles.kpiTrend}>Media mensile: {currency(totals.plannedExpense / 12, currencyCode)}</div>
+          <div className={styles.kpiTrend}>Incidenza sull'entrata media: {plannedExpenseIncidence.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</div>
         </Card>
         <Card>
           <div className={styles.kpiLabel}>Delta previsto</div>
@@ -418,11 +429,9 @@ export const DashboardPage: React.FC = () => {
           <div className={styles.kpiLabel}>Uscite effettive anno</div>
           <p className={styles.kpiValue}>{currency(totals.actualExpense, currencyCode)}</p>
           <div className={styles.kpiTrend}>
-            Media su {actualExpenseMonthCount || 0} mesi: {currency(
-              actualExpenseMonthCount > 0 ? totals.actualExpense / actualExpenseMonthCount : 0,
-              currencyCode,
-            )}
+            Media su {actualExpenseMonthCount || 0} mesi: {currency(actualExpenseAverage, currencyCode)}
           </div>
+          <div className={styles.kpiTrend}>Incidenza sull'entrata media: {actualExpenseIncidence.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</div>
         </Card>
       </div>
 

@@ -1,4 +1,5 @@
 import type { Category, Subcategory } from '../types/database';
+import { applyReceiptDiscountToPrevious, parseReceiptDiscount } from './receiptDiscounts';
 
 export interface ReceiptTotalResult {
   amount: number | null;
@@ -544,20 +545,34 @@ const buildReceiptCandidateLines = (text: string) => {
     .map(line => line.trim())
     .filter(Boolean);
 
-  return lines.map((line, index) => {
-    if (parseAmountsFromLine(line).length > 0 || !/[a-zA-Z]{2,}/.test(line)) return line;
+  const candidates: string[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (parseAmountsFromLine(line).length > 0 || !/[a-zA-Z]{2,}/.test(line)) {
+      candidates.push(line);
+      continue;
+    }
+
     const nextLine = lines[index + 1] || '';
     const nextHasAmount = parseAmountsFromLine(nextLine).length > 0;
     const nextHasProductText = /[a-zA-Z]{3,}/.test(nextLine);
-    if (!nextHasAmount || nextHasProductText || isUnitPriceOnlyLine(nextLine) || isTaxOrPercentageLine(nextLine)) return line;
-    return `${line} ${nextLine}`;
-  });
+    if (!nextHasAmount || nextHasProductText || isUnitPriceOnlyLine(nextLine) || isTaxOrPercentageLine(nextLine)) {
+      candidates.push(line);
+      continue;
+    }
+
+    candidates.push(`${line} ${nextLine}`);
+    index += 1;
+  }
+
+  return candidates;
 };
 
 export const countReceiptItemLikeLines = (text: string) => (
   buildReceiptCandidateLines(text).filter(line => (
     /[a-zA-Z]{2,}/.test(line)
     && parseAmountsFromLine(line).length > 0
+    && parseReceiptDiscount(line) === null
   )).length
 );
 
@@ -567,36 +582,40 @@ export const extractReceiptItems = (
   subcategories: Subcategory[],
 ): ReceiptItemResult[] => {
   const candidateLines = buildReceiptCandidateLines(text);
+  const items: ReceiptItemResult[] = [];
 
-  return candidateLines
-    .flatMap((line, index) => {
-      const searchableLine = normalizeSearchText(line);
-      if (containsAny(searchableLine, itemRejectWords)) return [];
-      if (isTaxOrPercentageLine(line)) return [];
-      if (isUnitPriceOnlyLine(line)) return [];
-      if (!/[a-zA-Z]{2,}/.test(line)) return [];
+  candidateLines.forEach((line, index) => {
+    // A negative price is a discount on the preceding product, never a product row.
+    if (applyReceiptDiscountToPrevious(items, line)) return;
 
-      const amounts = parseAmountsFromLine(line);
-      if (amounts.length === 0) return [];
+    const searchableLine = normalizeSearchText(line);
+    if (containsAny(searchableLine, itemRejectWords)) return;
+    if (isTaxOrPercentageLine(line)) return;
+    if (isUnitPriceOnlyLine(line)) return;
+    if (!/[a-zA-Z]{2,}/.test(line)) return;
 
-      const description = cleanupItemDescription(line);
-      if (description.length < 3) return [];
+    const amounts = parseAmountsFromLine(line);
+    if (amounts.length === 0) return;
 
-      const amount = amounts[amounts.length - 1];
-      const category = classifyReceiptText(description, categories, subcategories);
+    const description = cleanupItemDescription(line);
+    if (description.length < 3) return;
 
-      return [{
-        id: `${index}-${description.slice(0, 12).replace(/\s+/g, '-')}`,
-        rawLine: line,
-        description,
-        amount,
-        categoryId: category.categoryId,
-        subcategoryId: category.subcategoryId,
-        suggestedCategoryName: category.suggestedCategoryName,
-        matchedKeyword: category.matchedKeyword,
-      }];
-    })
-    .slice(0, 100);
+    const amount = amounts[amounts.length - 1];
+    const category = classifyReceiptText(description, categories, subcategories);
+
+    items.push({
+      id: `${index}-${description.slice(0, 12).replace(/\s+/g, '-')}`,
+      rawLine: line,
+      description,
+      amount,
+      categoryId: category.categoryId,
+      subcategoryId: category.subcategoryId,
+      suggestedCategoryName: category.suggestedCategoryName,
+      matchedKeyword: category.matchedKeyword,
+    });
+  });
+
+  return items.slice(0, 100);
 };
 
 export const reconcileReceiptItems = (
