@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react';
-import { useTransactions, useHousehold } from '../hooks';
+import { useTransactions, useHousehold, useViewMode } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { paymentMethodLabels } from '../lib/paymentTiming';
@@ -19,6 +19,7 @@ type TransactionListItem = Transaction & {
 export const TransactionsPage: React.FC = () => {
   const { fetchTransactions, loading, error, deleteTransaction } = useTransactions();
   const { household } = useHousehold();
+  const { isSimple } = useViewMode();
   const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
   const createdTransactionRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
@@ -84,18 +85,22 @@ export const TransactionsPage: React.FC = () => {
     >
       <div>
         <div className={styles.transactionTitle}>{tx.description}</div>
-        <div className="text-muted fs-sm">
-          {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || (tx.source === 'receipt_ocr' ? 'Scontrino multi-categoria' : 'Non classificato')} - Conto: {tx.accounts?.name || 'Conto'} - Periodicita: {getTransactionFrequencyLabel(tx.frequency)}
-        </div>
-        <div className="text-muted fs-sm">
-          Caricata da account: {uploaderLabel(tx)}
-        </div>
-        {tx.payment_method === 'credit_card' && (
+        {isSimple ? (
+          <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString('it-IT')}</div>
+        ) : (
+          <>
+            <div className="text-muted fs-sm">
+              {new Date(tx.transaction_date).toLocaleDateString()} - {tx.categories?.name || (tx.source === 'receipt_ocr' ? 'Scontrino multi-categoria' : 'Non classificato')} - Conto: {tx.accounts?.name || 'Conto'} - Periodicita: {getTransactionFrequencyLabel(tx.frequency)}
+            </div>
+            <div className="text-muted fs-sm">Caricata da account: {uploaderLabel(tx)}</div>
+          </>
+        )}
+        {!isSimple && tx.payment_method === 'credit_card' && (
           <div className="text-muted fs-sm">
             {paymentMethodLabels.credit_card}: impatto disponibilita {new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
           </div>
         )}
-        {tx.notes && <div className={styles.transactionNote}>Nota: {tx.notes}</div>}
+        {!isSimple && tx.notes && <div className={styles.transactionNote}>Nota: {tx.notes}</div>}
       </div>
       <div className={styles.transactionActions}>
         <div className={tx.type === 'expense' ? styles.expenseAmount : styles.incomeAmount}>
@@ -114,14 +119,14 @@ export const TransactionsPage: React.FC = () => {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>Transazioni</h1>
-          <p className="text-muted">Gestisci entrate, uscite e trasferimenti.</p>
+          <p className="text-muted">{isSimple ? 'Controlla e modifica le spese che hai inserito.' : 'Gestisci entrate, uscite e trasferimenti.'}</p>
         </div>
         <div className={styles.headerActions}>
           <Button variant="secondary" icon={<RefreshCw size={17} />} onClick={() => void loadTxs()} disabled={loading}>
             Aggiorna
           </Button>
           <Button icon={<Plus size={18} />} onClick={() => navigate('/transazioni/nuova')}>
-            Nuova Transazione
+            {isSimple ? 'Aggiungi spesa' : 'Nuova Transazione'}
           </Button>
         </div>
       </header>

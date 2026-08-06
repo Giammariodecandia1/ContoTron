@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload } from 'lucide-react';
+import { Plus, Upload } from 'lucide-react';
 import { MobileNavigation, Sidebar } from './Sidebar';
-import { useAuth, useHousehold } from '../../hooks';
+import { useAuth, useHousehold, useViewMode } from '../../hooks';
 import { ensureMonthlyRecurringTransactions } from '../../lib/recurringTransactions';
 import styles from './AppLayout.module.css';
 
@@ -12,6 +12,7 @@ interface AppLayoutProps {
 
 export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const { user } = useAuth();
+  const { isSimple } = useViewMode();
   const { household, accounts } = useHousehold();
   const householdId = household?.id || null;
 
@@ -37,9 +38,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <div className={styles.mobileLogo}>Contotron</div>
             {user?.display_name && <div className={styles.mobileUser}>{user.display_name}</div>}
           </div>
-          <Link to="/scan" className={styles.mobileScanButton}>
-            <Upload size={18} />
-            <span>Scan</span>
+          <Link to={isSimple ? '/transazioni/nuova' : '/scan'} className={styles.mobileScanButton}>
+            {isSimple ? <Plus size={18} /> : <Upload size={18} />}
+            <span>{isSimple ? 'Aggiungi' : 'Scan'}</span>
           </Link>
         </header>
         <div className={styles.contentInner}>

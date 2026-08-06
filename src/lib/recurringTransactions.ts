@@ -13,6 +13,7 @@ type RecurringSyncArgs = {
 type RecurringSyncResult = {
   createdCount: number;
   rulesCount: number;
+  rules: RecurringRule[];
 };
 
 type BudgetTargetRow = {
@@ -39,7 +40,7 @@ const dueDateForMonth = (startDate: string, year: number, month: number) => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-const ruleAppliesToMonth = (rule: RecurringRule, year: number, month: number) => {
+export const recurringRuleAppliesToMonth = (rule: RecurringRule, year: number, month: number) => {
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0);
   const start = new Date(`${rule.start_date}T00:00:00`);
@@ -91,6 +92,19 @@ const syncFixedExpensesIntoBudget = async ({
   if (error) throw error;
   const existingTargets = (data || []) as BudgetTargetRow[];
 
+  for (const target of existingTargets.filter(row => row.notes === AUTO_FIXED_BUDGET_NOTE)) {
+    if (!target.category_id) continue;
+    const key = budgetGroupKey(target.category_id, target.subcategory_id);
+    if (fixedByBudgetGroup.has(key)) continue;
+
+    const { error: deleteError } = await supabase
+      .from('budget_targets')
+      .delete()
+      .eq('id', target.id)
+      .eq('household_id', householdId);
+    if (deleteError) throw deleteError;
+  }
+
   for (const group of fixedByBudgetGroup.values()) {
     const existing = existingTargets.find(target => (
       target.category_id === group.categoryId
@@ -114,7 +128,9 @@ const syncFixedExpensesIntoBudget = async ({
     }
 
     const existingAmount = Number(existing.planned_amount || 0);
-    const nextAmount = Math.max(existingAmount, group.amount);
+    const nextAmount = existing.notes === AUTO_FIXED_BUDGET_NOTE
+      ? group.amount
+      : Math.max(existingAmount, group.amount);
     if (nextAmount === existingAmount) continue;
 
     const { error: updateError } = await supabase
@@ -145,13 +161,13 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
   if (rulesError) throw rulesError;
 
   const activeRules = ((rules || []) as RecurringRule[])
-    .filter(rule => ruleAppliesToMonth(rule, year, month));
+    .filter(rule => recurringRuleAppliesToMonth(rule, year, month));
 
   const now = new Date();
   const requestedMonth = new Date(year, month - 1, 1);
   const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
   if (requestedMonth > currentMonth) {
-    return { createdCount: 0, rulesCount: activeRules.length };
+    return { createdCount: 0, rulesCount: activeRules.length, rules: [] };
   }
 
   await syncFixedExpensesIntoBudget({
@@ -176,7 +192,6 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
       .limit(1);
 
     if (existingError) throw existingError;
-    if (existing && existing.length > 0) continue;
 
     const accountId = rule.account_id || accounts[0]?.id || null;
     const transaction: Partial<Transaction> = {
@@ -199,6 +214,24 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
       notes: `Generata automaticamente da spesa fissa. ${marker}${rule.notes ? ` ${rule.notes}` : ''}`,
     };
 
+    if (existing && existing.length > 0) {
+      const { household_id: _householdId, status: _status, source: _source, ...updates } = transaction;
+      void _householdId;
+      void _status;
+      void _source;
+      const { error: updateError } = await supabase
+        .from('transactions')
+        .update({
+          ...updates,
+          recurring_rule_id: rule.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existing[0].id)
+        .eq('household_id', householdId);
+      if (updateError) throw updateError;
+      continue;
+    }
+
     const { error: insertError } = await supabase
       .from('transactions')
       .insert([transaction]);
@@ -207,7 +240,7 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
     createdCount += 1;
   }
 
-  return { createdCount, rulesCount: activeRules.length };
+  return { createdCount, rulesCount: activeRules.length, rules: activeRules };
 };
 
 export const ensureMonthlyRecurringTransactions = (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale } from 'lucide-react';
-import { useAuth } from '../../hooks';
+import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
+import { useAuth, useViewMode } from '../../hooks';
 import styles from './AppLayout.module.css';
 
 const navItems = [
@@ -17,20 +17,35 @@ const navItems = [
   { path: '/impostazioni', label: 'Impostazioni', icon: <Settings size={20} /> },
 ];
 
+const simpleNavItems = [
+  { path: '/dashboard', label: 'Riepilogo', icon: <Home size={20} /> },
+  { path: '/transazioni/nuova', label: 'Aggiungi spesa', icon: <PlusCircle size={20} /> },
+  { path: '/transazioni', label: 'Movimenti', icon: <List size={20} /> },
+  { path: '/split', label: 'Split', icon: <Scale size={20} /> },
+  { path: '/impostazioni', label: 'Impostazioni', icon: <Settings size={20} /> },
+];
+
+const pathIsActive = (pathname: string, path: string) => {
+  if (path === '/transazioni') return pathname === path;
+  if (path === '/transazioni/nuova') return pathname === path;
+  return pathname.startsWith(path);
+};
+
 export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
-  const isActive = (path: string) => (
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
-  );
+  const { isSimple } = useViewMode();
+  const visibleItems = isSimple ? simpleNavItems : navItems;
+  const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (
     <aside className={styles.sidebar}>
       <div className={styles.sidebarHeader}>
         <h2 className={styles.logo}>Contotron</h2>
+        {isSimple && <span className={styles.simpleModeBadge}>Modalità semplice</span>}
       </div>
       <nav className={styles.sidebarNav}>
-        {navItems.map(item => (
+        {visibleItems.map(item => (
           <Link
             key={item.path}
             to={item.path}
@@ -42,9 +57,11 @@ export const Sidebar: React.FC = () => {
         ))}
       </nav>
       <div className={styles.sidebarFooter}>
-        <Link to="/scan" className={styles.actionBtn}>
-          <Upload size={16} /> Scan Scontrino
-        </Link>
+        {!isSimple && (
+          <Link to="/scan" className={styles.actionBtn}>
+            <Upload size={16} /> Scan Scontrino
+          </Link>
+        )}
         {user && (
           <div className={styles.userSection}>
             <div className={styles.userInfo}>
@@ -66,13 +83,11 @@ export const Sidebar: React.FC = () => {
 
 export const MobileNavigation: React.FC = () => {
   const location = useLocation();
-  const mobileItems = [
-    ...navItems,
-    { path: '/scan', label: 'Scan', icon: <Upload size={20} /> },
-  ];
-  const isActive = (path: string) => (
-    path === '/' ? location.pathname === '/' : location.pathname.startsWith(path)
-  );
+  const { isSimple } = useViewMode();
+  const mobileItems = isSimple
+    ? simpleNavItems
+    : [...navItems, { path: '/scan', label: 'Scan', icon: <Upload size={20} /> }];
+  const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (
     <nav className={styles.mobileNav} aria-label="Navigazione mobile">
@@ -83,7 +98,7 @@ export const MobileNavigation: React.FC = () => {
           className={`${styles.mobileNavLink} ${isActive(item.path) ? styles.mobileActive : ''}`}
         >
           {item.icon}
-          <span>{'mobileLabel' in item ? item.mobileLabel : item.label}</span>
+          <span>{'mobileLabel' in item && typeof item.mobileLabel === 'string' ? item.mobileLabel : item.label}</span>
         </Link>
       ))}
     </nav>

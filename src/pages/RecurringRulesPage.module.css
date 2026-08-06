@@ -36,6 +36,25 @@
   gap: var(--space-2);
 }
 
+.monthlyTagInfo {
+  background: var(--color-primary-light);
+  border: 1px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.monthlyTagInfo strong,
+.monthlyTag {
+  color: var(--color-primary-hover);
+  font-weight: 850;
+  letter-spacing: 0.035em;
+}
+
 .formGroup label {
   color: var(--color-gray-700);
   font-size: var(--text-sm);
@@ -105,6 +124,15 @@
 .ruleTitle {
   color: var(--color-gray-900);
   font-weight: 800;
+}
+
+.monthlyTag {
+  background: var(--color-primary-light);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.68rem;
+  margin-bottom: var(--space-2);
+  padding: 0.2rem 0.55rem;
 }
 
 .ruleMeta {

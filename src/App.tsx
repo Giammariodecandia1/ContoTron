@@ -3,10 +3,11 @@ import { BrowserRouter, Routes as RouterRoutes, Route as RouterRoute, Navigate a
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { NewTransactionPage } from './pages/NewTransactionPage';
-import { useAuth, useHousehold } from './hooks';
+import { useAuth, useHousehold, useViewMode } from './hooks';
 
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => ({ default: module.DashboardPage })));
+const SimpleDashboardPage = lazy(() => import('./pages/SimpleDashboardPage').then(module => ({ default: module.SimpleDashboardPage })));
 const TransactionsPage = lazy(() => import('./pages/TransactionsPage').then(module => ({ default: module.TransactionsPage })));
 const MonthlyBudgetPage = lazy(() => import('./pages/MonthlyBudgetPage').then(module => ({ default: module.MonthlyBudgetPage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(module => ({ default: module.SettingsPage })));
@@ -24,6 +25,10 @@ const RecurringRulesPage = lazy(() => import('./pages/RecurringRulesPage').then(
 function App() {
   const { user } = useAuth();
   const { household } = useHousehold();
+  const { isSimple } = useViewMode();
+  const advancedOnly = (element: React.ReactNode) => (
+    isSimple ? <RouterNavigate to="/dashboard" replace /> : element
+  );
 
   return (
     <BrowserRouter>
@@ -43,24 +48,24 @@ function App() {
         <AppLayout>
           <Suspense fallback={null}>
             <RouterRoutes>
-              <RouterRoute path="/" element={<RouterNavigate to="/transazioni/nuova" replace />} />
-              <RouterRoute path="/dashboard" element={<DashboardPage />} />
+              <RouterRoute path="/" element={<RouterNavigate to={isSimple ? '/dashboard' : '/transazioni/nuova'} replace />} />
+              <RouterRoute path="/dashboard" element={isSimple ? <SimpleDashboardPage /> : <DashboardPage />} />
               <RouterRoute path="/transazioni" element={<TransactionsPage />} />
               <RouterRoute path="/transazioni/nuova" element={<NewTransactionPage />} />
               <RouterRoute path="/transazioni/:transactionId/modifica" element={<NewTransactionPage />} />
-              <RouterRoute path="/mensile" element={<MonthlyBudgetPage />} />
-              <RouterRoute path="/documenti" element={<DocumentsPage />} />
-              <RouterRoute path="/ricerca" element={<SearchPage />} />
-              <RouterRoute path="/report" element={<ReportsPage />} />
-              <RouterRoute path="/analisi-annuale" element={<AnnualAnalysisPage />} />
-              <RouterRoute path="/analisi-alimentari" element={<FoodWeeklyAnalysisPage />} />
+              <RouterRoute path="/mensile" element={advancedOnly(<MonthlyBudgetPage />)} />
+              <RouterRoute path="/documenti" element={advancedOnly(<DocumentsPage />)} />
+              <RouterRoute path="/ricerca" element={advancedOnly(<SearchPage />)} />
+              <RouterRoute path="/report" element={advancedOnly(<ReportsPage />)} />
+              <RouterRoute path="/analisi-annuale" element={advancedOnly(<AnnualAnalysisPage />)} />
+              <RouterRoute path="/analisi-alimentari" element={advancedOnly(<FoodWeeklyAnalysisPage />)} />
               <RouterRoute path="/split" element={<SplitPage />} />
-              <RouterRoute path="/scan" element={<ScanReceiptPage />} />
+              <RouterRoute path="/scan" element={advancedOnly(<ScanReceiptPage />)} />
               <RouterRoute path="/impostazioni" element={<SettingsPage />} />
-              <RouterRoute path="/impostazioni/categorie" element={<CategoriesPage />} />
+              <RouterRoute path="/impostazioni/categorie" element={advancedOnly(<CategoriesPage />)} />
               <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
-              <RouterRoute path="/impostazioni/spese-fisse" element={<RecurringRulesPage />} />
-              <RouterRoute path="*" element={<RouterNavigate to="/transazioni/nuova" replace />} />
+              <RouterRoute path="/impostazioni/spese-fisse" element={advancedOnly(<RecurringRulesPage />)} />
+              <RouterRoute path="*" element={<RouterNavigate to={isSimple ? '/dashboard' : '/transazioni/nuova'} replace />} />
             </RouterRoutes>
           </Suspense>
         </AppLayout>

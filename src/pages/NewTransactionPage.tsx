@@ -3,7 +3,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useAuth, useHousehold, useTransactions } from '../hooks';
+import { useAuth, useHousehold, useTransactions, useViewMode } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
@@ -37,6 +37,7 @@ export const NewTransactionPage: React.FC = () => {
   const { transactionId } = useParams();
   const { household, accounts, categories, subcategories } = useHousehold();
   const { user } = useAuth();
+  const { isSimple } = useViewMode();
   const { addTransaction, updateTransaction, loading } = useTransactions();
   const initialState = (location.state || {}) as TransactionFormState;
   const isEditMode = Boolean(transactionId);
@@ -51,7 +52,7 @@ export const NewTransactionPage: React.FC = () => {
   const [description, setDescription] = useState(initialState.description || '');
   const [notes, setNotes] = useState(initialState.notes || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialState.paymentMethod || 'standard');
-  const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || '');
+  const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || (isSimple ? 'other' : ''));
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,15 @@ export const NewTransactionPage: React.FC = () => {
 
   const filteredCategories = categories.filter(c => c.type === transactionType);
   const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
+
+  const changeTransactionType = (nextType: TransactionType) => {
+    if (nextType === transactionType) return;
+
+    setTransactionType(nextType);
+    setCategoryId('');
+    setSubcategoryId('');
+    if (nextType === 'income') setPaymentMethod('standard');
+  };
 
   useEffect(() => {
     if (!isEditMode || !transactionId || !householdId) return;
@@ -114,7 +124,8 @@ export const NewTransactionPage: React.FC = () => {
       return;
     }
 
-    if (!frequency) {
+    const effectiveFrequency = frequency || (isSimple ? 'other' : '');
+    if (!effectiveFrequency) {
       setError("Seleziona la frequenza dell'operazione.");
       return;
     }
@@ -131,7 +142,7 @@ export const NewTransactionPage: React.FC = () => {
       notes: notes.trim() || null,
       payment_method: transactionType === 'expense' ? paymentMethod : 'standard',
       cash_impact_date: transactionType === 'expense' ? getCashImpactDate(date, paymentMethod) : date,
-      frequency,
+      frequency: effectiveFrequency,
     };
 
     submissionInFlightRef.current = true;
@@ -207,27 +218,24 @@ export const NewTransactionPage: React.FC = () => {
           <div style={{ textAlign: 'center', padding: '2rem' }}>Caricamento transazione...</div>
         ) : (
           <form onSubmit={handleSubmit} className={styles.form}>
+            {isSimple && (
+              <div className={styles.simpleNotice}>
+                <strong>Inserimento semplice</strong>
+                <span>Categoria e sottocategoria non sono obbligatorie. Potrai aggiungerle passando alla modalità completa.</span>
+              </div>
+            )}
             <div className={styles.typeSelector} role="group" aria-label="Tipo transazione">
               <button
                 type="button"
                 className={`${styles.typeButton} ${transactionType === 'expense' ? styles.activeExpense : ''}`}
-                onClick={() => {
-                  setTransactionType('expense');
-                  setCategoryId('');
-                  setSubcategoryId('');
-                }}
+                onClick={() => changeTransactionType('expense')}
               >
                 Uscita
               </button>
               <button
                 type="button"
                 className={`${styles.typeButton} ${transactionType === 'income' ? styles.activeIncome : ''}`}
-                onClick={() => {
-                  setTransactionType('income');
-                  setCategoryId('');
-                  setSubcategoryId('');
-                  setPaymentMethod('standard');
-                }}
+                onClick={() => changeTransactionType('income')}
               >
                 Entrata
               </button>
@@ -246,7 +254,7 @@ export const NewTransactionPage: React.FC = () => {
               <input type="date" required className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
             </div>
 
-            {transactionType === 'expense' && (
+            {transactionType === 'expense' && !isSimple && (
               <div className={styles.formGroup}>
                 <label>Tipologia pagamento</label>
                 <select className={styles.input} value={paymentMethod} onChange={e => setPaymentMethod(e.target.value as PaymentMethod)}>
@@ -262,21 +270,23 @@ export const NewTransactionPage: React.FC = () => {
               </div>
             )}
 
-            <div className={styles.formGroup}>
-              <label>Frequenza dell'operazione</label>
-              <select
-                required
-                className={styles.input}
-                value={frequency}
-                onChange={event => setFrequency(event.target.value as TransactionFrequency)}
-              >
-                <option value="">Seleziona frequenza...</option>
-                {transactionFrequencyOptions.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-              <small className={styles.helpText}>Serve per distribuire e analizzare il movimento nel corso dell'anno.</small>
-            </div>
+            {!isSimple && (
+              <div className={styles.formGroup}>
+                <label>Frequenza dell'operazione</label>
+                <select
+                  required
+                  className={styles.input}
+                  value={frequency}
+                  onChange={event => setFrequency(event.target.value as TransactionFrequency)}
+                >
+                  <option value="">Seleziona frequenza...</option>
+                  {transactionFrequencyOptions.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <small className={styles.helpText}>Serve per distribuire e analizzare il movimento nel corso dell'anno.</small>
+              </div>
+            )}
 
             {accounts.length > 1 && (
               <div className={styles.formGroup}>
@@ -287,47 +297,53 @@ export const NewTransactionPage: React.FC = () => {
               </div>
             )}
 
-            <div className={styles.formGroup}>
-              <label>Categoria</label>
-              <select required={transactionType === 'expense'} className={styles.input} value={categoryId} onChange={e => {
-                setCategoryId(e.target.value);
-                setSubcategoryId('');
-              }}>
-                <option value="">{transactionType === 'expense' ? 'Seleziona categoria...' : 'Nessuna categoria entrata'}</option>
-                {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+            {!isSimple && (
+              <>
+                <div className={styles.formGroup}>
+                  <label>Categoria</label>
+                  <select required={transactionType === 'expense'} className={styles.input} value={categoryId} onChange={e => {
+                    setCategoryId(e.target.value);
+                    setSubcategoryId('');
+                  }}>
+                    <option value="">{transactionType === 'expense' ? 'Seleziona categoria...' : 'Nessuna categoria entrata'}</option>
+                    {filteredCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </div>
 
-            {filteredSubcategories.length > 0 && (
-              <div className={styles.formGroup}>
-                <label>Sottocategoria (Opzionale)</label>
-                <select className={styles.input} value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)}>
-                  <option value="">Nessuna sottocategoria</option>
-                  {filteredSubcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-              </div>
+                {filteredSubcategories.length > 0 && (
+                  <div className={styles.formGroup}>
+                    <label>Sottocategoria (Opzionale)</label>
+                    <select className={styles.input} value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)}>
+                      <option value="">Nessuna sottocategoria</option>
+                      {filteredSubcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div className={styles.formGroup}>
+                  <label>Esercente (Negozio, Sito web...)</label>
+                  <input type="text" className={styles.input} placeholder="es. Conad, Amazon..." value={merchant} onChange={e => setMerchant(e.target.value)} />
+                </div>
+              </>
             )}
 
             <div className={styles.formGroup}>
-              <label>Esercente (Negozio, Sito web...)</label>
-              <input type="text" className={styles.input} placeholder="es. Conad, Amazon..." value={merchant} onChange={e => setMerchant(e.target.value)} />
-            </div>
-
-            <div className={styles.formGroup}>
-              <label>Descrizione</label>
+              <label>{isSimple ? 'Descrizione breve' : 'Descrizione'}</label>
               <input type="text" required className={styles.input} placeholder="es. Spesa settimanale..." value={description} onChange={e => setDescription(e.target.value)} />
             </div>
 
-            <div className={styles.formGroup}>
-              <label>Commento / promemoria</label>
-              <textarea
-                className={styles.textarea}
-                placeholder="es. Da ricordare, dettaglio non previsto, motivo della spesa..."
-                value={notes}
-                onChange={e => setNotes(e.target.value)}
-                rows={3}
-              />
-            </div>
+            {!isSimple && (
+              <div className={styles.formGroup}>
+                <label>Commento / promemoria</label>
+                <textarea
+                  className={styles.textarea}
+                  placeholder="es. Da ricordare, dettaglio non previsto, motivo della spesa..."
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  rows={3}
+                />
+              </div>
+            )}
 
             <Button type="submit" size="lg" className="mt-4" disabled={loading}>
               {loading ? 'Salvataggio...' : isEditMode ? 'Salva Modifiche' : 'Salva Transazione'}

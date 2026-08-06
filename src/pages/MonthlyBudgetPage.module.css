@@ -110,6 +110,87 @@
   padding: var(--space-3);
 }
 
+.recurringOverview {
+  background: color-mix(in srgb, var(--color-info-bg) 72%, var(--color-white));
+  border: 1px solid color-mix(in srgb, var(--color-info) 24%, transparent);
+  border-radius: var(--border-radius-md);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+}
+
+.recurringOverview > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.recurringOverview h3 {
+  color: var(--color-gray-900);
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.recurringOverview p {
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+  margin-top: var(--space-1);
+}
+
+.recurringOverview > header > strong {
+  color: var(--color-info);
+  font-size: var(--text-xl);
+  white-space: nowrap;
+}
+
+.recurringRuleGrid {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-3);
+}
+
+.recurringRuleItem {
+  align-items: center;
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-sm);
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-3);
+}
+
+.recurringRuleItem > span,
+.recurringRuleItem small {
+  display: block;
+  min-width: 0;
+}
+
+.recurringRuleItem b {
+  color: var(--color-gray-900);
+}
+
+.recurringRuleItem small {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+  margin-top: 2px;
+}
+
+.recurringRuleItem > strong {
+  color: var(--color-gray-900);
+  white-space: nowrap;
+}
+
+.recurringOverview .recurringClassificationWarning {
+  background: var(--color-warning-bg);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-gray-900);
+  font-weight: 700;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+}
+
 .periodBanner strong {
   color: var(--color-gray-900);
 }
@@ -309,6 +390,14 @@
   }
 
   .budgetSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .recurringOverview > header {
+    flex-direction: column;
+  }
+
+  .recurringRuleGrid {
     grid-template-columns: 1fr;
   }
 

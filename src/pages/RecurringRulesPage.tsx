@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
+import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule } from '../types/database';
 import styles from './RecurringRulesPage.module.css';
@@ -72,6 +73,17 @@ export const RecurringRulesPage: React.FC = () => {
     return Number.isInteger(months) && months > 0 ? endDateFromDuration(startDate, months) : null;
   }, [durationMonths, startDate]);
 
+  const syncCurrentMonth = useCallback(async () => {
+    if (!householdId) return;
+    const now = new Date();
+    await ensureMonthlyRecurringTransactions({
+      householdId,
+      accounts,
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    });
+  }, [accounts, householdId]);
+
   const fetchRules = useCallback(async () => {
     if (!householdId) return;
 
@@ -139,8 +151,8 @@ export const RecurringRulesPage: React.FC = () => {
     const finalDescription = description.trim() || reasonLabel;
     const parsedDuration = durationMonths ? Number(durationMonths) : null;
 
-    if (!reason || !finalDescription || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError('Seleziona il tipo di spesa e inserisci un importo valido. Per Altro specifica il dettaglio.');
+    if (!reason || !categoryId || !finalDescription || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError('Seleziona tipo, categoria e importo. Per Altro specifica anche la descrizione.');
       return;
     }
     if (parsedDuration !== null && (!Number.isInteger(parsedDuration) || parsedDuration <= 0)) {
@@ -191,9 +203,10 @@ export const RecurringRulesPage: React.FC = () => {
 
       const wasEditing = Boolean(editingRuleId);
       resetForm();
+      await syncCurrentMonth();
       await fetchRules();
       setMessage(wasEditing
-        ? 'Spesa fissa modificata. Le nuove impostazioni valgono dalle prossime generazioni mensili.'
+        ? 'Spesa ripetitiva modificata. Il mese corrente e le prossime generazioni sono stati aggiornati.'
         : 'Spesa fissa salvata. Comparira automaticamente nel budget quando inizia il mese.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile salvare la spesa fissa.');
@@ -217,6 +230,7 @@ export const RecurringRulesPage: React.FC = () => {
         .eq('household_id', householdId);
 
       if (updateError) throw updateError;
+      await syncCurrentMonth();
       await fetchRules();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile aggiornare la spesa fissa.');
@@ -242,6 +256,7 @@ export const RecurringRulesPage: React.FC = () => {
 
       if (deleteError) throw deleteError;
       if (editingRuleId === rule.id) resetForm();
+      await syncCurrentMonth();
       await fetchRules();
       setMessage('Regola eliminata. Le transazioni gia generate restano nello storico.');
     } catch (err) {
@@ -258,8 +273,8 @@ export const RecurringRulesPage: React.FC = () => {
           Indietro
         </Button>
         <div>
-          <h1 className={styles.title}>Spese fisse</h1>
-          <p className="text-muted">Canoni, finanziamenti e uscite mensili che devono risultare gia impegnate a inizio mese.</p>
+          <h1 className={styles.title}>Spese fisse e ripetitive</h1>
+          <p className="text-muted">Canoni, finanziamenti e uscite mensili caricate automaticamente soltanto quando inizia il mese.</p>
         </div>
       </header>
 
@@ -277,6 +292,11 @@ export const RecurringRulesPage: React.FC = () => {
           >
             {message && <div className={`${styles.message} ${styles.success}`}>{message}</div>}
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
+
+            <div className={styles.monthlyTagInfo}>
+              <strong>TAG: RIPETITIVA MENSILE</strong>
+              <span>Comparira nel budget e nelle transazioni all'inizio del mese, mai nei mesi futuri.</span>
+            </div>
 
             <div className={styles.formGroup}>
               <label>Tipo di spesa fissa</label>
@@ -319,7 +339,7 @@ export const RecurringRulesPage: React.FC = () => {
               <select className={styles.select} value={categoryId} onChange={event => {
                 setCategoryId(event.target.value);
                 setSubcategoryId('');
-              }}>
+              }} required>
                 <option value="">Seleziona categoria...</option>
                 {expenseCategories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
               </select>
@@ -387,6 +407,7 @@ export const RecurringRulesPage: React.FC = () => {
                 <article key={rule.id} className={styles.ruleCard}>
                   <div className={styles.ruleHeader}>
                     <div>
+                      <span className={styles.monthlyTag}>RIPETITIVA MENSILE</span>
                       <div className={styles.ruleTitle}>{rule.description}</div>
                       <div className={styles.ruleMeta}>
                         Mensile dal {new Date(`${rule.start_date}T00:00:00`).toLocaleDateString('it-IT')}

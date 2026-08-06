@@ -485,6 +485,20 @@ export const DashboardPage: React.FC = () => {
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className={styles.averageRow}>
+                  <td>Media mensile</td>
+                  <td>{currency(plannedIncomeAverage, currencyCode)}</td>
+                  <td>{currency(totals.plannedExpense / 12, currencyCode)}</td>
+                  <td className={totals.plannedDelta >= 0 ? styles.positive : styles.negative}>
+                    {currency(totals.plannedDelta / 12, currencyCode)}
+                  </td>
+                  <td>{currency(actualExpenseAverage, currencyCode)}</td>
+                  <td className={plannedIncomeAverage - actualExpenseAverage >= 0 ? styles.positive : styles.negative}>
+                    {currency(plannedIncomeAverage - actualExpenseAverage, currencyCode)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}

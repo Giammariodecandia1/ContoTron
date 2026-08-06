@@ -126,6 +126,14 @@
   vertical-align: middle;
 }
 
+.averageRow td {
+  background: var(--color-primary-light);
+  border-bottom: 0;
+  border-top: 2px solid var(--color-primary);
+  color: var(--color-gray-900);
+  font-weight: 850;
+}
+
 .categoryAnnualList {
   display: grid;
   gap: var(--space-5);

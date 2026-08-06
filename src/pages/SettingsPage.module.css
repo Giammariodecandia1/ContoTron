@@ -14,6 +14,69 @@
   gap: var(--space-4);
 }
 
+.viewModeCard {
+  grid-column: 1 / -1;
+}
+
+.viewModeToggle {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: var(--space-4);
+}
+
+.viewModeToggle button {
+  align-items: flex-start;
+  background: var(--color-white);
+  border: 2px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-600);
+  display: flex;
+  gap: var(--space-3);
+  min-height: 94px;
+  padding: var(--space-4);
+  text-align: left;
+}
+
+.viewModeToggle button > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.viewModeToggle button > span,
+.viewModeToggle strong,
+.viewModeToggle small {
+  display: block;
+}
+
+.viewModeToggle strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-lg);
+}
+
+.viewModeToggle small {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  margin-top: var(--space-1);
+}
+
+.viewModeToggle .viewModeActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.simpleModeMessage {
+  background: var(--color-success-bg);
+  border-radius: var(--border-radius-md);
+  color: var(--color-success);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+}
+
 .themeToggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -289,6 +352,10 @@
   }
 
   .fontScaleToggle {
+    grid-template-columns: 1fr;
+  }
+
+  .viewModeToggle {
     grid-template-columns: 1fr;
   }
 

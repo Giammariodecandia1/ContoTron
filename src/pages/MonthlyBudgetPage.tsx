@@ -6,7 +6,7 @@ import { useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
-import type { Transaction } from '../types/database';
+import type { RecurringRule, Transaction } from '../types/database';
 import styles from './MonthlyBudgetPage.module.css';
 
 type BudgetTransactionItem = {
@@ -29,6 +29,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [categoryBudgets, setCategoryBudgets] = useState<Record<string, number>>({});
   const [subcategoryBudgets, setSubcategoryBudgets] = useState<Record<string, number>>({});
   const [automaticBudgetKeys, setAutomaticBudgetKeys] = useState<Set<string>>(new Set());
+  const [monthlyRecurringRules, setMonthlyRecurringRules] = useState<RecurringRule[]>([]);
   const [categoryTotalDrafts, setCategoryTotalDrafts] = useState<Record<string, string>>({});
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -58,6 +59,7 @@ export const MonthlyBudgetPage: React.FC = () => {
     setRecurringError(null);
     setLoadError(null);
     setPrefillNotice(null);
+    let recurringRulesForMonth: RecurringRule[] = [];
 
     try {
       const result = await ensureMonthlyRecurringTransactions({
@@ -70,9 +72,12 @@ export const MonthlyBudgetPage: React.FC = () => {
       if (result.createdCount > 0) {
         setRecurringMessage(`${result.createdCount} spese fisse generate automaticamente per questo mese.`);
       }
+      recurringRulesForMonth = result.rules;
+      setMonthlyRecurringRules(result.rules);
     } catch (error) {
       console.error('Errore generazione spese fisse:', error);
       setRecurringError(error instanceof Error ? error.message : 'Non riesco a generare le spese fisse del mese.');
+      setMonthlyRecurringRules([]);
     }
 
     // 1. Fetch transactions for the current month
@@ -106,7 +111,11 @@ export const MonthlyBudgetPage: React.FC = () => {
       
       const categoryBudgetMap: Record<string, number> = {};
       const subcategoryBudgetMap: Record<string, number> = {};
-      const nextAutomaticBudgetKeys = new Set<string>();
+      const nextAutomaticBudgetKeys = new Set(
+        recurringRulesForMonth
+          .filter(rule => !!rule.category_id)
+          .map(rule => `${rule.category_id}:${rule.subcategory_id || 'category'}`),
+      );
       targets.forEach(t => {
         if (!t.category_id) return;
         if (t.notes === 'AUTO_SPESE_FISSE') {
@@ -315,6 +324,8 @@ export const MonthlyBudgetPage: React.FC = () => {
   const totalPlanned = expenseCategories.reduce((acc, cat) => acc + plannedForCategory(cat.id), 0);
   const totalActual = transactions.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
   const totalDiff = totalPlanned - totalActual;
+  const monthlyRecurringTotal = monthlyRecurringRules.reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+  const unclassifiedRecurringRules = monthlyRecurringRules.filter(rule => !rule.category_id);
 
   return (
     <div className={styles.page}>
@@ -364,6 +375,40 @@ export const MonthlyBudgetPage: React.FC = () => {
         <div className={styles.periodBanner}>
           Stai modificando il budget di <strong>{monthNames[month - 1]} {year}</strong>. I valori salvati qui non modificano gli altri mesi.
         </div>
+        {monthlyRecurringRules.length > 0 && (
+          <section className={styles.recurringOverview} aria-label="Spese ripetitive mensili incluse">
+            <header>
+              <div>
+                <h3>Spese ripetitive mensili incluse</h3>
+                <p>Tutte le voci caricate automaticamente quando il mese è iniziato.</p>
+              </div>
+              <strong>{monthlyRecurringTotal.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+            </header>
+            <div className={styles.recurringRuleGrid}>
+              {monthlyRecurringRules.map(rule => {
+                const category = categories.find(item => item.id === rule.category_id);
+                const subcategory = subcategories.find(item => item.id === rule.subcategory_id);
+                return (
+                  <div key={rule.id} className={styles.recurringRuleItem}>
+                    <span>
+                      <b>{rule.description}</b>
+                      <small>
+                        {category?.name || 'Categoria da assegnare'}
+                        {subcategory ? ` / ${subcategory.name}` : ''}
+                      </small>
+                    </span>
+                    <strong>{Number(rule.amount || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                  </div>
+                );
+              })}
+            </div>
+            {unclassifiedRecurringRules.length > 0 && (
+              <p className={styles.recurringClassificationWarning}>
+                {unclassifiedRecurringRules.length} voci devono essere aperte in Impostazioni / Spese fisse e associate a una categoria per entrare nel totale previsto.
+              </p>
+            )}
+          </section>
+        )}
         {recurringMessage && (
           <div className={`${styles.budgetNotice} ${styles.success}`}>{recurringMessage}</div>
         )}
@@ -406,7 +451,11 @@ export const MonthlyBudgetPage: React.FC = () => {
                 const categorySubcategories = subcategoriesByCategory.get(cat.id) || [];
                 const hasSubcategories = categorySubcategories.length > 0;
                 const isExpanded = expandedCategoryIds.has(cat.id);
-                const hasAutomaticCategoryBudget = automaticBudgetKeys.has(`${cat.id}:category`);
+                const categoryRecurringRules = monthlyRecurringRules.filter(rule => rule.category_id === cat.id);
+                const hasAutomaticCategoryBudget = categoryRecurringRules.length > 0;
+                const recurringBadgeLabel = categoryRecurringRules.length === 1
+                  ? '1 spesa ripetitiva'
+                  : `${categoryRecurringRules.length} spese ripetitive`;
                 const planned = plannedForCategory(cat.id);
                 const actual = actuals.byCategory[cat.id] || 0;
                 const diff = planned - actual;
@@ -427,12 +476,12 @@ export const MonthlyBudgetPage: React.FC = () => {
                             {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                             <span>{cat.name}</span>
                             <small>{categorySubcategories.length} sottocategorie</small>
-                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
+                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>{recurringBadgeLabel}</em>}
                           </button>
                         ) : (
                           <div className={styles.categoryName}>
                             {cat.name}
-                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
+                            {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>{recurringBadgeLabel}</em>}
                           </div>
                         )}
                         <div className={styles.progressWrapper}>

@@ -8,6 +8,8 @@ import {
   Cloud,
   Database,
   Info,
+  LayoutDashboard,
+  Layers3,
   LogOut,
   Monitor,
   Moon,
@@ -22,6 +24,7 @@ import {
   useHousehold,
   usePersonalDriveConnection,
   useTheme,
+  useViewMode,
 } from '../hooks';
 import {
   documentStorageDescriptions,
@@ -46,6 +49,7 @@ export const SettingsPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { mode, resolvedTheme, setMode } = useTheme();
+  const { mode: viewMode, isSimple, setMode: setViewMode } = useViewMode();
   const { household, refreshData } = useHousehold();
   const { user, logout } = useAuth();
   const userId = user?.id || null;
@@ -70,6 +74,11 @@ export const SettingsPage: React.FC = () => {
   const handleFontScaleChange = (nextScale: FontScale) => {
     setFontScale(nextScale);
     saveFontScale(nextScale);
+  };
+
+  const handleViewModeChange = (nextMode: 'simple' | 'complete') => {
+    setViewMode(nextMode);
+    if (nextMode === 'simple') navigate('/dashboard');
   };
 
   const handleStorageChange = async (provider: DocumentStorageProvider) => {
@@ -163,6 +172,36 @@ export const SettingsPage: React.FC = () => {
       </header>
 
       <div className={styles.grid}>
+        <Card className={styles.viewModeCard} title="Visualizzazione" icon={<LayoutDashboard size={20} />}>
+          <div className={styles.preferenceHeader}>
+            <strong>Scegli quante funzioni vedere</strong>
+            <span className="text-muted fs-sm">La scelta riguarda soltanto il tuo account e non modifica né elimina alcun dato.</span>
+          </div>
+          <div className={styles.viewModeToggle} role="group" aria-label="Modalità di visualizzazione">
+            <button
+              type="button"
+              className={viewMode === 'simple' ? styles.viewModeActive : ''}
+              aria-pressed={viewMode === 'simple'}
+              onClick={() => handleViewModeChange('simple')}
+            >
+              <LayoutDashboard size={22} />
+              <span><strong>Semplice</strong><small>Spese del mese, movimenti, Split e controlli essenziali</small></span>
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'complete' ? styles.viewModeActive : ''}
+              aria-pressed={viewMode === 'complete'}
+              onClick={() => handleViewModeChange('complete')}
+            >
+              <Layers3 size={22} />
+              <span><strong>Completa</strong><small>Budget, categorie, report, analisi, documenti e OCR</small></span>
+            </button>
+          </div>
+          {isSimple && (
+            <p className={styles.simpleModeMessage}>Modalità semplice attiva. Tornando a Completa ritroverai tutte le informazioni e classificazioni già salvate.</p>
+          )}
+        </Card>
+
         <Card title="Nucleo Familiare" icon={<Users size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/nucleo')}>Gestisci</Button>}>
           <div className={styles.nucleusPreview}>
             <strong>{household?.name || 'Nucleo Contotron'}</strong>
@@ -173,17 +212,19 @@ export const SettingsPage: React.FC = () => {
           </p>
         </Card>
 
-        <Card title="Gestione Categorie" icon={<Tag size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/categorie')}>Gestisci</Button>}>
-          <p className="text-muted fs-sm">Aggiungi, modifica o rimuovi categorie e sottocategorie di spesa.</p>
-        </Card>
+        {!isSimple && (
+          <>
+            <Card title="Gestione Categorie" icon={<Tag size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/categorie')}>Gestisci</Button>}>
+              <p className="text-muted fs-sm">Aggiungi, modifica o rimuovi categorie e sottocategorie di spesa.</p>
+            </Card>
 
-        <Card title="Spese fisse" icon={<CalendarClock size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/spese-fisse')}>Gestisci</Button>}>
-          <p className="text-muted fs-sm">
-            Configura canoni, finanziamenti e uscite mensili che devono risultare gia impegnate all'apertura del mese.
-          </p>
-        </Card>
+            <Card title="Spese fisse" icon={<CalendarClock size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/spese-fisse')}>Gestisci</Button>}>
+              <p className="text-muted fs-sm">
+                Configura canoni, finanziamenti e uscite mensili che devono risultare gia impegnate all'apertura del mese.
+              </p>
+            </Card>
 
-        <Card title="Archivio documenti" icon={<Cloud size={20} />}>
+            <Card title="Archivio documenti" icon={<Cloud size={20} />}>
           <p className="text-muted fs-sm">
             Formula attiva: {documentStorageLabels[documentStorageProvider]}.
           </p>
@@ -275,7 +316,9 @@ export const SettingsPage: React.FC = () => {
               Ogni membro autorizza separatamente il proprio Drive. Contotron non condivide token Google e puo gestire soltanto i file creati dall app.
             </div>
           )}
-        </Card>
+            </Card>
+          </>
+        )}
 
         <Card title="Preferenze" icon={<SettingsIcon size={20} />}>
           <p className="text-muted fs-sm">Tema attivo: {resolvedTheme === 'dark' ? 'scuro' : 'chiaro'}.</p>

@@ -1,9 +1,8 @@
 # Verifica note beta tester
 
-Documento verificato: NOTE BUDGET FAMILIARE GIAMMARIO bis.docx, revisione del
-6 agosto 2026.
+Documento verificato: NOTE BUDGET FAMILIARE GIAMMARIO bis (3).docx.
 
-## Esito punti 1-55
+## Esito punti 1-56
 
 1. **Dashboard annuale e medie mensili** - Implementato: tabella mensile,
    medie di entrate/uscite e incidenza delle uscite sull'entrata media.
@@ -52,8 +51,9 @@ Documento verificato: NOTE BUDGET FAMILIARE GIAMMARIO bis.docx, revisione del
 34. **Grafici adattivi** - Implementato.
 35. **Spese fisse nel budget previsto** - Implementato mediante sincronizzazione
     delle regole ricorrenti nei target mensili.
-36. **Spese ripetitive mensili editabili** - Implementato e generate soltanto
-    quando il mese e iniziato.
+36. **Spese ripetitive mensili editabili** - Implementato con TAG esplicito,
+    generazione soltanto quando il mese e iniziato e aggiornamento immediato
+    del movimento e del budget del mese corrente dopo una modifica.
 37. **Istogramma categorie decrescente** - Implementato.
 38. **Modifica budget limitata al mese selezionato** - Implementato con target
     univoci per anno, mese, categoria e sottocategoria.
@@ -61,12 +61,15 @@ Documento verificato: NOTE BUDGET FAMILIARE GIAMMARIO bis.docx, revisione del
 40. **Stesso colore mese nei grafici annuali** - Implementato.
 41. **Rimozione tipo Fissa dalla categoria principale** - Implementato; il
     tipo e gestito sulle sottocategorie.
-42. **Medie mensili senza righe duplicate** - Implementato nei KPI superiori.
+42. **Medie mensili senza righe duplicate** - Implementato: i totali annuali
+    restano nei KPI superiori e la tabella mantiene una sola riga finale
+    dedicata alle medie mensili.
 43. **Percentuali categorie in ordine decrescente** - Implementato.
 44. **Confronto righe OCR/articoli** - Implementato con contatore e avviso.
 45. **Rimozione grafici Dashboard non richiesti** - Implementato.
 46. **Impaginazione desktop/mobile** - Implementato con layout responsive.
-47. **Titoli piu riconoscibili** - Implementato con peso, contrasto e accento.
+47. **Titoli piu riconoscibili** - Implementato con dimensione maggiore, peso,
+    contrasto, sfondo leggero e accento laterale coerente in tutte le pagine.
 48. **Necessaria al posto di Non definita** - Implementato e migrato.
 49. **Caratteristiche Alimentari annuali, non mensili** - Implementato.
 50. **Tipi di spesa annuali** - Implementato.
@@ -78,6 +81,11 @@ Documento verificato: NOTE BUDGET FAMILIARE GIAMMARIO bis.docx, revisione del
     prodotto precedente ed entra nella riconciliazione del totale.
 55. **Riga VALORI SCONTI non inserita** - Implementato: le righe sconto non
     diventano articoli separati.
+56. **Elenco completo spese fisse nel Budget Mensile** - Implementato: il mese
+    mostra tutte le spese ripetitive applicabili, il loro totale, categoria e
+    sottocategoria. I badge sono ricavati dalle regole e non soltanto dalle
+    righe budget create automaticamente; le voci pregresse senza categoria
+    sono segnalate e le nuove richiedono obbligatoriamente una categoria.
 
 ## Funzione Split
 
@@ -92,3 +100,21 @@ partecipanti. Per ogni membro mostra:
   partecipanti.
 
 I calcoli sono eseguiti in centesimi per evitare errori di arrotondamento.
+
+## Modalita semplice
+
+La visualizzazione Semplice si attiva da Impostazioni ed e una preferenza
+personale per account. Non cambia il motore, non cancella dati e non modifica
+le classificazioni gia presenti.
+
+- mostra un riepilogo mensile con spese, entrate, differenza, media giornaliera
+  e stima a fine mese;
+- mantiene inserimento essenziale, elenco movimenti e Split;
+- non richiede categoria o sottocategoria per le nuove spese semplici;
+- nasconde navigazione, campi e pagine avanzate, che restano operative nel
+  motore;
+- tornando alla visualizzazione Completa ripristina immediatamente tutte le
+  funzioni e i dati avanzati gia salvati;
+- modificare un movimento dalla visualizzazione Semplice conserva i campi
+  avanzati nascosti finche non viene cambiato intenzionalmente il tipo del
+  movimento.

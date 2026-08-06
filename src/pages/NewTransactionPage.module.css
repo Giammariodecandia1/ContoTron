@@ -23,6 +23,23 @@
   gap: var(--space-4);
 }
 
+.simpleNotice {
+  background: var(--color-success-bg);
+  border: 1px solid color-mix(in srgb, var(--color-success) 32%, transparent);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-sm);
+  gap: var(--space-1);
+  padding: var(--space-4);
+}
+
+.simpleNotice strong {
+  color: var(--color-success);
+  font-size: var(--text-base);
+}
+
 .typeSelector {
   display: flex;
   background-color: var(--color-gray-100);
