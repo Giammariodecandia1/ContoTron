@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Upload } from 'lucide-react';
+import { ContotronBrand } from '../brand/ContotronBrand';
 import { MobileNavigation, Sidebar } from './Sidebar';
 import { useAuth, useHousehold, useViewMode } from '../../hooks';
 import { ensureMonthlyRecurringTransactions } from '../../lib/recurringTransactions';
@@ -35,7 +36,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       <main className={styles.mainContent}>
         <header className={styles.mobileTopBar}>
           <div>
-            <div className={styles.mobileLogo}>Contotron</div>
+            <ContotronBrand size="small" />
             {user?.display_name && <div className={styles.mobileUser}>{user.display_name}</div>}
           </div>
           <Link to={isSimple ? '/transazioni/nuova' : '/scan'} className={styles.mobileScanButton}>

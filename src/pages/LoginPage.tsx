@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ContotronBrand } from '../components/brand/ContotronBrand';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
@@ -129,7 +130,7 @@ export const LoginPage: React.FC = () => {
   return (
     <div className={styles.loginContainer}>
       <div className={styles.brand}>
-        <h1>Contotron</h1>
+        <ContotronBrand size="large" />
         <p>
           Gestionale per finanze familiari: spese, scontrini, bollette, budget,
           report e documenti del tuo nucleo in un unico posto.

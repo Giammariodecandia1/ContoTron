@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
+import { ContotronBrand } from '../brand/ContotronBrand';
 import { useAuth, useViewMode } from '../../hooks';
 import styles from './AppLayout.module.css';
 
@@ -41,7 +42,9 @@ export const Sidebar: React.FC = () => {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.sidebarHeader}>
-        <h2 className={styles.logo}>Contotron</h2>
+        <Link to="/" className={styles.brandLink} aria-label="Vai alla pagina iniziale">
+          <ContotronBrand size="medium" />
+        </Link>
         {isSimple && <span className={styles.simpleModeBadge}>Modalità semplice</span>}
       </div>
       <nav className={styles.sidebarNav}>

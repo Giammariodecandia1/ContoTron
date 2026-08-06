@@ -13,13 +13,6 @@
   text-align: center;
 }
 
-.brand h1 {
-  color: var(--color-primary);
-  font-size: 2.5rem;
-  font-weight: 800;
-  margin-bottom: var(--space-2);
-}
-
 .brand p {
   color: var(--color-gray-500);
   font-size: var(--text-lg);
@@ -193,10 +186,6 @@
   .loginContainer {
     justify-content: flex-start;
     padding-top: calc(var(--space-8) + env(safe-area-inset-top));
-  }
-
-  .brand h1 {
-    font-size: 2rem;
   }
 
   .brand p {

@@ -30,11 +30,12 @@
   text-transform: uppercase;
 }
 
-.logo {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  color: var(--color-primary);
-  margin: 0;
+.brandLink {
+  display: inline-flex;
+}
+
+.brandLink:hover {
+  text-decoration: none;
 }
 
 .sidebarNav {
@@ -195,13 +196,6 @@
     right: 0;
     top: 0;
     z-index: 20;
-  }
-
-  .mobileLogo {
-    color: var(--color-primary);
-    font-size: var(--text-lg);
-    font-weight: 800;
-    line-height: 1.1;
   }
 
   .mobileUser {

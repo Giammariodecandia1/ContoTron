@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 112">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 112" role="img" aria-labelledby="title desc">
+  <title id="title">Contotron</title>
+  <desc id="desc">Due persone e una casa condivisa con un segno di equilibrio</desc>
   <defs>
     <mask id="equal-cut">
       <rect width="128" height="112" fill="white" />

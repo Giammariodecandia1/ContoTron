@@ -64,6 +64,132 @@
   font-weight: 700;
 }
 
+.simpleUploader {
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+  margin-top: 0.2rem;
+}
+
+.simpleUploader strong {
+  color: var(--color-gray-900);
+}
+
+.memberSummaryCard {
+  margin-bottom: var(--space-5);
+}
+
+.memberSummaryToolbar {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.memberSummaryToolbar p {
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+
+.memberSummaryToolbar button,
+.filteredEmpty button {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 750;
+}
+
+.memberSummaryGrid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.memberSummaryItem {
+  background: var(--color-white);
+  border: 2px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.memberSummaryItem:hover {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.memberSummaryActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
+.memberIdentity {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.memberIdentity > span {
+  align-items: center;
+  background: var(--color-primary);
+  border-radius: 50%;
+  color: white;
+  display: inline-flex;
+  flex: 0 0 40px;
+  font-weight: 850;
+  height: 40px;
+  justify-content: center;
+}
+
+.memberIdentity div {
+  display: grid;
+  min-width: 0;
+}
+
+.memberIdentity strong {
+  color: var(--color-gray-900);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memberIdentity small,
+.memberAmounts span {
+  color: var(--color-gray-500);
+  font-size: var(--text-xs);
+}
+
+.memberAmounts {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.memberAmounts div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.memberAmounts strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.filteredEmpty {
+  align-items: center;
+  color: var(--color-gray-500);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+}
+
 .expenseAmount,
 .incomeAmount {
   font-size: var(--text-lg);
@@ -196,5 +322,14 @@
     width: 100%;
     justify-content: space-between;
     gap: var(--space-2);
+  }
+
+  .memberSummaryToolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .memberSummaryGrid {
+    grid-template-columns: 1fr;
   }
 }

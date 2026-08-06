@@ -28,6 +28,7 @@ const recurringUrl = await transpileModule('src/lib/recurringTransactions.ts', [
   ["'./supabaseClient'", `'${supabaseStubUrl}'`],
 ]);
 const viewModeUrl = await transpileModule('src/lib/viewModePreference.ts');
+const memberSummaryUrl = await transpileModule('src/lib/memberTransactionSummary.ts');
 
 const {
   countReceiptItemLikeLines,
@@ -37,6 +38,7 @@ const { parseReceiptDiscount } = await import(discountUrl);
 const { calculateEqualSplit } = await import(splitUrl);
 const { recurringRuleAppliesToMonth } = await import(recurringUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
+const { summarizeTransactionsByMember, unattributedMemberId } = await import(memberSummaryUrl);
 
 assert.equal(parseReceiptDiscount('SCONTO -1,20'), 1.2);
 assert.equal(parseReceiptDiscount('VALORI SCONTI - EUR 0,50'), 0.5);
@@ -106,4 +108,29 @@ saveViewMode('utente-a', 'complete');
 assert.equal(getViewMode('utente-a'), 'complete');
 delete globalThis.window;
 
-console.log('Verifica beta: sconti OCR, Split, spese ripetitive e modalita semplice OK');
+const memberSummaries = summarizeTransactionsByMember(
+  [
+    { userId: 'anna', displayName: 'Anna', email: null },
+    { userId: 'bruno', displayName: 'Bruno', email: null },
+  ],
+  [
+    { inserted_by: 'anna', type: 'expense', amount: 40 },
+    { inserted_by: 'anna', type: 'income', amount: 10 },
+    { inserted_by: null, type: 'expense', amount: 5 },
+  ],
+);
+assert.deepEqual(
+  memberSummaries.map(summary => ({
+    userId: summary.userId,
+    count: summary.transactionCount,
+    expenses: summary.expenses,
+    income: summary.income,
+  })),
+  [
+    { userId: 'anna', count: 2, expenses: 40, income: 10 },
+    { userId: 'bruno', count: 0, expenses: 0, income: 0 },
+    { userId: unattributedMemberId, count: 1, expenses: 5, income: 0 },
+  ],
+);
+
+console.log('Verifica beta: sconti OCR, Split, spese ripetitive, modalita semplice e riepilogo componenti OK');

@@ -1,11 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { ListPlus, Pencil, Plus, RefreshCw } from 'lucide-react';
+import { ListPlus, Pencil, Plus, RefreshCw, Users } from 'lucide-react';
 import { useTransactions, useHousehold, useViewMode } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useLocation, useNavigate } from 'react-router-dom';
+import {
+  summarizeTransactionsByMember,
+  unattributedMemberId,
+  type MemberIdentity,
+} from '../lib/memberTransactionSummary';
+import { formatCurrency } from '../lib/money';
 import { paymentMethodLabels } from '../lib/paymentTiming';
+import { supabase } from '../lib/supabaseClient';
 import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
 import type { Transaction } from '../types/database';
 import styles from './TransactionsPage.module.css';
@@ -21,6 +28,8 @@ export const TransactionsPage: React.FC = () => {
   const { household } = useHousehold();
   const { isSimple } = useViewMode();
   const [transactions, setTransactions] = useState<TransactionListItem[]>([]);
+  const [members, setMembers] = useState<MemberIdentity[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string>('all');
   const createdTransactionRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -41,17 +50,65 @@ export const TransactionsPage: React.FC = () => {
   }, [loadTxs]);
 
   useEffect(() => {
+    if (!isSimple || !household?.id) return;
+
+    const loadMembers = async () => {
+      const { data, error: memberError } = await supabase
+        .from('household_members')
+        .select(`
+          user_id,
+          profiles!household_members_user_id_fkey (
+            display_name,
+            email
+          )
+        `)
+        .eq('household_id', household.id)
+        .order('created_at', { ascending: true });
+
+      if (memberError) {
+        console.warn('Impossibile caricare tutti i componenti del nucleo:', memberError);
+        return;
+      }
+
+      setMembers((data || []).map(row => {
+        const profile = row.profiles as unknown as { display_name?: string | null; email?: string | null } | null;
+        return {
+          userId: row.user_id,
+          displayName: profile?.display_name || profile?.email || 'Componente',
+          email: profile?.email || null,
+        };
+      }));
+    };
+
+    const timer = window.setTimeout(() => void loadMembers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [household?.id, isSimple]);
+
+  useEffect(() => {
     if (!routeState.createdTransactionId || !createdTransactionRef.current) return;
     createdTransactionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [routeState.createdTransactionId, transactions]);
+
+  const memberSummaries = useMemo(
+    () => summarizeTransactionsByMember(members, transactions),
+    [members, transactions],
+  );
+
+  const visibleTransactions = useMemo(() => {
+    if (!isSimple || selectedMemberId === 'all') return transactions;
+    if (selectedMemberId === unattributedMemberId) {
+      return transactions.filter(transaction => !transaction.inserted_by);
+    }
+    return transactions.filter(transaction => transaction.inserted_by === selectedMemberId);
+  }, [isSimple, selectedMemberId, transactions]);
 
   const { newlyCreatedTransaction, currentTransactions, futureTransactions } = useMemo(() => {
     const todayEnd = new Date();
     todayEnd.setHours(23, 59, 59, 999);
     const created = routeState.createdTransactionId
-      ? transactions.find(transaction => transaction.id === routeState.createdTransactionId)
+      ? visibleTransactions.find(transaction => transaction.id === routeState.createdTransactionId)
       : undefined;
-    const remaining = transactions.filter(transaction => transaction.id !== created?.id);
+    const remaining = visibleTransactions.filter(transaction => transaction.id !== created?.id);
 
     return {
       newlyCreatedTransaction: created ? [created] : [],
@@ -62,7 +119,7 @@ export const TransactionsPage: React.FC = () => {
         .filter(transaction => new Date(transaction.transaction_date).getTime() > todayEnd.getTime())
         .sort((left, right) => new Date(left.transaction_date).getTime() - new Date(right.transaction_date).getTime()),
     };
-  }, [routeState.createdTransactionId, transactions]);
+  }, [routeState.createdTransactionId, visibleTransactions]);
 
   const handleDelete = async (id: string) => {
     if (window.confirm('Sei sicuro di voler eliminare questa transazione?')) {
@@ -77,6 +134,13 @@ export const TransactionsPage: React.FC = () => {
     return profile?.email && profile.email !== name ? `${name} (${profile.email})` : name;
   };
 
+  const simpleUploaderLabel = (tx: TransactionListItem) => (
+    tx.inserted_by_profile?.display_name
+    || tx.inserted_by_profile?.email
+    || members.find(member => member.userId === tx.inserted_by)?.displayName
+    || (tx.inserted_by ? 'Componente del nucleo' : 'Non attribuita')
+  );
+
   const renderTransaction = (tx: TransactionListItem) => (
     <div
       key={tx.id}
@@ -86,7 +150,10 @@ export const TransactionsPage: React.FC = () => {
       <div>
         <div className={styles.transactionTitle}>{tx.description}</div>
         {isSimple ? (
-          <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString('it-IT')}</div>
+          <>
+            <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString('it-IT')}</div>
+            <div className={styles.simpleUploader}>Fatta da: <strong>{simpleUploaderLabel(tx)}</strong></div>
+          </>
         ) : (
           <>
             <div className="text-muted fs-sm">
@@ -139,6 +206,42 @@ export const TransactionsPage: React.FC = () => {
         </div>
       )}
 
+      {isSimple && memberSummaries.length > 0 && (
+        <Card title="Riepilogo per componente" icon={<Users size={20} />} className={styles.memberSummaryCard}>
+          <div className={styles.memberSummaryToolbar}>
+            <p>Seleziona una persona per vedere tutte le sue transazioni.</p>
+            {selectedMemberId !== 'all' && (
+              <button type="button" onClick={() => setSelectedMemberId('all')}>
+                Mostra tutti
+              </button>
+            )}
+          </div>
+          <div className={styles.memberSummaryGrid}>
+            {memberSummaries.map(summary => (
+              <button
+                key={summary.userId}
+                type="button"
+                className={`${styles.memberSummaryItem} ${selectedMemberId === summary.userId ? styles.memberSummaryActive : ''}`}
+                aria-pressed={selectedMemberId === summary.userId}
+                onClick={() => setSelectedMemberId(current => current === summary.userId ? 'all' : summary.userId)}
+              >
+                <div className={styles.memberIdentity}>
+                  <span>{summary.displayName.charAt(0).toUpperCase() || '?'}</span>
+                  <div>
+                    <strong>{summary.displayName}</strong>
+                    <small>{summary.transactionCount} {summary.transactionCount === 1 ? 'transazione' : 'transazioni'}</small>
+                  </div>
+                </div>
+                <div className={styles.memberAmounts}>
+                  <div><span>Uscite</span><strong>{formatCurrency(summary.expenses, household?.currency || 'EUR')}</strong></div>
+                  <div><span>Entrate</span><strong>{formatCurrency(summary.income, household?.currency || 'EUR')}</strong></div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Card>
         {loading ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>Caricamento in corso...</div>
@@ -150,6 +253,11 @@ export const TransactionsPage: React.FC = () => {
             actionText="Aggiungi Transazione"
             onAction={() => navigate('/transazioni/nuova')}
           />
+        ) : visibleTransactions.length === 0 ? (
+          <div className={styles.filteredEmpty}>
+            Nessuna transazione per questo componente.
+            <button type="button" onClick={() => setSelectedMemberId('all')}>Mostra tutti i movimenti</button>
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             {newlyCreatedTransaction.length > 0 && (

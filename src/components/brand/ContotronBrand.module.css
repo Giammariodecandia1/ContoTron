@@ -1,0 +1,32 @@
+.brand {
+  align-items: center;
+  color: var(--color-gray-900);
+  display: inline-flex;
+  gap: 0.48em;
+  line-height: 1;
+}
+
+.mark {
+  display: block;
+  flex: 0 0 auto;
+  height: 1.25em;
+  width: 1.43em;
+}
+
+.wordmark {
+  font-family: 'Nunito', ui-rounded, 'Arial Rounded MT Bold', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.055em;
+}
+
+.small {
+  font-size: 1.15rem;
+}
+
+.medium {
+  font-size: 1.55rem;
+}
+
+.large {
+  font-size: clamp(2.25rem, 7vw, 3.15rem);
+}
