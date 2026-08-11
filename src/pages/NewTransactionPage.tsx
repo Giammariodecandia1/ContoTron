@@ -22,6 +22,7 @@ interface TransactionFormState {
   notes?: string;
   paymentMethod?: PaymentMethod;
   frequency?: TransactionFrequency;
+  isShared?: boolean;
   documentId?: string;
   items?: Array<{
     description: string;
@@ -53,6 +54,7 @@ export const NewTransactionPage: React.FC = () => {
   const [notes, setNotes] = useState(initialState.notes || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialState.paymentMethod || 'standard');
   const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || (isSimple ? 'other' : ''));
+  const [isShared, setIsShared] = useState(initialState.isShared ?? true);
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +102,7 @@ export const NewTransactionPage: React.FC = () => {
       setNotes(data.notes || '');
       setPaymentMethod(data.payment_method || 'standard');
       setFrequency(data.frequency || 'other');
+      setIsShared(data.is_shared !== false);
       setAccountId(data.account_id || '');
       setEditLoading(false);
     };
@@ -143,6 +146,7 @@ export const NewTransactionPage: React.FC = () => {
       payment_method: transactionType === 'expense' ? paymentMethod : 'standard',
       cash_impact_date: transactionType === 'expense' ? getCashImpactDate(date, paymentMethod) : date,
       frequency: effectiveFrequency,
+      is_shared: transactionType === 'expense' ? isShared : true,
     };
 
     submissionInFlightRef.current = true;
@@ -331,6 +335,20 @@ export const NewTransactionPage: React.FC = () => {
               <label>{isSimple ? 'Descrizione breve' : 'Descrizione'}</label>
               <input type="text" required className={styles.input} placeholder="es. Spesa settimanale..." value={description} onChange={e => setDescription(e.target.value)} />
             </div>
+
+            {transactionType === 'expense' && (
+              <label className={`${styles.personalToggle} ${!isShared ? styles.personalToggleActive : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={!isShared}
+                  onChange={event => setIsShared(!event.target.checked)}
+                />
+                <span>
+                  <strong>Acquisto personale</strong>
+                  <small>Non inserire questa spesa nello Split familiare</small>
+                </span>
+              </label>
+            )}
 
             {!isSimple && (
               <div className={styles.formGroup}>

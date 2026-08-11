@@ -29,7 +29,7 @@
 .summaryGrid {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .summaryCard {
@@ -170,6 +170,12 @@
   color: var(--color-gray-500);
   padding: var(--space-5);
   text-align: center;
+}
+
+@media (max-width: 1050px) and (min-width: 801px) {
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 800px) {

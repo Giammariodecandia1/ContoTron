@@ -16,10 +16,54 @@ interface SummaryTransaction {
   inserted_by: string | null;
   type: TransactionType;
   amount: number;
+  status?: string;
+  is_shared?: boolean;
   inserted_by_profile?: { display_name?: string | null; email?: string | null } | null;
 }
 
+export interface HouseholdSpendingSummary {
+  householdExpenses: number;
+  householdExpenseCount: number;
+  myExpenses: number;
+  myExpenseCount: number;
+  sharedExpenses: number;
+}
+
 export const unattributedMemberId = 'unattributed';
+
+export const summarizeHouseholdSpending = (
+  transactions: SummaryTransaction[],
+  currentUserId?: string | null,
+): HouseholdSpendingSummary => transactions.reduce<HouseholdSpendingSummary>((summary, transaction) => {
+  if (
+    transaction.type !== 'expense'
+    || transaction.status === 'deleted'
+    || transaction.status === 'rejected'
+  ) {
+    return summary;
+  }
+
+  const amount = Number(transaction.amount || 0);
+  summary.householdExpenses += amount;
+  summary.householdExpenseCount += 1;
+
+  if (currentUserId && transaction.inserted_by === currentUserId) {
+    summary.myExpenses += amount;
+    summary.myExpenseCount += 1;
+  }
+
+  if (transaction.is_shared !== false) {
+    summary.sharedExpenses += amount;
+  }
+
+  return summary;
+}, {
+  householdExpenses: 0,
+  householdExpenseCount: 0,
+  myExpenses: 0,
+  myExpenseCount: 0,
+  sharedExpenses: 0,
+});
 
 export const summarizeTransactionsByMember = (
   members: MemberIdentity[],

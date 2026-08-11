@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
 import { formatCurrency } from '../lib/money';
-import { calculateEqualSplit } from '../lib/splitCalculator';
+import { calculateEqualSplit, transactionBelongsToSplit } from '../lib/splitCalculator';
 import { supabase } from '../lib/supabaseClient';
 import styles from './SplitPage.module.css';
 
@@ -69,6 +69,7 @@ export const SplitPage: React.FC = () => {
           .select('id, account_id, amount, transaction_date, cash_impact_date, inserted_by, is_shared, status, type')
           .eq('household_id', householdId)
           .eq('type', 'expense')
+          .eq('is_shared', true)
           .neq('status', 'deleted')
           .or([
             `and(cash_impact_date.gte.${fromDate},cash_impact_date.lte.${toDate})`,
@@ -112,10 +113,9 @@ export const SplitPage: React.FC = () => {
     const selectedSet = new Set(selectedMemberIds);
     const inPeriod = transactions.filter(transaction => {
       const date = transactionImpactDate(transaction);
-      return date >= fromDate
+      return transactionBelongsToSplit(transaction)
+        && date >= fromDate
         && date <= toDate
-        && transaction.status !== 'rejected'
-        && transaction.is_shared !== false
         && (accountId === 'all' || transaction.account_id === accountId);
     });
     const unattributedCents = inPeriod

@@ -26,6 +26,19 @@ export interface SplitSettlement {
   amountCents: number;
 }
 
+export interface SplitEligibleTransaction {
+  type: string;
+  status: string;
+  is_shared: boolean;
+}
+
+export const transactionBelongsToSplit = (transaction: SplitEligibleTransaction) => (
+  transaction.type === 'expense'
+  && transaction.status !== 'deleted'
+  && transaction.status !== 'rejected'
+  && transaction.is_shared !== false
+);
+
 export const calculateEqualSplit = (
   participants: SplitParticipantInput[],
   payments: SplitPaymentInput[],

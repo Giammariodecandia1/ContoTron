@@ -3,13 +3,15 @@ import { ArrowRight, List, Plus, Scale, WalletCards } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
-import { useHousehold, useTransactions } from '../hooks';
+import { useAuth, useHousehold, useTransactions } from '../hooks';
+import { summarizeHouseholdSpending } from '../lib/memberTransactionSummary';
 import { formatCurrency } from '../lib/money';
 import type { Transaction } from '../types/database';
 import styles from './SimpleDashboardPage.module.css';
 
 export const SimpleDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { household } = useHousehold();
   const { fetchTransactions, loading } = useTransactions();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -29,26 +31,22 @@ export const SimpleDashboardPage: React.FC = () => {
   }, [loadTransactions]);
 
   const summary = useMemo(() => {
-    const expenses = transactions
-      .filter(transaction => transaction.type === 'expense')
-      .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
+    const spending = summarizeHouseholdSpending(transactions, user?.id);
     const income = transactions
       .filter(transaction => transaction.type === 'income')
       .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
-    const expenseCount = transactions.filter(transaction => transaction.type === 'expense').length;
     const elapsedDays = Math.max(1, today.getDate());
     const daysInMonth = new Date(year, month, 0).getDate();
-    const dailyAverage = expenses / elapsedDays;
+    const dailyAverage = spending.householdExpenses / elapsedDays;
 
     return {
-      expenses,
+      ...spending,
       income,
-      balance: income - expenses,
-      expenseCount,
+      balance: income - spending.householdExpenses,
       dailyAverage,
       projectedExpenses: dailyAverage * daysInMonth,
     };
-  }, [month, today, transactions, year]);
+  }, [month, today, transactions, user?.id, year]);
 
   const recentExpenses = useMemo(() => (
     transactions
@@ -77,9 +75,14 @@ export const SimpleDashboardPage: React.FC = () => {
 
       <div className={styles.summaryGrid}>
         <div className={styles.summaryCard}>
-          <span>Spese del mese</span>
-          <strong>{formatCurrency(summary.expenses, currency)}</strong>
-          <small>{summary.expenseCount} movimenti inseriti</small>
+          <span>Spese del nucleo</span>
+          <strong>{formatCurrency(summary.householdExpenses, currency)}</strong>
+          <small>{summary.householdExpenseCount} movimenti del mese</small>
+        </div>
+        <div className={styles.summaryCard}>
+          <span>Le mie spese</span>
+          <strong>{formatCurrency(summary.myExpenses, currency)}</strong>
+          <small>{summary.myExpenseCount} movimenti attribuiti a te</small>
         </div>
         <div className={styles.summaryCard}>
           <span>Entrate del mese</span>

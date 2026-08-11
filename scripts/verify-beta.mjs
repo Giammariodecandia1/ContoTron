@@ -35,10 +35,14 @@ const {
   extractReceiptItems,
 } = await import(receiptUrl);
 const { parseReceiptDiscount } = await import(discountUrl);
-const { calculateEqualSplit } = await import(splitUrl);
+const { calculateEqualSplit, transactionBelongsToSplit } = await import(splitUrl);
 const { recurringRuleAppliesToMonth } = await import(recurringUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
-const { summarizeTransactionsByMember, unattributedMemberId } = await import(memberSummaryUrl);
+const {
+  summarizeHouseholdSpending,
+  summarizeTransactionsByMember,
+  unattributedMemberId,
+} = await import(memberSummaryUrl);
 
 assert.equal(parseReceiptDiscount('SCONTO -1,20'), 1.2);
 assert.equal(parseReceiptDiscount('VALORI SCONTI - EUR 0,50'), 0.5);
@@ -65,6 +69,11 @@ assert.deepEqual(twoPeople.settlements, [{
   to: 'Anna',
   amountCents: 5000,
 }]);
+
+assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'confirmed', is_shared: true }), true);
+assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'confirmed', is_shared: false }), false);
+assert.equal(transactionBelongsToSplit({ type: 'income', status: 'confirmed', is_shared: true }), false);
+assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'rejected', is_shared: true }), false);
 
 const threePeople = calculateEqualSplit(
   [
@@ -133,4 +142,19 @@ assert.deepEqual(
   ],
 );
 
-console.log('Verifica beta: sconti OCR, Split, spese ripetitive, modalita semplice e riepilogo componenti OK');
+const spendingSummary = summarizeHouseholdSpending([
+  { inserted_by: 'anna', type: 'expense', amount: 40, is_shared: true },
+  { inserted_by: 'anna', type: 'expense', amount: 15, is_shared: false },
+  { inserted_by: 'bruno', type: 'expense', amount: 10, is_shared: true },
+  { inserted_by: 'anna', type: 'income', amount: 100, is_shared: true },
+  { inserted_by: 'anna', type: 'expense', amount: 99, is_shared: true, status: 'rejected' },
+], 'anna');
+assert.deepEqual(spendingSummary, {
+  householdExpenses: 65,
+  householdExpenseCount: 3,
+  myExpenses: 55,
+  myExpenseCount: 2,
+  sharedExpenses: 50,
+});
+
+console.log('Verifica beta: sconti OCR, Split, acquisti personali, spese ripetitive, modalita semplice, riepilogo componenti e totali nucleo/personali OK');

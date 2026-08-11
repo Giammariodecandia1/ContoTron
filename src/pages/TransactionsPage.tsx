@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ListPlus, Pencil, Plus, RefreshCw, Users } from 'lucide-react';
-import { useTransactions, useHousehold, useViewMode } from '../hooks';
+import { useAuth, useTransactions, useHousehold, useViewMode } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   summarizeTransactionsByMember,
+  summarizeHouseholdSpending,
   unattributedMemberId,
   type MemberIdentity,
 } from '../lib/memberTransactionSummary';
@@ -24,6 +25,7 @@ type TransactionListItem = Transaction & {
 };
 
 export const TransactionsPage: React.FC = () => {
+  const { user } = useAuth();
   const { fetchTransactions, loading, error, deleteTransaction } = useTransactions();
   const { household } = useHousehold();
   const { isSimple } = useViewMode();
@@ -94,6 +96,11 @@ export const TransactionsPage: React.FC = () => {
     [members, transactions],
   );
 
+  const spendingSummary = useMemo(
+    () => summarizeHouseholdSpending(transactions, user?.id),
+    [transactions, user?.id],
+  );
+
   const visibleTransactions = useMemo(() => {
     if (!isSimple || selectedMemberId === 'all') return transactions;
     if (selectedMemberId === unattributedMemberId) {
@@ -148,7 +155,12 @@ export const TransactionsPage: React.FC = () => {
       className={tx.id === routeState.createdTransactionId ? styles.recentlyCreated : styles.transactionRow}
     >
       <div>
-        <div className={styles.transactionTitle}>{tx.description}</div>
+        <div className={styles.transactionHeading}>
+          <div className={styles.transactionTitle}>{tx.description}</div>
+          {tx.type === 'expense' && tx.is_shared === false && (
+            <span className={styles.personalBadge}>Personale · fuori Split</span>
+          )}
+        </div>
         {isSimple ? (
           <>
             <div className="text-muted fs-sm">{new Date(tx.transaction_date).toLocaleDateString('it-IT')}</div>
@@ -208,6 +220,18 @@ export const TransactionsPage: React.FC = () => {
 
       {isSimple && memberSummaries.length > 0 && (
         <Card title="Riepilogo per componente" icon={<Users size={20} />} className={styles.memberSummaryCard}>
+          <div className={styles.spendingOverview}>
+            <div>
+              <span>Spese del nucleo</span>
+              <strong>{formatCurrency(spendingSummary.householdExpenses, household?.currency || 'EUR')}</strong>
+              <small>{spendingSummary.householdExpenseCount} movimenti complessivi</small>
+            </div>
+            <div className={styles.mySpending}>
+              <span>Le mie spese</span>
+              <strong>{formatCurrency(spendingSummary.myExpenses, household?.currency || 'EUR')}</strong>
+              <small>{spendingSummary.myExpenseCount} movimenti attribuiti a te</small>
+            </div>
+          </div>
           <div className={styles.memberSummaryToolbar}>
             <p>Seleziona una persona per vedere tutte le sue transazioni.</p>
             {selectedMemberId !== 'all' && (
