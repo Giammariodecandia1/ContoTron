@@ -452,6 +452,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                 const hasSubcategories = categorySubcategories.length > 0;
                 const isExpanded = expandedCategoryIds.has(cat.id);
                 const categoryRecurringRules = monthlyRecurringRules.filter(rule => rule.category_id === cat.id);
+                const unallocatedRecurringRules = categoryRecurringRules.filter(rule => !rule.subcategory_id);
                 const hasAutomaticCategoryBudget = categoryRecurringRules.length > 0;
                 const recurringBadgeLabel = categoryRecurringRules.length === 1
                   ? '1 spesa ripetitiva'
@@ -512,7 +513,14 @@ export const MonthlyBudgetPage: React.FC = () => {
                     {hasSubcategories && isExpanded && (
                       <>
                         <tr className={`${styles.subcategoryRow} ${styles.unallocatedRow}`}>
-                          <td data-label="Voce"><div className={styles.subcategoryName}>Non ripartito</div></td>
+                          <td data-label="Voce">
+                            <div className={styles.subcategoryName}>
+                              Non ripartito
+                              {unallocatedRecurringRules.map(rule => (
+                                <em key={rule.id} className={styles.autoBudgetBadge}>Spesa fissa: {rule.description}</em>
+                              ))}
+                            </div>
+                          </td>
                           <td data-label="Previsto" className={styles.amount}>
                             <strong>{(categoryBudgets[cat.id] || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
                             <small className={styles.calculatedLabel}>calcolato</small>

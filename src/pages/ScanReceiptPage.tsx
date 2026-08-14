@@ -18,7 +18,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
+import { useAiConfiguration, useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider } from '../lib/documentStoragePreference';
@@ -39,6 +39,7 @@ import {
 } from '../lib/productLearning';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
+import { analyzeReceiptWithAi } from '../lib/aiReceiptAnalysis';
 import type { PaymentMethod, TransactionFrequency } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
 
@@ -236,6 +237,26 @@ const preparePageForOcr = async (page: ReceiptPage, mode: 'standard' | 'strong' 
   return canvas.toDataURL('image/jpeg', 0.92);
 };
 
+const preparePageForAi = async (page: ReceiptPage) => {
+  const image = await loadDataUrlImage(page.image);
+  const crop = page.crop;
+  const sourceX = crop ? Math.round((crop.x / 100) * image.naturalWidth) : 0;
+  const sourceY = crop ? Math.round((crop.y / 100) * image.naturalHeight) : 0;
+  const sourceWidth = Math.max(1, crop ? Math.round((crop.width / 100) * image.naturalWidth) : image.naturalWidth);
+  const sourceHeight = Math.max(1, crop ? Math.round((crop.height / 100) * image.naturalHeight) : image.naturalHeight);
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight));
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return page.image;
+  canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+  canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.8);
+};
+
 const assessOcrText = (text: string, confidence: number) => {
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const itemLikeLines = lines.filter(line => (
@@ -323,12 +344,15 @@ export const ScanReceiptPage: React.FC = () => {
   const [quickSaveMode, setQuickSaveMode] = useState(false);
   const [quickCategoryId, setQuickCategoryId] = useState('');
   const [preparingQuickSave, setPreparingQuickSave] = useState(false);
+  const [aiEnhanced, setAiEnhanced] = useState(false);
+  const [aiNotice, setAiNotice] = useState<string | null>(null);
 
   const webcamRef = useRef<Webcam>(null);
   const saveInFlightRef = useRef(false);
   const navigate = useNavigate();
   const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
+  const { configuration: aiConfiguration } = useAiConfiguration();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const {
     connection: personalDriveConnection,
@@ -355,6 +379,8 @@ export const ScanReceiptPage: React.FC = () => {
     setRemovedOverlapLines(0);
     setQuickSaveMode(false);
     setQuickCategoryId('');
+    setAiEnhanced(false);
+    setAiNotice(null);
   };
 
   const resetAll = () => {
@@ -557,10 +583,62 @@ export const ScanReceiptPage: React.FC = () => {
         });
       }
 
-      setDetectedCategoryId(matchedCategoryId);
-      setDetectedSubcategoryId(matchedSubcategoryId);
-      setReceiptItems(editableItems);
-      setOcrCandidateLineCount(candidateLineCount);
+      let finalCategoryId = matchedCategoryId;
+      let finalSubcategoryId = matchedSubcategoryId;
+      let finalItems = editableItems;
+      let finalMerchant = cleanMerchant || 'Esercente sconosciuto';
+      let finalAmount = totalResult.amount ? totalResult.amount.toFixed(2) : '0.00';
+      let aiResultMessage = '';
+      let usedAi = false;
+
+      if (aiConfiguration) {
+        try {
+          setScanProgress('Controllo aggiuntivo con AI...');
+          const aiImages = await Promise.all(pages.map(preparePageForAi));
+          const aiResult = await analyzeReceiptWithAi({
+            configuration: aiConfiguration,
+            images: aiImages,
+            ocrText: merged.text,
+            categories,
+            subcategories,
+          });
+          if (aiResult.merchant) finalMerchant = aiResult.merchant;
+          if (aiResult.total !== null) finalAmount = aiResult.total.toFixed(2);
+          if (aiResult.date) setDate(aiResult.date);
+          if (aiResult.categoryId) finalCategoryId = aiResult.categoryId;
+          if (aiResult.subcategoryId) finalSubcategoryId = aiResult.subcategoryId;
+          if (aiResult.items.length > 0) {
+            finalItems = aiResult.items.map(item => {
+              const learnedRule = findProductClassificationRule(item.description, productRules);
+              return {
+                id: `ai-${crypto.randomUUID()}`,
+                rawLine: item.description,
+                description: item.description,
+                amount: item.amount,
+                amountText: item.amount.toFixed(2),
+                categoryId: learnedRule?.category_id || item.categoryId || finalCategoryId,
+                subcategoryId: learnedRule?.subcategory_id || item.subcategoryId || '',
+              };
+            });
+          }
+          setAiEnhanced(true);
+          usedAi = true;
+          setAiNotice('Controllo AI completato. Verifica sempre totale, righe e categorie prima di salvare.');
+          aiResultMessage = 'risultato migliorato con AI';
+        } catch (aiError) {
+          console.warn('Controllo AI non disponibile, mantengo OCR locale:', aiError);
+          setAiEnhanced(false);
+          setAiNotice(`AI non disponibile: ${aiError instanceof Error ? aiError.message : 'errore di collegamento'}. Il risultato mostrato proviene dall OCR locale.`);
+          aiResultMessage = 'AI non disponibile, usato OCR locale';
+        }
+      }
+
+      setAmount(finalAmount);
+      setMerchant(finalMerchant);
+      setDetectedCategoryId(finalCategoryId);
+      setDetectedSubcategoryId(finalSubcategoryId);
+      setReceiptItems(finalItems);
+      setOcrCandidateLineCount(usedAi ? Math.max(candidateLineCount, finalItems.length) : candidateLineCount);
       setOcrPages(recognizedPages);
       setMergedOcrText(merged.text);
       setRemovedOverlapLines(merged.removedOverlapLines);
@@ -573,6 +651,7 @@ export const ScanReceiptPage: React.FC = () => {
         reconciliation.correctedDescriptions.length > 0
           ? `Corretto possibile errore 9/0 su: ${reconciliation.correctedDescriptions.join(', ')}`
           : '',
+        aiResultMessage,
       ].filter(Boolean).join(' - '));
       setStatus('done');
     } catch (error) {
@@ -839,7 +918,7 @@ export const ScanReceiptPage: React.FC = () => {
       const { error: ocrError } = await supabase.from('ocr_jobs').insert([{
         household_id: household.id,
         document_id: document.id,
-        provider: 'tesseract',
+        provider: aiEnhanced ? 'tesseract+user_ai' : 'tesseract',
         status: 'completed',
         extracted_text: mergedOcrText,
         extracted_json: {
@@ -851,6 +930,7 @@ export const ScanReceiptPage: React.FC = () => {
           pages: ocrPages,
           detected_category_id: detectedCategoryId || null,
           detected_subcategory_id: detectedSubcategoryId || null,
+          ai_enhanced: aiEnhanced,
           items: items.map(item => ({
             description: item.description,
             amount: item.amount,
@@ -994,7 +1074,9 @@ export const ScanReceiptPage: React.FC = () => {
             <div className={styles.actionRow}>
               <Button variant="secondary" onClick={resetAll}>Annulla scansione</Button>
               <Button icon={<CropIcon size={18} />} onClick={processImages} disabled={preparingImages}>
-                {preparingImages ? 'Preparazione...' : `Analizza ${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'}`}
+                {preparingImages
+                  ? 'Preparazione...'
+                  : `${aiConfiguration ? 'Analizza con OCR + AI' : 'Analizza'} ${pages.length} ${pages.length === 1 ? 'pagina' : 'pagine'}`}
               </Button>
             </div>
           </div>
@@ -1060,6 +1142,7 @@ export const ScanReceiptPage: React.FC = () => {
             </div>
 
             {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
+            {aiNotice && <p className={`${styles.aiNotice} ${aiEnhanced ? styles.aiNoticeSuccess : styles.aiNoticeWarning}`}>{aiNotice}</p>}
 
             <div className={`${styles.quickSavePanel} ${quickSaveMode ? styles.quickSavePanelActive : ''}`}>
               <div>

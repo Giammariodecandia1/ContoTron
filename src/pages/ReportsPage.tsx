@@ -810,20 +810,6 @@ export const ReportsPage: React.FC = () => {
               </div>
             </Card>
 
-            <Card title="Frequenza delle spese">
-              <div className={styles.list}>{report.frequencyRows.length === 0 ? <div className={styles.empty}>Nessun dato</div> : report.frequencyRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} movimenti</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
-            </Card>
-
-            <Card title="Persone e conti">
-              <div className={styles.dualList}>
-                <div><h4>Inserita da</h4>{report.insertedByRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.insertedByRows.map(row => <div key={row.name} className={styles.compactRow}><span>{row.name}</span><strong>{formatCurrency(row.amount, currency)}</strong></div>)}</div>
-                <div><h4>Conto</h4>{report.accountRows.length === 0 ? <p className={styles.empty}>Nessun dato</p> : report.accountRows.map(row => <div key={row.name} className={styles.compactRow}><span>{row.name}</span><strong>{formatCurrency(row.amount, currency)}</strong></div>)}</div>
-              </div>
-            </Card>
-
-            <Card title="Documenti archiviati">
-              <div className={styles.list}>{report.documentRows.length === 0 ? <div className={styles.empty}>Nessun documento archiviato nel mese.</div> : report.documentRows.map(row => <div key={row.name} className={styles.listItem}><div><strong>{row.name}</strong><span>{row.count} documenti</span></div><b>{formatCurrency(row.amount, currency)}</b></div>)}</div>
-            </Card>
           </div>
         </>
       )}

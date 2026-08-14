@@ -504,36 +504,6 @@ export const DashboardPage: React.FC = () => {
         )}
       </Card>
 
-      <Card title={`Budget per categoria ${selectedYear}`}>
-        <p className="text-muted fs-sm">Categorie in ordine alfabetico. Per ogni mese sono affiancati previsto e consuntivo.</p>
-        {annualCategoryRows.length === 0 ? (
-          <div className={styles.empty}>Nessun budget o movimento categorizzato per l'anno selezionato.</div>
-        ) : (
-          <div className={styles.categoryAnnualList}>
-            {annualCategoryRows.map(row => (
-              <section key={row.id} className={styles.categoryAnnualSection}>
-                <header className={styles.categoryAnnualHeader}>
-                  <h3>{row.name}</h3>
-                  <div className={styles.categoryAnnualTotals}>
-                    <span>Previsto <strong>{currency(row.plannedTotal, currencyCode)}</strong></span>
-                    <span>Consuntivo <strong>{currency(row.actualTotal, currencyCode)}</strong></span>
-                  </div>
-                </header>
-                <div className={styles.categoryMonthGrid}>
-                  {row.months.map(month => (
-                    <div key={month.month} className={styles.categoryMonthCell}>
-                      <span className={styles.categoryMonthName}>{monthNames[month.month - 1]}</span>
-                      <span className={styles.plannedValue}>Prev. {currency(month.planned, currencyCode)}</span>
-                      <span className={styles.actualValue}>Cons. {currency(month.actual, currencyCode)}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </Card>
-
       <Card title={`Spese annuali per categoria ${selectedYear}`}>
         <p className="text-muted fs-sm">
           Consuntivo ordinato automaticamente dalla categoria con la spesa maggiore a quella con la spesa minore.
@@ -563,6 +533,36 @@ export const DashboardPage: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        )}
+      </Card>
+
+      <Card title={`Budget per categoria ${selectedYear}`}>
+        <p className="text-muted fs-sm">Categorie in ordine alfabetico. Per ogni mese sono affiancati previsto e consuntivo.</p>
+        {annualCategoryRows.length === 0 ? (
+          <div className={styles.empty}>Nessun budget o movimento categorizzato per l'anno selezionato.</div>
+        ) : (
+          <div className={styles.categoryAnnualList}>
+            {annualCategoryRows.map(row => (
+              <section key={row.id} className={styles.categoryAnnualSection}>
+                <header className={styles.categoryAnnualHeader}>
+                  <h3>{row.name}</h3>
+                  <div className={styles.categoryAnnualTotals}>
+                    <span>Previsto <strong>{currency(row.plannedTotal, currencyCode)}</strong></span>
+                    <span>Consuntivo <strong>{currency(row.actualTotal, currencyCode)}</strong></span>
+                  </div>
+                </header>
+                <div className={styles.categoryMonthGrid}>
+                  {row.months.map(month => (
+                    <div key={month.month} className={styles.categoryMonthCell}>
+                      <span className={styles.categoryMonthName}>{monthNames[month.month - 1]}</span>
+                      <span className={styles.plannedValue}>Prev. {currency(month.planned, currencyCode)}</span>
+                      <span className={styles.actualValue}>Cons. {currency(month.actual, currencyCode)}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ))}
           </div>
         )}
       </Card>

@@ -26,8 +26,21 @@ interface SplitTransaction {
   type: string;
 }
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
-const currentYearStart = () => `${new Date().getFullYear()}-01-01`;
+const localDateIso = (date: Date) => [
+  date.getFullYear(),
+  String(date.getMonth() + 1).padStart(2, '0'),
+  String(date.getDate()).padStart(2, '0'),
+].join('-');
+
+const currentMonthStart = () => {
+  const today = new Date();
+  return localDateIso(new Date(today.getFullYear(), today.getMonth(), 1));
+};
+
+const currentMonthEnd = () => {
+  const today = new Date();
+  return localDateIso(new Date(today.getFullYear(), today.getMonth() + 1, 0));
+};
 
 const transactionImpactDate = (transaction: SplitTransaction) => (
   transaction.cash_impact_date || transaction.transaction_date
@@ -37,8 +50,8 @@ export const SplitPage: React.FC = () => {
   const { household, accounts } = useHousehold();
   const householdId = household?.id || null;
   const currency = household?.currency || 'EUR';
-  const [fromDate, setFromDate] = useState(currentYearStart);
-  const [toDate, setToDate] = useState(todayIso);
+  const [fromDate, setFromDate] = useState(currentMonthStart);
+  const [toDate, setToDate] = useState(currentMonthEnd);
   const [accountId, setAccountId] = useState('all');
   const [members, setMembers] = useState<SplitMember[]>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);

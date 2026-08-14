@@ -3,7 +3,7 @@ import { BrowserRouter, Routes as RouterRoutes, Route as RouterRoute, Navigate a
 import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/LoginPage';
 import { NewTransactionPage } from './pages/NewTransactionPage';
-import { useAuth, useHousehold, useViewMode } from './hooks';
+import { useAiConfiguration, useAuth, useHousehold, useViewMode } from './hooks';
 
 const OnboardingPage = lazy(() => import('./pages/OnboardingPage').then(module => ({ default: module.OnboardingPage })));
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then(module => ({ default: module.DashboardPage })));
@@ -21,11 +21,13 @@ const AnnualAnalysisPage = lazy(() => import('./pages/AnnualAnalysisPage').then(
 const FoodWeeklyAnalysisPage = lazy(() => import('./pages/FoodWeeklyAnalysisPage').then(module => ({ default: module.FoodWeeklyAnalysisPage })));
 const SplitPage = lazy(() => import('./pages/SplitPage').then(module => ({ default: module.SplitPage })));
 const RecurringRulesPage = lazy(() => import('./pages/RecurringRulesPage').then(module => ({ default: module.RecurringRulesPage })));
+const AiAssistantPage = lazy(() => import('./pages/AiAssistantPage').then(module => ({ default: module.AiAssistantPage })));
 
 function App() {
   const { user } = useAuth();
   const { household } = useHousehold();
   const { isSimple } = useViewMode();
+  const { isAiEnabled } = useAiConfiguration();
   const advancedOnly = (element: React.ReactNode) => (
     isSimple ? <RouterNavigate to="/dashboard" replace /> : element
   );
@@ -60,6 +62,7 @@ function App() {
               <RouterRoute path="/analisi-annuale" element={advancedOnly(<AnnualAnalysisPage />)} />
               <RouterRoute path="/analisi-alimentari" element={advancedOnly(<FoodWeeklyAnalysisPage />)} />
               <RouterRoute path="/split" element={<SplitPage />} />
+              <RouterRoute path="/assistente" element={isAiEnabled ? <AiAssistantPage /> : <RouterNavigate to="/impostazioni" replace />} />
               <RouterRoute path="/scan" element={advancedOnly(<ScanReceiptPage />)} />
               <RouterRoute path="/impostazioni" element={<SettingsPage />} />
               <RouterRoute path="/impostazioni/categorie" element={advancedOnly(<CategoriesPage />)} />

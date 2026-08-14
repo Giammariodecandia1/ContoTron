@@ -157,4 +157,26 @@ assert.deepEqual(spendingSummary, {
   sharedExpenses: 50,
 });
 
-console.log('Verifica beta: sconti OCR, Split, acquisti personali, spese ripetitive, modalita semplice, riepilogo componenti e totali nucleo/personali OK');
+const reportsPageSource = await readFile(new URL('../src/pages/ReportsPage.tsx', import.meta.url), 'utf8');
+assert.equal(reportsPageSource.includes('<Card title="Frequenza delle spese">'), false);
+assert.equal(reportsPageSource.includes('<Card title="Persone e conti">'), false);
+assert.equal(reportsPageSource.includes('<Card title="Documenti archiviati">'), false);
+
+const annualAnalysisSource = await readFile(new URL('../src/pages/AnnualAnalysisPage.tsx', import.meta.url), 'utf8');
+assert.equal(annualAnalysisSource.includes('<Card title="Indicazioni di riequilibrio">'), false);
+
+const dashboardSource = await readFile(new URL('../src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
+const annualExpensesPosition = dashboardSource.indexOf('Spese annuali per categoria');
+const categoryBudgetPosition = dashboardSource.indexOf('Budget per categoria');
+assert.notEqual(annualExpensesPosition, -1);
+assert.notEqual(categoryBudgetPosition, -1);
+assert.equal(annualExpensesPosition < categoryBudgetPosition, true);
+
+const monthlyBudgetSource = await readFile(new URL('../src/pages/MonthlyBudgetPage.tsx', import.meta.url), 'utf8');
+assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), true);
+
+const splitPageSource = await readFile(new URL('../src/pages/SplitPage.tsx', import.meta.url), 'utf8');
+assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);
+assert.equal(splitPageSource.includes('useState(currentMonthEnd)'), true);
+
+console.log('Verifica beta: logiche finanziarie e fix visuali agosto 2026 OK');

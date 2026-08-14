@@ -284,8 +284,6 @@ export const AnnualAnalysisPage: React.FC = () => {
     const plannedAverage = plannedTotal / 12;
     const actualAverage = actualTotal / actualMonthCount;
     const actualComparableRows = rows.slice(0, actualMonthCount);
-    const plannedPeak = [...rows].sort((a, b) => b.plannedExpense - a.plannedExpense)[0];
-    const actualPeak = [...actualComparableRows].sort((a, b) => b.actualExpense - a.actualExpense)[0];
 
     const categoryById = new Map(categories.map(category => [category.id, category]));
     const subcategoryById = new Map(subcategories.map(subcategory => [subcategory.id, subcategory]));
@@ -415,8 +413,6 @@ export const AnnualAnalysisPage: React.FC = () => {
       plannedAverage,
       actualAverage,
       actualMonthCount,
-      plannedPeak,
-      actualPeak,
       plannedAboveAverage: rows.filter(row => row.plannedExpense > plannedAverage).length,
       actualAboveAverage: actualComparableRows.filter(row => row.actualExpense > actualAverage).length,
       plannedAboveIncome: rows.filter(row => row.plannedIncome > 0 && row.plannedExpense > row.plannedIncome).length,
@@ -429,8 +425,6 @@ export const AnnualAnalysisPage: React.FC = () => {
       foodCharacteristicTotal,
     };
   }, [budgetRows, categories, currentYear, expenseItemRows, expenseRows, incomeRows, selectedYear, subcategories, today]);
-
-  const imbalance = Math.max(0, analysis.plannedPeak.plannedExpense - analysis.plannedAverage);
 
   return (
     <div className={styles.page}>
@@ -562,25 +556,6 @@ export const AnnualAnalysisPage: React.FC = () => {
             </Card>
           </div>
 
-          <Card title="Indicazioni di riequilibrio">
-            {analysis.plannedTotal <= 0 ? (
-              <p className="text-muted">Nessun budget previsionale disponibile per il {selectedYear}.</p>
-            ) : (
-              <div className={styles.insights}>
-                <p>
-                  Il mese previsto piu impegnativo e <strong>{analysis.plannedPeak.label}</strong> con{' '}
-                  <strong>{exactCurrency(analysis.plannedPeak.plannedExpense, currency)}</strong>.
-                  {imbalance > 0 && <> Per avvicinarlo alla media mensile occorrerebbe redistribuire circa <strong>{exactCurrency(imbalance, currency)}</strong>.</>}
-                </p>
-                {analysis.actualTotal > 0 && (
-                  <p>
-                    Nel consuntivo, il mese con la spesa maggiore e <strong>{analysis.actualPeak.label}</strong> con{' '}
-                    <strong>{exactCurrency(analysis.actualPeak.actualExpense, currency)}</strong>.
-                  </p>
-                )}
-              </div>
-            )}
-          </Card>
         </>
       )}
     </div>

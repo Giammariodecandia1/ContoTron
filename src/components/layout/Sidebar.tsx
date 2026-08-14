@@ -1,8 +1,8 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
+import { Bot, Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
 import { ContotronBrand } from '../brand/ContotronBrand';
-import { useAuth, useViewMode } from '../../hooks';
+import { useAiConfiguration, useAuth, useViewMode } from '../../hooks';
 import styles from './AppLayout.module.css';
 
 const navItems = [
@@ -36,7 +36,11 @@ export const Sidebar: React.FC = () => {
   const location = useLocation();
   const { user, logout } = useAuth();
   const { isSimple } = useViewMode();
-  const visibleItems = isSimple ? simpleNavItems : navItems;
+  const { isAiEnabled } = useAiConfiguration();
+  const baseItems = isSimple ? simpleNavItems : navItems;
+  const visibleItems = isAiEnabled
+    ? [...baseItems.slice(0, -1), { path: '/assistente', label: 'Assistente AI', icon: <Bot size={20} /> }, baseItems[baseItems.length - 1]]
+    : baseItems;
   const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (
@@ -87,9 +91,13 @@ export const Sidebar: React.FC = () => {
 export const MobileNavigation: React.FC = () => {
   const location = useLocation();
   const { isSimple } = useViewMode();
-  const mobileItems = isSimple
+  const { isAiEnabled } = useAiConfiguration();
+  const baseMobileItems = isSimple
     ? simpleNavItems
     : [...navItems, { path: '/scan', label: 'Scan', icon: <Upload size={20} /> }];
+  const mobileItems = isAiEnabled
+    ? [...baseMobileItems, { path: '/assistente', label: 'AI', icon: <Bot size={20} /> }]
+    : baseMobileItems;
   const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (
