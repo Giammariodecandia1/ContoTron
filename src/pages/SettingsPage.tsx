@@ -49,6 +49,7 @@ import {
 import type { DocumentStorageProvider } from '../types/database';
 import {
   clearAiConfiguration,
+  createDefaultAiDraft,
   saveAiConfiguration,
   type AiConfigurationDraft,
 } from '../lib/aiConfiguration';
@@ -70,16 +71,16 @@ export const SettingsPage: React.FC = () => {
   const [storageError, setStorageError] = useState<string | null>(null);
   const [fontScale, setFontScale] = useState<FontScale>(() => getFontScale());
   const [aiExpanded, setAiExpanded] = useState(false);
+  const [aiAdvanced, setAiAdvanced] = useState(false);
   const [aiKeyVisible, setAiKeyVisible] = useState(false);
-  const [aiAcknowledged, setAiAcknowledged] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiDraft, setAiDraft] = useState<AiConfigurationDraft>(() => ({
-    apiKey: aiConfiguration?.apiKey || '',
-    endpoint: aiConfiguration?.endpoint || '',
-    model: aiConfiguration?.model || '',
-  }));
+  const [aiDraft, setAiDraft] = useState<AiConfigurationDraft>(() => aiConfiguration ? {
+    apiKey: aiConfiguration.apiKey,
+    endpoint: aiConfiguration.endpoint,
+    model: aiConfiguration.model,
+  } : createDefaultAiDraft());
 
   const documentStorageProvider = useMemo(() => getDocumentStorageProvider(household), [household]);
   const {
@@ -108,12 +109,12 @@ export const SettingsPage: React.FC = () => {
     setAiError(null);
     setAiMessage(null);
 
-    if (!aiDraft.apiKey.trim() || !aiDraft.endpoint.trim() || !aiDraft.model.trim()) {
-      setAiError('Inserisci chiave API, endpoint e modello.');
+    if (!aiDraft.apiKey.trim()) {
+      setAiError('Inserisci la tua chiave API.');
       return;
     }
-    if (!aiAcknowledged) {
-      setAiError('Conferma di essere consapevole che chiave e richieste vengono gestite dal browser.');
+    if (!aiDraft.endpoint.trim() || !aiDraft.model.trim()) {
+      setAiError('Completa endpoint e modello nelle impostazioni avanzate.');
       return;
     }
 
@@ -124,6 +125,7 @@ export const SettingsPage: React.FC = () => {
       setAiDraft({ apiKey: saved.apiKey, endpoint: saved.endpoint, model: saved.model });
       setAiMessage('Collegamento verificato. L Assistente e attivo; l OCR AI verra usato se il modello accetta immagini.');
       setAiExpanded(false);
+      setAiAdvanced(false);
       setAiKeyVisible(false);
     } catch (error) {
       setAiError(error instanceof Error ? error.message : 'Verifica del collegamento AI non riuscita.');
@@ -135,9 +137,9 @@ export const SettingsPage: React.FC = () => {
   const handleAiClear = () => {
     if (!userId) return;
     clearAiConfiguration(userId);
-    setAiDraft({ apiKey: '', endpoint: '', model: '' });
-    setAiAcknowledged(false);
+    setAiDraft(createDefaultAiDraft());
     setAiExpanded(false);
+    setAiAdvanced(false);
     setAiKeyVisible(false);
     setAiError(null);
     setAiMessage('Configurazione eliminata da questo browser. Le funzioni AI sono state disattivate.');
@@ -291,8 +293,10 @@ export const SettingsPage: React.FC = () => {
                     endpoint: aiConfiguration.endpoint,
                     model: aiConfiguration.model,
                   });
-                  setAiAcknowledged(true);
+                } else {
+                  setAiDraft(createDefaultAiDraft());
                 }
+                setAiAdvanced(false);
                 setAiExpanded(true);
                 setAiError(null);
                 setAiMessage(null);
@@ -309,27 +313,6 @@ export const SettingsPage: React.FC = () => {
             <div className={styles.aiConfiguration}>
               <div className={styles.aiFields}>
                 <label>
-                  Endpoint API
-                  <input
-                    type="url"
-                    value={aiDraft.endpoint}
-                    onChange={event => setAiDraft(current => ({ ...current, endpoint: event.target.value }))}
-                    placeholder="https://.../v1/chat/completions"
-                    autoComplete="url"
-                  />
-                  <small>Inserisci l indirizzo compatibile con chat completions. Se termina con /v1, Contotron completa automaticamente il percorso.</small>
-                </label>
-                <label>
-                  Modello
-                  <input
-                    type="text"
-                    value={aiDraft.model}
-                    onChange={event => setAiDraft(current => ({ ...current, model: event.target.value }))}
-                    placeholder="Nome esatto del modello"
-                    autoComplete="off"
-                  />
-                </label>
-                <label>
                   Chiave API
                   <span className={styles.aiSecretField}>
                     <input
@@ -344,26 +327,51 @@ export const SettingsPage: React.FC = () => {
                       {aiKeyVisible ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </span>
+                  <small>Incolla la chiave: Contotron applica automaticamente le impostazioni consigliate e la ricorda su questo browser.</small>
                 </label>
               </div>
 
-              <label className={styles.aiAcknowledgement}>
-                <input
-                  type="checkbox"
-                  checked={aiAcknowledged}
-                  onChange={event => setAiAcknowledged(event.target.checked)}
-                />
-                <span>
-                  Sono consapevole che la chiave resta nel browser, che immagini e richieste vengono inviate direttamente all endpoint indicato e che i relativi costi dipendono dal mio servizio API.
-                </span>
-              </label>
+              <button
+                type="button"
+                className={styles.aiAdvancedToggle}
+                aria-expanded={aiAdvanced}
+                onClick={() => setAiAdvanced(current => !current)}
+              >
+                {aiAdvanced ? 'Nascondi impostazioni avanzate' : 'Impostazioni avanzate'}
+              </button>
+
+              {aiAdvanced && (
+                <div className={styles.aiAdvancedFields}>
+                  <label>
+                    Endpoint API
+                    <input
+                      type="url"
+                      value={aiDraft.endpoint}
+                      onChange={event => setAiDraft(current => ({ ...current, endpoint: event.target.value }))}
+                      placeholder="https://.../v1/chat/completions"
+                      autoComplete="url"
+                    />
+                    <small>Modificalo soltanto se vuoi usare un servizio compatibile diverso da quello preconfigurato.</small>
+                  </label>
+                  <label>
+                    Modello
+                    <input
+                      type="text"
+                      value={aiDraft.model}
+                      onChange={event => setAiDraft(current => ({ ...current, model: event.target.value }))}
+                      placeholder="Nome esatto del modello"
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+              )}
 
               <div className={styles.privacyNote}>
-                La chiave non viene salvata su Supabase e non viene condivisa con gli altri membri. Un browser web non offre la stessa protezione del portachiavi cifrato di un app nativa. Il test verifica testo e collegamento; per migliorare gli scontrini il modello deve supportare anche immagini.
+                Attivando l AI confermi di sapere che la chiave resta nel browser e che immagini e richieste vengono inviate direttamente al servizio configurato, con eventuali costi a tuo carico. La chiave non viene salvata su Supabase e non viene condivisa con gli altri membri.
               </div>
               <div className={styles.aiActions}>
                 <Button type="button" size="sm" onClick={handleAiSave} disabled={aiTesting}>
-                  {aiTesting ? 'Verifica collegamento...' : 'Verifica e attiva'}
+                  {aiTesting ? 'Verifica collegamento...' : 'Salva e attiva'}
                 </Button>
                 <Button type="button" size="sm" variant="secondary" onClick={() => {
                   setAiExpanded(false);

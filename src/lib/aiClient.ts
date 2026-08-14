@@ -153,14 +153,15 @@ export const requestAiChatCompletion = async ({
 };
 
 export const testAiConnection = async (configuration: AiConfigurationDraft) => {
-  const response = await requestAiChatCompletion({
+  await requestAiChatCompletion({
     configuration,
     messages: [
       { role: 'system', content: 'Rispondi in modo conciso. Sei il test di collegamento di Contotron.' },
       { role: 'user', content: 'Rispondi soltanto con la parola OK.' },
     ],
-    maxTokens: 12,
+    // Some compatible models use part of the output budget for internal reasoning.
+    // Keep enough headroom so the connection test does not produce a false negative.
+    maxTokens: 256,
     timeoutMs: 30_000,
   });
-  if (!response.content) throw new AiConnectionError('Connessione avvenuta, ma il modello non ha restituito testo.');
 };

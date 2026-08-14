@@ -29,6 +29,7 @@ const recurringUrl = await transpileModule('src/lib/recurringTransactions.ts', [
 ]);
 const viewModeUrl = await transpileModule('src/lib/viewModePreference.ts');
 const memberSummaryUrl = await transpileModule('src/lib/memberTransactionSummary.ts');
+const aiConfigurationUrl = await transpileModule('src/lib/aiConfiguration.ts');
 
 const {
   countReceiptItemLikeLines,
@@ -43,6 +44,20 @@ const {
   summarizeTransactionsByMember,
   unattributedMemberId,
 } = await import(memberSummaryUrl);
+const {
+  createDefaultAiDraft,
+  resolveAiChatEndpoint,
+} = await import(aiConfigurationUrl);
+
+assert.deepEqual(createDefaultAiDraft('chiave-test'), {
+  apiKey: 'chiave-test',
+  endpoint: 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  model: 'gemini-3.5-flash-lite',
+});
+assert.equal(
+  resolveAiChatEndpoint('https://servizio.example/v1'),
+  'https://servizio.example/v1/chat/completions',
+);
 
 assert.equal(parseReceiptDiscount('SCONTO -1,20'), 1.2);
 assert.equal(parseReceiptDiscount('VALORI SCONTI - EUR 0,50'), 0.5);

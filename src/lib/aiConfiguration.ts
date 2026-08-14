@@ -7,6 +7,15 @@ export interface AiConfiguration {
 
 export type AiConfigurationDraft = Omit<AiConfiguration, 'validatedAt'>;
 
+export const DEFAULT_AI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+export const DEFAULT_AI_MODEL = 'gemini-3.5-flash-lite';
+
+export const createDefaultAiDraft = (apiKey = ''): AiConfigurationDraft => ({
+  apiKey,
+  endpoint: DEFAULT_AI_ENDPOINT,
+  model: DEFAULT_AI_MODEL,
+});
+
 const AI_CONFIGURATION_EVENT = 'contotron-ai-configuration-changed';
 const STORAGE_PREFIX = 'contotron:ai-configuration:';
 

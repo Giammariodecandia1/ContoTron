@@ -67,10 +67,10 @@
 .aiFields {
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
 }
 
-.aiFields label {
+.aiFields label,
+.aiAdvancedFields label {
   color: var(--color-gray-800);
   display: flex;
   flex-direction: column;
@@ -79,12 +79,8 @@
   gap: var(--space-2);
 }
 
-.aiFields label:first-child,
-.aiFields label:last-child {
-  grid-column: 1 / -1;
-}
-
-.aiFields input {
+.aiFields input,
+.aiAdvancedFields input {
   background: var(--color-white);
   border: 1px solid var(--color-gray-300);
   border-radius: var(--border-radius-md);
@@ -95,10 +91,35 @@
   width: 100%;
 }
 
-.aiFields small {
+.aiFields small,
+.aiAdvancedFields small {
   color: var(--color-gray-500);
   font-weight: 400;
   line-height: 1.45;
+}
+
+.aiAdvancedToggle {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  margin-top: var(--space-3);
+  padding: var(--space-1) 0;
+  text-align: left;
+}
+
+.aiAdvancedToggle:hover {
+  text-decoration: underline;
+}
+
+.aiAdvancedFields {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  margin-top: var(--space-3);
+  padding: var(--space-4);
 }
 
 .aiSecretField {
@@ -500,14 +521,8 @@
     align-self: flex-start;
   }
 
-  .aiFields {
+  .aiAdvancedFields {
     grid-template-columns: 1fr;
-  }
-
-  .aiFields label,
-  .aiFields label:first-child,
-  .aiFields label:last-child {
-    grid-column: 1;
   }
 
   .storageOptions button {
