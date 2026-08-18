@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
+import { toIsoDate } from '../lib/dates';
 import { useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
 import {
   formatMonthKey,
@@ -79,7 +80,7 @@ export const DocumentsPage: React.FC = () => {
 
   const [file, setFile] = useState<File | null>(null);
   const [documentType, setDocumentType] = useState<DocumentType>('receipt');
-  const [documentDate, setDocumentDate] = useState(today.toISOString().split('T')[0]);
+  const [documentDate, setDocumentDate] = useState(toIsoDate(today));
   const [vendorName, setVendorName] = useState('');
   const [totalAmount, setTotalAmount] = useState('');
   const [runOcr, setRunOcr] = useState(true);
@@ -353,7 +354,7 @@ export const DocumentsPage: React.FC = () => {
       state: {
         type: 'expense',
         amount: doc.total_amount ? String(doc.total_amount) : '',
-        date: doc.document_date || new Date().toISOString().split('T')[0],
+        date: doc.document_date || toIsoDate(new Date()),
         merchant: doc.vendor_name || '',
         description: `Acquisto ${doc.vendor_name || 'da scontrino'}`,
         frequency: 'other',
@@ -384,7 +385,7 @@ export const DocumentsPage: React.FC = () => {
               <div className={`${styles.message} ${styles.warning}`}>
                 {personalDriveLoading
                   ? 'Verifica del collegamento al tuo Google Drive...'
-                  : `Formula scelta: ${documentStorageLabels.google_drive}. L account ${user?.email || 'corrente'} deve ancora collegare il proprio Drive; nel frattempo i nuovi file vengono salvati nell archivio interno.`}
+                  : `Formula scelta: ${documentStorageLabels.google_drive}. L account ${user?.email || 'corrente'} deve ancora collegare il proprio Drive: i nuovi file resteranno in attesa, senza essere salvati nell archivio interno.`}
               </div>
             )}
             {documentStorageProvider === 'google_drive' && personalDriveReady && (

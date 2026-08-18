@@ -2,9 +2,18 @@ import { useState, useCallback } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { useHousehold } from '../contexts/HouseholdContext';
 import { useAuth } from '../contexts/AuthContext';
+import { toIsoDate } from '../lib/dates';
 import type { Transaction } from '../types/database';
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+
+export type TransactionItemDraft = {
+  description: string;
+  amount: number;
+  category_id: string | null;
+  subcategory_id: string | null;
+  is_confirmed: boolean;
+};
 
 export const useTransactions = () => {
   const { household } = useHousehold();
@@ -81,8 +90,8 @@ export const useTransactions = () => {
         // which the amount affects availability. The transaction list keeps
         // using the household's accounting-period start day.
         const startDay = dateBasis === 'cash_impact' ? 1 : budgetMonthStartDay;
-        const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
-        const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
+        const startDate = toIsoDate(new Date(year, month - 1, startDay));
+        const endDate = toIsoDate(new Date(year, month, startDay - 1));
         const dateColumn = dateBasis === 'cash_impact' ? 'cash_impact_date' : 'transaction_date';
         
         query = query.gte(dateColumn, startDate).lte(dateColumn, endDate);
@@ -105,8 +114,8 @@ export const useTransactions = () => {
 
         if (year && month) {
           const startDay = dateBasis === 'cash_impact' ? 1 : budgetMonthStartDay;
-          const startDate = new Date(year, month - 1, startDay).toISOString().split('T')[0];
-          const endDate = new Date(year, month, startDay - 1).toISOString().split('T')[0];
+          const startDate = toIsoDate(new Date(year, month - 1, startDay));
+          const endDate = toIsoDate(new Date(year, month, startDay - 1));
           const dateColumn = dateBasis === 'cash_impact' ? 'cash_impact_date' : 'transaction_date';
           fallbackQuery = fallbackQuery.gte(dateColumn, startDate).lte(dateColumn, endDate);
         }
@@ -156,6 +165,37 @@ export const useTransactions = () => {
       return data;
     } catch (err: unknown) {
       console.error('Error adding transaction:', err);
+      setError(errorMessage(err));
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const addTransactionWithItems = async (
+    transaction: Partial<Transaction>,
+    items: TransactionItemDraft[],
+  ) => {
+    if (!householdId || items.length === 0) return null;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error: insertError } = await supabase.rpc('create_transaction_with_items', {
+        p_transaction: {
+          ...transaction,
+          household_id: householdId,
+          inserted_by: transaction.inserted_by || user?.id || null,
+        },
+        p_items: items,
+      });
+
+      if (insertError) throw insertError;
+
+      await saveClassificationRule(transaction);
+      return data as Transaction;
+    } catch (err: unknown) {
+      console.error('Error adding transaction with items:', err);
       setError(errorMessage(err));
       return null;
     } finally {
@@ -219,6 +259,7 @@ export const useTransactions = () => {
   return {
     fetchTransactions,
     addTransaction,
+    addTransactionWithItems,
     updateTransaction,
     deleteTransaction,
     loading,

@@ -94,7 +94,7 @@ export const DashboardPage: React.FC = () => {
           .eq('household_id', householdId)
           .gte('transaction_date', transactionStart)
           .lte('transaction_date', end)
-          .neq('status', 'deleted')
+          .eq('status', 'confirmed')
           .order('transaction_date', { ascending: false }),
         supabase
           .from('transaction_items')
@@ -198,7 +198,7 @@ export const DashboardPage: React.FC = () => {
     return {
       ...total,
       plannedDelta: total.plannedIncome - total.plannedExpense,
-      actualDelta: total.plannedIncome - total.actualExpense,
+      actualDelta: total.actualIncome - total.actualExpense,
     };
   }, [annualRows]);
 
@@ -207,14 +207,15 @@ export const DashboardPage: React.FC = () => {
     [annualRows],
   );
   const plannedIncomeAverage = totals.plannedIncome / 12;
+  const actualIncomeAverage = totals.actualIncome / 12;
   const actualExpenseAverage = actualExpenseMonthCount > 0
     ? totals.actualExpense / actualExpenseMonthCount
     : 0;
   const plannedExpenseIncidence = totals.plannedIncome > 0
     ? totals.plannedExpense / totals.plannedIncome * 100
     : 0;
-  const actualExpenseIncidence = plannedIncomeAverage > 0
-    ? actualExpenseAverage / plannedIncomeAverage * 100
+  const actualExpenseIncidence = totals.actualIncome > 0
+    ? totals.actualExpense / totals.actualIncome * 100
     : 0;
 
   const annualCategoryRows = useMemo(() => {
@@ -431,7 +432,7 @@ export const DashboardPage: React.FC = () => {
           <div className={styles.kpiTrend}>
             Media su {actualExpenseMonthCount || 0} mesi: {currency(actualExpenseAverage, currencyCode)}
           </div>
-          <div className={styles.kpiTrend}>Incidenza sull'entrata media: {actualExpenseIncidence.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</div>
+          <div className={styles.kpiTrend}>Incidenza sulle entrate effettive: {actualExpenseIncidence.toLocaleString('it-IT', { maximumFractionDigits: 1 })}%</div>
         </Card>
       </div>
 
@@ -449,6 +450,7 @@ export const DashboardPage: React.FC = () => {
                   <th>Entrate previste</th>
                   <th>Uscite previste</th>
                   <th>Delta previsto</th>
+                  <th>Entrate effettive</th>
                   <th>Uscite effettive</th>
                   <th>Delta reale</th>
                 </tr>
@@ -456,7 +458,7 @@ export const DashboardPage: React.FC = () => {
               <tbody>
                 {annualRows.map(row => {
                   const plannedDelta = row.plannedIncome - row.plannedExpense;
-                  const actualDelta = row.plannedIncome - row.actualExpense;
+                  const actualDelta = row.actualIncome - row.actualExpense;
 
                   return (
                     <tr key={row.month}>
@@ -477,6 +479,7 @@ export const DashboardPage: React.FC = () => {
                       <td data-label="Delta previsto" className={plannedDelta >= 0 ? styles.positive : styles.negative}>
                         {currency(plannedDelta, currencyCode)}
                       </td>
+                      <td data-label="Entrate effettive">{currency(row.actualIncome, currencyCode)}</td>
                       <td data-label="Uscite effettive">{currency(row.actualExpense, currencyCode)}</td>
                       <td data-label="Delta reale" className={actualDelta >= 0 ? styles.positive : styles.negative}>
                         {currency(actualDelta, currencyCode)}
@@ -493,9 +496,10 @@ export const DashboardPage: React.FC = () => {
                   <td className={totals.plannedDelta >= 0 ? styles.positive : styles.negative}>
                     {currency(totals.plannedDelta / 12, currencyCode)}
                   </td>
+                  <td>{currency(actualIncomeAverage, currencyCode)}</td>
                   <td>{currency(actualExpenseAverage, currencyCode)}</td>
-                  <td className={plannedIncomeAverage - actualExpenseAverage >= 0 ? styles.positive : styles.negative}>
-                    {currency(plannedIncomeAverage - actualExpenseAverage, currencyCode)}
+                  <td className={totals.actualDelta >= 0 ? styles.positive : styles.negative}>
+                    {currency(totals.actualDelta / 12, currencyCode)}
                   </td>
                 </tr>
               </tfoot>

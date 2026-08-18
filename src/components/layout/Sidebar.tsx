@@ -2,15 +2,15 @@ import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Bot, Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
 import { ContotronBrand } from '../brand/ContotronBrand';
-import { useAiConfiguration, useAuth, useViewMode } from '../../hooks';
+import { useAiConfiguration, useAuth, useNavigationVisibility, useViewMode } from '../../hooks';
 import styles from './AppLayout.module.css';
 
 const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
   { path: '/split', label: 'Split', icon: <Scale size={20} /> },
-  { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/report', label: 'Consuntivo mensile', mobileLabel: 'Consuntivo', icon: <BarChart3 size={20} /> },
+  { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/analisi-annuale', label: 'Analisi annuale', mobileLabel: 'Annuale', icon: <TrendingUp size={20} /> },
   { path: '/analisi-alimentari', label: 'Analisi alimentari', mobileLabel: 'Alimentari', icon: <ShoppingBasket size={20} /> },
   { path: '/documenti', label: 'Documenti', icon: <FileText size={20} /> },
@@ -37,10 +37,11 @@ export const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
   const { isSimple } = useViewMode();
   const { isAiEnabled } = useAiConfiguration();
+  const { isHidden } = useNavigationVisibility();
   const baseItems = isSimple ? simpleNavItems : navItems;
-  const visibleItems = isAiEnabled
+  const visibleItems = (isAiEnabled
     ? [...baseItems.slice(0, -1), { path: '/assistente', label: 'Assistente AI', icon: <Bot size={20} /> }, baseItems[baseItems.length - 1]]
-    : baseItems;
+    : baseItems).filter(item => !isHidden(item.path));
   const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (
@@ -64,7 +65,7 @@ export const Sidebar: React.FC = () => {
         ))}
       </nav>
       <div className={styles.sidebarFooter}>
-        {!isSimple && (
+        {!isSimple && !isHidden('/scan') && (
           <Link to="/scan" className={styles.actionBtn}>
             <Upload size={16} /> Scan Scontrino
           </Link>
@@ -92,12 +93,13 @@ export const MobileNavigation: React.FC = () => {
   const location = useLocation();
   const { isSimple } = useViewMode();
   const { isAiEnabled } = useAiConfiguration();
+  const { isHidden } = useNavigationVisibility();
   const baseMobileItems = isSimple
     ? simpleNavItems
     : [...navItems, { path: '/scan', label: 'Scan', icon: <Upload size={20} /> }];
-  const mobileItems = isAiEnabled
+  const mobileItems = (isAiEnabled
     ? [...baseMobileItems, { path: '/assistente', label: 'AI', icon: <Bot size={20} /> }]
-    : baseMobileItems;
+    : baseMobileItems).filter(item => !isHidden(item.path));
   const isActive = (path: string) => pathIsActive(location.pathname, path);
 
   return (

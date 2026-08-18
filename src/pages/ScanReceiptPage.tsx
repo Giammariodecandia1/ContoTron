@@ -18,8 +18,9 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { useAiConfiguration, useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
+import { useAiConfiguration, useAuth, useHousehold, usePersonalDriveConnection, useTransactions } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
+import { toIsoDate } from '../lib/dates';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider } from '../lib/documentStoragePreference';
 import {
@@ -326,10 +327,10 @@ export const ScanReceiptPage: React.FC = () => {
   const [scanProgress, setScanProgress] = useState('');
   const [amount, setAmount] = useState('');
   const [merchant, setMerchant] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(toIsoDate(new Date()));
   const [accountId, setAccountId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('standard');
-  const [frequency, setFrequency] = useState<TransactionFrequency | ''>('');
+  const [frequency, setFrequency] = useState<TransactionFrequency | ''>('other');
   const [notes, setNotes] = useState('');
   const [detectedCategoryId, setDetectedCategoryId] = useState('');
   const [detectedSubcategoryId, setDetectedSubcategoryId] = useState('');
@@ -352,6 +353,7 @@ export const ScanReceiptPage: React.FC = () => {
   const navigate = useNavigate();
   const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
+  const { addTransaction, addTransactionWithItems } = useTransactions();
   const { configuration: aiConfiguration } = useAiConfiguration();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const {
@@ -775,11 +777,6 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
-    if (!frequency) {
-      setArchiveError("Seleziona la periodicita dell'acquisto.");
-      return;
-    }
-
     if (quickSaveMode && !quickCategoryId) {
       setArchiveError('La categoria generale Spesa non e disponibile. Riattiva il salvataggio rapido.');
       return;
@@ -820,51 +817,41 @@ export const ScanReceiptPage: React.FC = () => {
         ? detectedSubcategoryId || null
         : allItemsShareSubcategory ? [...subcategoryIds][0] : null;
 
-      const { data: transaction, error: transactionError } = await supabase
-        .from('transactions')
-        .insert([{
-          household_id: household.id,
-          account_id: selectedAccountId,
-          document_id: null,
-          type: 'expense',
-          status: 'confirmed',
-          source: 'receipt_ocr',
-          payment_method: paymentMethod,
-          cash_impact_date: getCashImpactDate(date, paymentMethod),
-          frequency,
-          transaction_date: date,
-          description: `Acquisto ${merchant || 'da scontrino'}`,
-          merchant: merchant.trim() || null,
-          amount: totalAmount,
-          category_id: transactionCategoryId,
-          subcategory_id: transactionSubcategoryId,
-          is_shared: true,
-          inserted_by: user?.id || null,
-          notes: notes.trim() || null,
-        }])
-        .select()
-        .single();
+      const transactionPayload = {
+        account_id: selectedAccountId,
+        document_id: null,
+        type: 'expense' as const,
+        status: 'confirmed' as const,
+        source: 'receipt_ocr' as const,
+        payment_method: paymentMethod,
+        cash_impact_date: getCashImpactDate(date, paymentMethod),
+        frequency: frequency || 'other',
+        transaction_date: date,
+        description: `Acquisto ${merchant || 'da scontrino'}`,
+        merchant: merchant.trim() || null,
+        amount: totalAmount,
+        category_id: transactionCategoryId,
+        subcategory_id: transactionSubcategoryId,
+        is_shared: true,
+        inserted_by: user?.id || null,
+        notes: notes.trim() || null,
+      };
+      const itemRows = accountingItems.map(item => ({
+        description: item.description,
+        amount: item.amount,
+        category_id: item.categoryId || null,
+        subcategory_id: item.subcategoryId || null,
+        is_confirmed: true,
+      }));
+      const transaction = itemRows.length > 0
+        ? await addTransactionWithItems(transactionPayload, itemRows)
+        : await addTransaction(transactionPayload);
 
-      if (transactionError || !transaction) {
-        throw new Error(transactionError?.message || 'Transazione non salvata.');
+      if (!transaction) {
+        throw new Error('Transazione e articoli non salvati. Riprova.');
       }
 
       if (accountingItems.length > 0) {
-        const itemRows = accountingItems.map(item => ({
-          household_id: household.id,
-          transaction_id: transaction.id,
-          description: item.description,
-          amount: item.amount,
-          category_id: item.categoryId || null,
-          subcategory_id: item.subcategoryId || null,
-          is_confirmed: true,
-        }));
-        const { error: itemError } = await supabase.from('transaction_items').insert(itemRows);
-        if (itemError) {
-          await supabase.from('transactions').delete().eq('id', transaction.id);
-          throw new Error(`Articoli non salvati: ${itemError.message}`);
-        }
-
         if (!quickSaveMode) {
           await saveProductClassificationRules({
             householdId: household.id,
@@ -1129,8 +1116,8 @@ export const ScanReceiptPage: React.FC = () => {
                 </select>
               </div>
               <div className={styles.formGroup}>
-                <label>Periodicita dell'acquisto</label>
-                <select className={styles.input} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)} required>
+                <label>Periodicita dell'acquisto (facoltativa)</label>
+                <select className={styles.input} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)}>
                   <option value="">Seleziona periodicita...</option>
                   {transactionFrequencyOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
@@ -1251,7 +1238,7 @@ export const ScanReceiptPage: React.FC = () => {
                     ? 'Verifica del collegamento al tuo Google Drive...'
                     : personalDriveReady
                       ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese.`
-                      : "Google Drive non e collegato a questo account: useremo l archivio interno provvisorio per non perdere lo scontrino."}
+                      : "Google Drive non e collegato a questo account: collega o ricollega Drive prima di salvare, così lo scontrino non finirà nell archivio interno."}
               </span>
             </div>
             {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}

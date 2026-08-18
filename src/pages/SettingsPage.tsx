@@ -27,6 +27,7 @@ import {
   useAiConfiguration,
   useHousehold,
   usePersonalDriveConnection,
+  useNavigationVisibility,
   useTheme,
   useViewMode,
 } from '../hooks';
@@ -54,6 +55,7 @@ import {
   type AiConfigurationDraft,
 } from '../lib/aiConfiguration';
 import { testAiConnection } from '../lib/aiClient';
+import { navigationVisibilityOptions } from '../lib/navigationVisibilityPreference';
 import styles from './SettingsPage.module.css';
 
 export const SettingsPage: React.FC = () => {
@@ -61,6 +63,7 @@ export const SettingsPage: React.FC = () => {
   const location = useLocation();
   const { mode, resolvedTheme, setMode } = useTheme();
   const { mode: viewMode, isSimple, setMode: setViewMode } = useViewMode();
+  const { isHidden, resetHiddenPaths, togglePath } = useNavigationVisibility();
   const { household, refreshData } = useHousehold();
   const { user, logout } = useAuth();
   const { configuration: aiConfiguration, isAiEnabled } = useAiConfiguration();
@@ -264,6 +267,31 @@ export const SettingsPage: React.FC = () => {
           {isSimple && (
             <p className={styles.simpleModeMessage}>Modalità semplice attiva. Tornando a Completa ritroverai tutte le informazioni e classificazioni già salvate.</p>
           )}
+
+          <div className={styles.navigationVisibility}>
+            <div className={styles.preferenceHeader}>
+              <strong>Voci da mostrare nel menu</strong>
+              <span className="text-muted fs-sm">Nascondi solo ciò che non usi: puoi riattivare tutte le voci qui in qualsiasi momento.</span>
+            </div>
+            <div className={styles.navigationOptions}>
+              {navigationVisibilityOptions
+                .filter(option => !option.requiresAi || isAiEnabled)
+                .map(option => (
+                  <label key={option.path} className={isHidden(option.path) ? styles.navigationOptionHidden : ''}>
+                    <input
+                      type="checkbox"
+                      checked={!isHidden(option.path)}
+                      onChange={() => togglePath(option.path)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+            </div>
+            <div className={styles.navigationVisibilityActions}>
+              <Button type="button" size="sm" variant="secondary" onClick={resetHiddenPaths}>Mostra tutte</Button>
+              <small>Dashboard, Aggiungi spesa e Impostazioni restano sempre disponibili.</small>
+            </div>
+          </div>
         </Card>
 
         <Card className={styles.aiCard} title="Funzioni AI facoltative" icon={<Bot size={20} />}>
@@ -442,7 +470,7 @@ export const SettingsPage: React.FC = () => {
                   ? 'I nuovi scontrini vengono salvati nello storage privato Contotron del nucleo.'
                   : personalDriveReady
                     ? `I file caricati da ${user?.email || 'questo account'} vengono salvati nel suo Drive, cartella ${personalDriveConnection?.folderName || 'Contotron'}.`
-                    : `L account ${user?.email || 'corrente'} deve ancora autorizzare Google Drive. Fino ad allora useremo l archivio interno provvisorio.`}
+                    : `L account ${user?.email || 'corrente'} deve ancora autorizzare Google Drive. I nuovi documenti verranno bloccati finché non lo colleghi, per evitare salvataggi nell archivio interno.`}
               </p>
             </div>
           </div>

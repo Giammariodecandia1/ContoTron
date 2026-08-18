@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabaseClient';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
 import { saveProductClassificationRules } from '../lib/productLearning';
+import { toIsoDate } from '../lib/dates';
 import type { PaymentMethod, Transaction, TransactionFrequency, TransactionType } from '../types/database';
 import styles from './NewTransactionPage.module.css';
 
@@ -39,21 +40,21 @@ export const NewTransactionPage: React.FC = () => {
   const { household, accounts, categories, subcategories } = useHousehold();
   const { user } = useAuth();
   const { isSimple } = useViewMode();
-  const { addTransaction, updateTransaction, loading } = useTransactions();
+  const { addTransaction, addTransactionWithItems, updateTransaction, loading } = useTransactions();
   const initialState = (location.state || {}) as TransactionFormState;
   const isEditMode = Boolean(transactionId);
   const householdId = household?.id || null;
 
   const [amount, setAmount] = useState(initialState.amount || '');
   const [transactionType, setTransactionType] = useState<TransactionType>(initialState.type || 'expense');
-  const [date, setDate] = useState(initialState.date || new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(initialState.date || toIsoDate(new Date()));
   const [categoryId, setCategoryId] = useState(initialState.categoryId || '');
   const [subcategoryId, setSubcategoryId] = useState(initialState.subcategoryId || '');
   const [merchant, setMerchant] = useState(initialState.merchant || '');
   const [description, setDescription] = useState(initialState.description || '');
   const [notes, setNotes] = useState(initialState.notes || '');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialState.paymentMethod || 'standard');
-  const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || (isSimple ? 'other' : ''));
+  const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || 'other');
   const [isShared, setIsShared] = useState(initialState.isShared ?? true);
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
@@ -94,7 +95,7 @@ export const NewTransactionPage: React.FC = () => {
 
       setAmount(String(data.amount || ''));
       setTransactionType(data.type || 'expense');
-      setDate(data.transaction_date || new Date().toISOString().split('T')[0]);
+      setDate(data.transaction_date || toIsoDate(new Date()));
       setCategoryId(data.category_id || '');
       setSubcategoryId(data.subcategory_id || '');
       setMerchant(data.merchant || '');
@@ -127,11 +128,7 @@ export const NewTransactionPage: React.FC = () => {
       return;
     }
 
-    const effectiveFrequency = frequency || (isSimple ? 'other' : '');
-    if (!effectiveFrequency) {
-      setError("Seleziona la frequenza dell'operazione.");
-      return;
-    }
+    const effectiveFrequency = frequency || 'other';
 
     const txData: Partial<Transaction> = {
       type: transactionType,
@@ -149,49 +146,41 @@ export const NewTransactionPage: React.FC = () => {
       is_shared: transactionType === 'expense' ? isShared : true,
     };
 
-    submissionInFlightRef.current = true;
-    const res = isEditMode && transactionId
-      ? await updateTransaction(transactionId, txData)
-      : await addTransaction({
-          ...txData,
-          document_id: initialState.documentId || null,
-          source: initialState.documentId ? 'receipt_ocr' : 'manual'
-        });
-
-    if (res && !isEditMode && initialState.items?.length && household) {
-      const itemRows = initialState.items
+    const itemRows = !isEditMode && initialState.items?.length && household
+      ? initialState.items
         .filter(item => item.description && Number.isFinite(item.amount) && item.amount > 0)
         .map(item => ({
-          household_id: household.id,
-          transaction_id: res.id,
           description: item.description,
           amount: item.amount,
           category_id: item.categoryId || categoryId || null,
           subcategory_id: item.subcategoryId || null,
           is_confirmed: true,
-        }));
+        }))
+      : [];
 
-      if (itemRows.length > 0) {
-        const { error: itemError } = await supabase
-          .from('transaction_items')
-          .insert(itemRows);
+    const createPayload = {
+      ...txData,
+      document_id: initialState.documentId || null,
+      source: initialState.documentId ? 'receipt_ocr' as const : 'manual' as const,
+    };
 
-        if (itemError) {
-          submissionInFlightRef.current = false;
-          setError(`Transazione salvata, ma articoli non salvati: ${itemError.message}`);
-          return;
-        }
+    submissionInFlightRef.current = true;
+    const res = isEditMode && transactionId
+      ? await updateTransaction(transactionId, txData)
+      : itemRows.length > 0
+        ? await addTransactionWithItems(createPayload, itemRows)
+        : await addTransaction(createPayload);
 
-        await saveProductClassificationRules({
-          householdId: household.id,
-          userId: user?.id || null,
-          products: itemRows.map(item => ({
-            description: item.description,
-            categoryId: item.category_id,
-            subcategoryId: item.subcategory_id,
-          })),
-        }).catch(classificationError => console.warn('Apprendimento prodotti non completato:', classificationError));
-      }
+    if (res && itemRows.length > 0 && household) {
+      await saveProductClassificationRules({
+        householdId: household.id,
+        userId: user?.id || null,
+        products: itemRows.map(item => ({
+          description: item.description,
+          categoryId: item.category_id,
+          subcategoryId: item.subcategory_id,
+        })),
+      }).catch(classificationError => console.warn('Apprendimento prodotti non completato:', classificationError));
     }
 
     if (res) {
@@ -276,9 +265,8 @@ export const NewTransactionPage: React.FC = () => {
 
             {!isSimple && (
               <div className={styles.formGroup}>
-                <label>Frequenza dell'operazione</label>
+                <label>Frequenza dell'operazione (facoltativa)</label>
                 <select
-                  required
                   className={styles.input}
                   value={frequency}
                   onChange={event => setFrequency(event.target.value as TransactionFrequency)}
@@ -288,7 +276,7 @@ export const NewTransactionPage: React.FC = () => {
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
-                <small className={styles.helpText}>Serve per distribuire e analizzare il movimento nel corso dell'anno.</small>
+                <small className={styles.helpText}>Facoltativa: se non la modifichi, la transazione resta classificata come occasionale.</small>
               </div>
             )}
 

@@ -182,7 +182,12 @@ export const uploadArchiveDocument = async ({
   const storageFile = await optimizeArchiveFile(file);
   const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${safeFilename(storageFile.name)}`;
   const desiredProvider = getDocumentStorageProvider(household);
-  const canUseGoogleDrive = desiredProvider === 'google_drive' && !!household && !!uploadedBy;
+  const requiresGoogleDrive = desiredProvider === 'google_drive';
+  const canUseGoogleDrive = requiresGoogleDrive && !!household && !!uploadedBy;
+
+  if (requiresGoogleDrive && !canUseGoogleDrive) {
+    throw new GoogleDriveAuthError('Google Drive e selezionato, ma l account non e pronto per il caricamento. Ricollega Google Drive dalle Impostazioni.');
+  }
 
   if (canUseGoogleDrive) {
     try {
@@ -234,9 +239,8 @@ export const uploadArchiveDocument = async ({
       if (legacyError) throw legacyError;
       return legacyData as Document;
     } catch (driveError) {
-      if (!(driveError instanceof GoogleDriveAuthError)) {
-        console.warn('Google Drive non disponibile, uso archivio interno:', driveError);
-      }
+      const detail = driveError instanceof Error ? driveError.message : 'errore sconosciuto';
+      throw new GoogleDriveAuthError(`Google Drive e selezionato ma il caricamento non e riuscito: ${detail} Ricollega Google Drive dalle Impostazioni e riprova.`);
     }
   }
 
@@ -267,7 +271,7 @@ export const uploadArchiveDocument = async ({
     document_date: date,
     vendor_name: vendorName?.trim() || null,
     total_amount: totalAmount ?? null,
-    status: canUseGoogleDrive ? 'archived_drive_fallback' : 'archived',
+    status: 'archived',
   };
 
   const { data, error } = await supabase

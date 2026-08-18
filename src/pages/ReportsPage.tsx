@@ -9,7 +9,8 @@ import { createExcelWorkbook, type ExcelSheet } from '../lib/excelXml';
 import { getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
 import { spendingTypeOptions } from '../lib/spendingTypes';
 import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
-import { useHousehold } from '../hooks';
+import { useAuth, useHousehold } from '../hooks';
+import { calculatePersonalSpending } from '../lib/personalSpending';
 import styles from './ReportsPage.module.css';
 
 const monthLabels = [
@@ -40,6 +41,7 @@ interface ReportTransaction {
   subcategory_id: string | null;
   account_id: string | null;
   inserted_by: string | null;
+  is_shared?: boolean | null;
   accounts?: { name?: string | null } | null;
   categories?: { name?: string | null } | null;
   subcategories?: { name?: string | null } | null;
@@ -202,6 +204,7 @@ const downloadBlob = (blob: Blob, filename: string) => {
 
 export const ReportsPage: React.FC = () => {
   const { household, categories, subcategories } = useHousehold();
+  const { user } = useAuth();
   const today = new Date();
   const householdId = household?.id || null;
   const [year, setYear] = useState(today.getFullYear());
@@ -211,6 +214,7 @@ export const ReportsPage: React.FC = () => {
   const [budgetTargets, setBudgetTargets] = useState<ReportBudgetTarget[]>([]);
   const [incomeTargets, setIncomeTargets] = useState<ReportIncomeTarget[]>([]);
   const [items, setItems] = useState<ReportItem[]>([]);
+  const [participantCount, setParticipantCount] = useState(1);
   const [expandedCategoryId, setExpandedCategoryId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -234,7 +238,7 @@ export const ReportsPage: React.FC = () => {
 
     try {
       const transactionStart = `${year - 1}-12-01`;
-      const [txResult, docResult, budgetResult, incomeResult, itemResult] = await Promise.all([
+      const [txResult, docResult, budgetResult, incomeResult, itemResult, memberResult] = await Promise.all([
         supabase
           .from('transactions')
           .select(`*, accounts!transactions_account_id_fkey(name), categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name)`)
@@ -266,6 +270,10 @@ export const ReportsPage: React.FC = () => {
           .eq('household_id', householdId)
           .gte('transactions.transaction_date', transactionStart)
           .lte('transactions.transaction_date', yearRange.end),
+        supabase
+          .from('household_members')
+          .select('user_id', { count: 'exact', head: true })
+          .eq('household_id', householdId),
       ]);
 
       if (txResult.error) throw txResult.error;
@@ -273,6 +281,7 @@ export const ReportsPage: React.FC = () => {
       if (budgetResult.error) throw budgetResult.error;
       if (incomeResult.error) throw incomeResult.error;
       if (itemResult.error) throw itemResult.error;
+      if (memberResult.error) throw memberResult.error;
 
       setTransactions(((txResult.data || []) as ReportTransaction[]).filter(transaction => {
         const date = budgetImpactDate(transaction);
@@ -285,6 +294,7 @@ export const ReportsPage: React.FC = () => {
         const date = budgetImpactDate(item.transactions || {});
         return date >= yearRange.start && date <= yearRange.end;
       }));
+      setParticipantCount(Math.max(1, memberResult.count || 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore durante il caricamento del report');
     } finally {
@@ -305,6 +315,7 @@ export const ReportsPage: React.FC = () => {
     });
     const expenses = monthlyTransactions.filter(tx => tx.type === 'expense');
     const incomes = monthlyTransactions.filter(tx => tx.type === 'income');
+    const personalSpending = calculatePersonalSpending(monthlyTransactions, user?.id, participantCount);
     const monthlyBudgetTargets = budgetTargets.filter(target => target.month === month);
     const monthlyDocuments = documents.filter(document => (
       !!document.document_date && document.document_date >= monthRange.start && document.document_date <= monthRange.end
@@ -596,8 +607,9 @@ export const ReportsPage: React.FC = () => {
       foodAverage,
       foodMedian,
       monthlyDocuments,
+      personalSpending,
     };
-  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, subcategories, subcategoryById, transactions]);
+  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, participantCount, subcategories, subcategoryById, transactions, user?.id]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');
@@ -738,6 +750,16 @@ export const ReportsPage: React.FC = () => {
             <div className={styles.statBox}><span>Delta disponibile</span><strong className={report.availableDelta < 0 ? styles.expense : styles.income}>{formatCurrency(report.availableDelta, currency)}</strong></div>
             <div className={styles.statBox}><span>Documenti</span><strong>{report.monthlyDocuments.length}</strong></div>
           </div>
+
+          <Card title="La tua spesa personale del mese">
+            <p className="text-muted fs-sm">Quota uguale delle spese comuni del nucleo, più le spese personali che hai registrato e tenuto fuori dallo Split.</p>
+            <div className={styles.personalSpendingGrid}>
+              <div><span>Spese comuni</span><strong>{formatCurrency(report.personalSpending.sharedExpenses, currency)}</strong></div>
+              <div><span>La tua quota ({report.personalSpending.participantCount} partecipanti)</span><strong>{formatCurrency(report.personalSpending.sharedQuota, currency)}</strong></div>
+              <div><span>Le tue spese personali</span><strong>{formatCurrency(report.personalSpending.personalExpenses, currency)}</strong></div>
+              <div className={styles.personalSpendingTotal}><span>Il tuo totale mensile</span><strong>{formatCurrency(report.personalSpending.personalTotal, currency)}</strong></div>
+            </div>
+          </Card>
 
           <div className={styles.grid}>
             <Card title="Budget, categorie e sottocategorie" icon={<BarChart3 size={20} />}>

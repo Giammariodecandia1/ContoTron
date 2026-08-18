@@ -383,8 +383,16 @@ export const AnnualAnalysisPage: React.FC = () => {
       const row = foodCharacteristicMap.get(characteristic) || foodCharacteristicMap.get('necessary');
       if (!row) return;
       row.amount += amount;
-      row.count += 1;
     };
+    // "Voci" must describe the configured food subcategories, not the number
+    // of transaction or receipt-item rows recorded during the year.
+    subcategories
+      .filter(subcategory => foodCategoryIds.has(subcategory.category_id))
+      .forEach(subcategory => {
+        const characteristic = subcategory.food_characteristic || 'necessary';
+        const row = foodCharacteristicMap.get(characteristic) || foodCharacteristicMap.get('necessary');
+        if (row) row.count += 1;
+      });
     validAnnualExpenses
       .filter(row => !itemizedTransactionIds.has(row.id) && foodCategoryIds.has(row.category_id || ''))
       .forEach(row => addFoodCharacteristic(row.subcategory_id, Number(row.amount || 0)));
@@ -493,7 +501,7 @@ export const AnnualAnalysisPage: React.FC = () => {
               <div className={styles.tableWrap}>
                 <table className={styles.reportTable}>
                   <thead>
-                    <tr><th>Caratteristica</th><th>Spesa</th><th>Percentuale</th><th>Voci</th></tr>
+                    <tr><th>Caratteristica</th><th>Spesa</th><th>Percentuale</th><th>Sottocategorie</th></tr>
                   </thead>
                   <tbody>
                     {analysis.foodCharacteristicRows.map(row => (

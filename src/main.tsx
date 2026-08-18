@@ -7,6 +7,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { HouseholdProvider } from './contexts/HouseholdContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ViewModeProvider } from './contexts/ViewModeContext';
+import { NavigationVisibilityProvider } from './contexts/NavigationVisibilityContext';
 import { applyFontScale, getFontScale } from './lib/fontScalePreference';
 
 applyFontScale(getFontScale());
@@ -16,9 +17,11 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider>
       <AuthProvider>
         <ViewModeProvider>
-          <HouseholdProvider>
-            <App />
-          </HouseholdProvider>
+          <NavigationVisibilityProvider>
+            <HouseholdProvider>
+              <App />
+            </HouseholdProvider>
+          </NavigationVisibilityProvider>
         </ViewModeProvider>
       </AuthProvider>
     </ThemeProvider>

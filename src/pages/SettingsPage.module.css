@@ -229,6 +229,57 @@
   padding: var(--space-3);
 }
 
+.navigationVisibility {
+  border-top: 1px solid var(--color-gray-200);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+.navigationOptions {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--space-3);
+}
+
+.navigationOptions label {
+  align-items: center;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-800);
+  display: flex;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-3);
+}
+
+.navigationOptions input {
+  accent-color: var(--color-primary);
+  height: 17px;
+  width: 17px;
+}
+
+.navigationOptions .navigationOptionHidden {
+  background: var(--color-gray-100);
+  color: var(--color-gray-500);
+  text-decoration: line-through;
+}
+
+.navigationVisibilityActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.navigationVisibilityActions small {
+  color: var(--color-gray-500);
+}
+
 .themeToggle {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -508,6 +559,10 @@
   }
 
   .viewModeToggle {
+    grid-template-columns: 1fr;
+  }
+
+  .navigationOptions {
     grid-template-columns: 1fr;
   }
 

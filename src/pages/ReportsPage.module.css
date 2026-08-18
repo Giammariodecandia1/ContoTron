@@ -93,6 +93,37 @@
   font-weight: 800;
 }
 
+.personalSpendingGrid {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: var(--space-4);
+}
+
+.personalSpendingGrid > div {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  padding: var(--space-4);
+}
+
+.personalSpendingGrid span {
+  color: var(--color-gray-500);
+  display: block;
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-2);
+}
+
+.personalSpendingGrid strong {
+  color: var(--color-gray-900);
+  font-size: var(--text-xl);
+}
+
+.personalSpendingGrid .personalSpendingTotal {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+}
+
 .expense,
 .expenseText {
   color: var(--color-danger) !important;
@@ -382,7 +413,8 @@
   .controls,
   .stats,
   .grid,
-  .dualList {
+  .dualList,
+  .personalSpendingGrid {
     grid-template-columns: 1fr 1fr;
   }
 
@@ -407,7 +439,8 @@
   .stats,
   .grid,
   .dualList,
-  .foodSummary {
+  .foodSummary,
+  .personalSpendingGrid {
     grid-template-columns: 1fr;
   }
 

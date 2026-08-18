@@ -63,7 +63,7 @@ function App() {
               <RouterRoute path="/analisi-alimentari" element={advancedOnly(<FoodWeeklyAnalysisPage />)} />
               <RouterRoute path="/split" element={<SplitPage />} />
               <RouterRoute path="/assistente" element={isAiEnabled ? <AiAssistantPage /> : <RouterNavigate to="/impostazioni" replace />} />
-              <RouterRoute path="/scan" element={advancedOnly(<ScanReceiptPage />)} />
+              <RouterRoute path="/scan" element={<ScanReceiptPage />} />
               <RouterRoute path="/impostazioni" element={<SettingsPage />} />
               <RouterRoute path="/impostazioni/categorie" element={advancedOnly(<CategoriesPage />)} />
               <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />

@@ -5,11 +5,12 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import { toIsoDate } from '../lib/dates';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule } from '../types/database';
 import styles from './RecurringRulesPage.module.css';
 
-const todayString = () => new Date().toISOString().split('T')[0];
+const todayString = () => toIsoDate(new Date());
 
 const endDateFromDuration = (startDate: string, durationMonths: number) => {
   if (!startDate || !Number.isInteger(durationMonths) || durationMonths <= 0) return null;
