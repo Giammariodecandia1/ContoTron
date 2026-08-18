@@ -1,5 +1,18 @@
 # FamilyLedger
 
+## Deploy di produzione
+
+L'unico dominio autorizzato e `https://contotron.netlify.app` (Site ID
+`7b9253fa-7b7b-4a7d-96ba-bf1757a225c5`). Eseguire il deploy esclusivamente con:
+
+```sh
+npm run deploy:production
+```
+
+Il comando controlla il collegamento locale e specifica sempre il Site ID corretto.
+Anche la build Netlify verifica Site ID e dominio e si interrompe se il repository
+viene collegato per errore a un altro sito.
+
 FamilyLedger è una PWA per la gestione semplice, condivisa e predittiva del budget familiare/personale, basata su React, Vite, TypeScript, e Supabase. Nasce per trasformare file Excel di budget in un'applicazione moderna e intelligente.
 
 ## Data Policy

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:netlify": "node scripts/assert-netlify-target.mjs --netlify-build && npm run build",
+    "deploy:production": "node scripts/assert-netlify-target.mjs --local && npx netlify-cli deploy --prod --build --site 7b9253fa-7b7b-4a7d-96ba-bf1757a225c5",
     "lint": "eslint .",
     "verify:beta": "node scripts/verify-beta.mjs",
     "db:migrate": "node run_migrations.js",
