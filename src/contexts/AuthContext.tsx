@@ -1,7 +1,11 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabaseClient';
-import { saveGoogleDriveAccessToken } from '../lib/googleDriveTokenStorage';
+import {
+  clearGoogleDriveConnectionRequest,
+  hasGoogleDriveConnectionRequest,
+  saveGoogleDriveAccessToken,
+} from '../lib/googleDriveTokenStorage';
 import type { Profile } from '../types/database';
 
 type AppUser = Profile & {
@@ -53,6 +57,7 @@ const cleanAuthCallbackUrl = () => {
     'error_code',
     'error_description',
     'type',
+    'connectDrive',
   ].forEach(param => url.searchParams.delete(param));
 
   url.hash = '';
@@ -159,6 +164,8 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       const refreshToken = hashParams.get('refresh_token');
       const providerToken = hashParams.get('provider_token');
       const callbackInUrl = hasAuthCallbackInUrl();
+      const driveConnectionRequested = url.searchParams.get('connectDrive') === '1'
+        || hasGoogleDriveConnectionRequest();
 
       try {
         const callbackError = url.searchParams.get('error_description')
@@ -174,7 +181,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
           const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
           if (
-            url.searchParams.get('connectDrive') === '1'
+            driveConnectionRequested
             && exchangeData.session?.user.id
             && exchangeData.session.provider_token
           ) {
@@ -190,7 +197,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
           });
           if (error) throw error;
           if (
-            url.searchParams.get('connectDrive') === '1'
+            driveConnectionRequested
             && sessionData.session?.user.id
             && providerToken
           ) {
@@ -202,6 +209,17 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         }
 
         const { data } = await supabase.auth.getSession();
+        if (
+          driveConnectionRequested
+          && data.session?.user.id
+          && data.session.provider_token
+        ) {
+          saveGoogleDriveAccessToken(
+            data.session.user.id,
+            data.session.provider_token,
+          );
+          clearGoogleDriveConnectionRequest();
+        }
         if (isMounted) {
           loadSessionUser(data.session?.user || null);
         }
@@ -211,7 +229,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
           loadSessionUser(null);
         }
       } finally {
-        if (callbackInUrl) {
+        if (callbackInUrl || driveConnectionRequested) {
           cleanAuthCallbackUrl();
         }
       }

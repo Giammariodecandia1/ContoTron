@@ -1,5 +1,7 @@
 const TOKEN_KEY_PREFIX = 'contotron_google_drive_token_';
 const TOKEN_LIFETIME_MS = 50 * 60 * 1000;
+const CONNECTION_INTENT_KEY = 'contotron_google_drive_connection_requested';
+const CONNECTION_INTENT_LIFETIME_MS = 15 * 60 * 1000;
 
 interface StoredGoogleDriveToken {
   accessToken: string;
@@ -42,4 +44,19 @@ export const readGoogleDriveAccessToken = (userId: string) => {
 
 export const clearGoogleDriveAccessToken = (userId: string) => {
   if (userId) localStorage.removeItem(tokenKey(userId));
+};
+
+export const markGoogleDriveConnectionRequested = () => {
+  sessionStorage.setItem(CONNECTION_INTENT_KEY, String(Date.now()));
+};
+
+export const hasGoogleDriveConnectionRequest = () => {
+  const requestedAt = Number(sessionStorage.getItem(CONNECTION_INTENT_KEY));
+  return Number.isFinite(requestedAt)
+    && requestedAt > 0
+    && Date.now() - requestedAt <= CONNECTION_INTENT_LIFETIME_MS;
+};
+
+export const clearGoogleDriveConnectionRequest = () => {
+  sessionStorage.removeItem(CONNECTION_INTENT_KEY);
 };

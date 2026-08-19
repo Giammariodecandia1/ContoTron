@@ -10,6 +10,7 @@ import type {
 } from '../types/database';
 import {
   clearGoogleDriveAccessToken,
+  markGoogleDriveConnectionRequested,
   readGoogleDriveAccessToken,
 } from './googleDriveTokenStorage';
 
@@ -51,6 +52,7 @@ const isConnectionSchemaMissing = (error: { code?: string; message?: string } | 
 const escapeDriveQueryValue = (value: string) => value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 
 export const requestGoogleDriveConnection = async (redirectTo?: string) => {
+  markGoogleDriveConnectionRequested();
   return supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
