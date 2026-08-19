@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import {
@@ -73,6 +73,7 @@ export const SettingsPage: React.FC = () => {
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
+  const driveCallbackAttemptedRef = useRef(false);
   const [fontScale, setFontScale] = useState<FontScale>(() => getFontScale());
   const [aiExpanded, setAiExpanded] = useState(false);
   const [aiAdvanced, setAiAdvanced] = useState(false);
@@ -224,7 +225,9 @@ export const SettingsPage: React.FC = () => {
       && household
       && documentStorageProvider === 'google_drive'
       && !driveConnecting
+      && !driveCallbackAttemptedRef.current
     ) {
+      driveCallbackAttemptedRef.current = true;
       const connectTimer = window.setTimeout(() => {
         void connectGoogleDrive(false);
       }, 0);

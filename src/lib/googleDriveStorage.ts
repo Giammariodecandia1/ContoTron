@@ -8,6 +8,11 @@ import type {
   Household,
   MemberGoogleDriveConnection,
 } from '../types/database';
+import {
+  clearGoogleDriveAccessToken,
+  readGoogleDriveAccessToken,
+  saveGoogleDriveAccessToken,
+} from './googleDriveTokenStorage';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -63,11 +68,20 @@ export const requestGoogleDriveConnection = async (redirectTo?: string) => {
 
 export const getGoogleDriveAccessToken = async () => {
   const { data } = await supabase.auth.getSession();
-  return data.session?.provider_token;
+  const userId = data.session?.user.id || null;
+  const providerToken = data.session?.provider_token || null;
+  if (userId && providerToken) {
+    saveGoogleDriveAccessToken(userId, providerToken);
+  }
+
+  return {
+    accessToken: providerToken || (userId ? readGoogleDriveAccessToken(userId) : null),
+    userId,
+  };
 };
 
 const driveRequest = async (url: string, init: RequestInit = {}) => {
-  const accessToken = await getGoogleDriveAccessToken();
+  const { accessToken, userId } = await getGoogleDriveAccessToken();
   if (!accessToken) {
     throw new GoogleDriveAuthError();
   }
@@ -81,6 +95,7 @@ const driveRequest = async (url: string, init: RequestInit = {}) => {
   });
 
   if (response.status === 401 || response.status === 403) {
+    if (userId) clearGoogleDriveAccessToken(userId);
     throw new GoogleDriveAuthError('Google Drive richiede una nuova autorizzazione.');
   }
 

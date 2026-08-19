@@ -256,11 +256,16 @@ assert.equal(documentArchiveSource.includes("status: canUseGoogleDrive ? 'archiv
 assert.equal(documentArchiveSource.includes('Google Drive non disponibile, uso archivio interno'), false);
 
 const googleDriveSource = await readFile(new URL('../src/lib/googleDriveStorage.ts', import.meta.url), 'utf8');
+const googleDriveTokenSource = await readFile(new URL('../src/lib/googleDriveTokenStorage.ts', import.meta.url), 'utf8');
+const authContextSource = await readFile(new URL('../src/contexts/AuthContext.tsx', import.meta.url), 'utf8');
 const personalDriveHookSource = await readFile(new URL('../src/hooks/usePersonalDriveConnection.ts', import.meta.url), 'utf8');
 const transactionsPageSource = await readFile(new URL('../src/pages/TransactionsPage.tsx', import.meta.url), 'utf8');
 assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
 assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), true);
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
+assert.equal(googleDriveTokenSource.includes('TOKEN_LIFETIME_MS = 50 * 60 * 1000'), true);
+assert.equal(authContextSource.includes('exchangeData.session.provider_token'), true);
+assert.equal(settingsSource.includes('driveCallbackAttemptedRef.current = true'), true);
 assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
 assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
 assert.equal(scanReceiptSource.includes('scan_receipt_attached_to_existing_transaction'), true);

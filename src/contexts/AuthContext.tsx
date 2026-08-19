@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabaseClient';
+import { saveGoogleDriveAccessToken } from '../lib/googleDriveTokenStorage';
 import type { Profile } from '../types/database';
 
 type AppUser = Profile & {
@@ -169,8 +170,18 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         }
 
         if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
+          if (
+            url.searchParams.get('connectDrive') === '1'
+            && exchangeData.session?.user.id
+            && exchangeData.session.provider_token
+          ) {
+            saveGoogleDriveAccessToken(
+              exchangeData.session.user.id,
+              exchangeData.session.provider_token,
+            );
+          }
         } else if (accessToken && refreshToken) {
           const { error } = await supabase.auth.setSession({
             access_token: accessToken,
