@@ -11,7 +11,6 @@ import type {
 import {
   clearGoogleDriveAccessToken,
   readGoogleDriveAccessToken,
-  saveGoogleDriveAccessToken,
 } from './googleDriveTokenStorage';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
@@ -70,12 +69,10 @@ export const getGoogleDriveAccessToken = async () => {
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user.id || null;
   const providerToken = data.session?.provider_token || null;
-  if (userId && providerToken) {
-    saveGoogleDriveAccessToken(userId, providerToken);
-  }
+  const dedicatedDriveToken = userId ? readGoogleDriveAccessToken(userId) : null;
 
   return {
-    accessToken: providerToken || (userId ? readGoogleDriveAccessToken(userId) : null),
+    accessToken: dedicatedDriveToken || providerToken,
     userId,
   };
 };
