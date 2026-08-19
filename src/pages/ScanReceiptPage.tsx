@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import Tesseract from 'tesseract.js';
 import ReactCrop, { type Crop, type PercentCrop } from 'react-image-crop';
@@ -15,7 +15,7 @@ import {
   Trash2,
   UploadCloud,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useAiConfiguration, useAuth, useHousehold, usePersonalDriveConnection, useTransactions } from '../hooks';
@@ -23,6 +23,7 @@ import { supabase } from '../lib/supabaseClient';
 import { toIsoDate } from '../lib/dates';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider } from '../lib/documentStoragePreference';
+import { ensureHouseholdDriveFolder } from '../lib/googleDriveStorage';
 import {
   classifyReceiptText,
   countReceiptItemLikeLines,
@@ -41,7 +42,7 @@ import {
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
 import { analyzeReceiptWithAi } from '../lib/aiReceiptAnalysis';
-import type { PaymentMethod, TransactionFrequency } from '../types/database';
+import type { PaymentMethod, Transaction, TransactionFrequency } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
 
 type ScanStatus = 'idle' | 'webcam' | 'reviewing' | 'scanning' | 'done';
@@ -351,6 +352,11 @@ export const ScanReceiptPage: React.FC = () => {
   const webcamRef = useRef<Webcam>(null);
   const saveInFlightRef = useRef(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const attachTransactionId = searchParams.get('transactionId');
+  const [attachTarget, setAttachTarget] = useState<Transaction | null>(null);
+  const [attachTargetLoading, setAttachTargetLoading] = useState(false);
+  const [attachTargetError, setAttachTargetError] = useState<string | null>(null);
   const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
   const { addTransaction, addTransactionWithItems } = useTransactions();
@@ -359,6 +365,7 @@ export const ScanReceiptPage: React.FC = () => {
   const {
     connection: personalDriveConnection,
     loading: personalDriveLoading,
+    error: personalDriveError,
   } = usePersonalDriveConnection(household, user?.id);
   const personalDriveReady = personalDriveConnection?.status === 'ready'
     && Boolean(personalDriveConnection.folderId);
@@ -367,6 +374,62 @@ export const ScanReceiptPage: React.FC = () => {
   const expenseCategories = categories
     .filter(category => category.type === 'expense')
     .sort((left, right) => left.name.localeCompare(right.name));
+
+  useEffect(() => {
+    if (!attachTransactionId) {
+      const clearTimer = window.setTimeout(() => {
+        setAttachTarget(null);
+        setAttachTargetError(null);
+        setAttachTargetLoading(false);
+      }, 0);
+      return () => window.clearTimeout(clearTimer);
+    }
+    if (!household?.id) return;
+
+    let cancelled = false;
+    const loadAttachTarget = async () => {
+      setAttachTargetLoading(true);
+      setAttachTargetError(null);
+
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('id', attachTransactionId)
+        .eq('household_id', household.id)
+        .maybeSingle();
+
+      if (cancelled) return;
+      if (error || !data) {
+        setAttachTarget(null);
+        setAttachTargetError(error?.message || 'La transazione selezionata non e disponibile.');
+        setAttachTargetLoading(false);
+        return;
+      }
+
+      const transaction = data as Transaction;
+      if (transaction.document_id) {
+        setAttachTarget(null);
+        setAttachTargetError('Questa transazione ha gia uno scontrino collegato.');
+        setAttachTargetLoading(false);
+        return;
+      }
+
+      setAttachTarget(transaction);
+      setAmount(String(transaction.amount));
+      setMerchant(transaction.merchant || transaction.description.replace(/^Acquisto\s+/i, ''));
+      setDate(transaction.transaction_date);
+      setAccountId(transaction.account_id || '');
+      setPaymentMethod(transaction.payment_method || 'standard');
+      setFrequency(transaction.frequency || 'other');
+      setNotes(transaction.notes || '');
+      setAttachTargetLoading(false);
+    };
+
+    void loadAttachTarget();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachTransactionId, household?.id]);
   const resetResults = () => {
     setAmount('');
     setMerchant('');
@@ -397,6 +460,11 @@ export const ScanReceiptPage: React.FC = () => {
   };
 
   const addFiles = async (selectedFiles: File[]) => {
+    if (documentStorageProvider === 'google_drive' && !personalDriveReady) {
+      setArchiveError(personalDriveError || 'Ricollega Google Drive dalle Impostazioni prima di acquisire lo scontrino.');
+      return;
+    }
+
     const availableSlots = MAX_RECEIPT_PAGES - pages.length;
     const acceptedFiles = selectedFiles.filter(isSupportedImageFile).slice(0, availableSlots);
     if (acceptedFiles.length === 0) {
@@ -439,6 +507,10 @@ export const ScanReceiptPage: React.FC = () => {
   };
 
   const captureWebcam = useCallback(() => {
+    if (documentStorageProvider === 'google_drive' && !personalDriveReady) {
+      setArchiveError(personalDriveError || 'Ricollega Google Drive dalle Impostazioni prima di acquisire lo scontrino.');
+      return;
+    }
     const imageSource = webcamRef.current?.getScreenshot();
     if (!imageSource) return;
     setPages(previous => [...previous, createReceiptPage(imageSource)].slice(0, MAX_RECEIPT_PAGES));
@@ -446,7 +518,7 @@ export const ScanReceiptPage: React.FC = () => {
     resetResults();
     setArchiveError(null);
     setStatus('reviewing');
-  }, [pages.length]);
+  }, [documentStorageProvider, pages.length, personalDriveError, personalDriveReady]);
 
   const updateActiveCrop = (crop: PercentCrop) => {
     setPages(previous => previous.map((page, index) => index === activePageIndex ? { ...page, crop } : page));
@@ -757,6 +829,16 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
+    if (attachTransactionId && (attachTargetLoading || attachTargetError || !attachTarget)) {
+      setArchiveError(attachTargetError || 'Attendi il caricamento della transazione da collegare.');
+      return;
+    }
+
+    if (documentStorageProvider === 'google_drive' && (personalDriveLoading || !personalDriveReady)) {
+      setArchiveError(personalDriveError || 'Google Drive deve essere ricollegato dalle Impostazioni prima di salvare lo scontrino.');
+      return;
+    }
+
     const items = receiptItems
       .map(item => ({
         description: item.description.trim(),
@@ -772,17 +854,17 @@ export const ScanReceiptPage: React.FC = () => {
     }
 
     const selectedAccountId = accountId || accounts[0]?.id || null;
-    if (!selectedAccountId) {
+    if (!selectedAccountId && !attachTarget) {
       setArchiveError('Non e disponibile un conto sul quale registrare la spesa.');
       return;
     }
 
-    if (quickSaveMode && !quickCategoryId) {
+    if (!attachTarget && quickSaveMode && !quickCategoryId) {
       setArchiveError('La categoria generale Spesa non e disponibile. Riattiva il salvataggio rapido.');
       return;
     }
 
-    if (!quickSaveMode && receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
+    if (!attachTarget && !quickSaveMode && receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
       const confirmed = window.confirm(
         `La somma degli articoli (${receiptItemsTotal.toFixed(2)} EUR) differisce dal totale (${receiptAmountNumber.toFixed(2)} EUR) di ${receiptDifference.toFixed(2)} EUR. Vuoi procedere comunque?`,
       );
@@ -794,6 +876,79 @@ export const ScanReceiptPage: React.FC = () => {
     setArchiveError(null);
     try {
       const totalAmount = receiptAmountNumber;
+      if (documentStorageProvider === 'google_drive') {
+        await ensureHouseholdDriveFolder(household, user?.id || null);
+      }
+
+      const timestamp = Date.now();
+      const files = await Promise.all(pages.map((page, index) => (
+        dataUrlToFile(page.image, `scontrino-${timestamp}-pagina-${index + 1}.jpg`)
+      )));
+
+      if (attachTarget) {
+        const document = await uploadArchiveDocumentPages({
+          householdId: household.id,
+          household,
+          uploadedBy: user?.id || null,
+          files,
+          type: 'receipt',
+          documentDate: attachTarget.transaction_date,
+          vendorName: merchant || attachTarget.merchant || 'Scontrino',
+          totalAmount: attachTarget.amount,
+        });
+
+        const { data: linkedTransaction, error: linkError } = await supabase
+          .from('transactions')
+          .update({ document_id: document.id, updated_at: new Date().toISOString() })
+          .eq('id', attachTarget.id)
+          .eq('household_id', household.id)
+          .is('document_id', null)
+          .select('id')
+          .maybeSingle();
+
+        if (linkError || !linkedTransaction) {
+          throw new Error(linkError?.message || 'La transazione e stata aggiornata altrove e non posso collegare lo scontrino.');
+        }
+
+        const averageConfidence = ocrPages.length > 0
+          ? ocrPages.reduce((sum, page) => sum + page.confidence, 0) / ocrPages.length
+          : null;
+        const { error: ocrError } = await supabase.from('ocr_jobs').insert([{
+          household_id: household.id,
+          document_id: document.id,
+          provider: aiEnhanced ? 'tesseract+user_ai' : 'tesseract',
+          status: 'completed',
+          extracted_text: mergedOcrText,
+          extracted_json: {
+            source: 'scan_receipt_attached_to_existing_transaction',
+            transaction_id: attachTarget.id,
+            page_count: pages.length,
+            removed_overlap_lines: removedOverlapLines,
+            pages: ocrPages,
+            ai_enhanced: aiEnhanced,
+            items: items.map(item => ({
+              description: item.description,
+              amount: item.amount,
+              category_id: item.categoryId || null,
+              subcategory_id: item.subcategoryId || null,
+            })),
+          },
+          confidence: averageConfidence,
+          started_at: new Date().toISOString(),
+          completed_at: new Date().toISOString(),
+        }]);
+        if (ocrError) console.error('Testo OCR non archiviato:', ocrError);
+
+        navigate('/transazioni', {
+          replace: true,
+          state: {
+            createdTransactionId: attachTarget.id,
+            notice: 'Scontrino collegato alla transazione esistente.',
+          },
+        });
+        return;
+      }
+
       const accountingItems = quickSaveMode
         ? [{
             description: `Spesa presso ${merchant.trim() || 'esercente non indicato'}`,
@@ -864,11 +1019,6 @@ export const ScanReceiptPage: React.FC = () => {
           }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
         }
       }
-
-      const timestamp = Date.now();
-      const files = await Promise.all(pages.map((page, index) => (
-        dataUrlToFile(page.image, `scontrino-${timestamp}-pagina-${index + 1}.jpg`)
-      )));
 
       let document;
       try {
@@ -970,9 +1120,30 @@ export const ScanReceiptPage: React.FC = () => {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Scansiona scontrino</h1>
-        <p className="text-muted">Fotografa anche gli scontrini lunghi in piu parti e controlla tutto prima di salvare.</p>
+        <h1 className={styles.title}>{attachTransactionId ? 'Aggiungi scontrino' : 'Scansiona scontrino'}</h1>
+        <p className="text-muted">
+          {attachTransactionId
+            ? 'Fotografa lo scontrino e collegalo alla transazione gia registrata, senza crearne una nuova.'
+            : 'Fotografa anche gli scontrini lunghi in piu parti e controlla tutto prima di salvare.'}
+        </p>
       </header>
+
+      {attachTargetLoading && <div className={styles.attachNotice}>Caricamento della transazione da collegare...</div>}
+      {attachTargetError && <div className={`${styles.attachNotice} ${styles.attachNoticeError}`}>{attachTargetError}</div>}
+      {attachTarget && (
+        <div className={styles.attachNotice}>
+          <strong>Transazione selezionata:</strong> {attachTarget.description} · {attachTarget.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })} · {new Date(`${attachTarget.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
+        </div>
+      )}
+      {documentStorageProvider === 'google_drive' && !personalDriveLoading && !personalDriveReady && (
+        <div className={`${styles.attachNotice} ${styles.attachNoticeError}`}>
+          <strong>Google Drive da ricollegare.</strong>{' '}
+          {personalDriveError || 'Il collegamento salvato non dispone piu di un autorizzazione Google valida.'}
+          <Button size="sm" variant="secondary" onClick={() => navigate('/impostazioni?driveSetup=1')}>
+            Vai alle Impostazioni
+          </Button>
+        </div>
+      )}
 
       <Card className={styles.scanCard}>
         {status === 'idle' && (
@@ -1082,7 +1253,11 @@ export const ScanReceiptPage: React.FC = () => {
             <div className={styles.doneHeading}>
               <div>
                 <h2>Dati estratti</h2>
-                <p className="text-muted fs-sm">Controlla totale, righe e categorie prima di creare la transazione.</p>
+                <p className="text-muted fs-sm">
+                  {attachTarget
+                    ? 'Controlla la lettura: lo scontrino verra collegato senza modificare i dati contabili della transazione.'
+                    : 'Controlla totale, righe e categorie prima di creare la transazione.'}
+                </p>
               </div>
               <span className={styles.pageCountBadge}>{pages.length} {pages.length === 1 ? 'pagina' : 'pagine'}</span>
             </div>
@@ -1091,7 +1266,7 @@ export const ScanReceiptPage: React.FC = () => {
             <div className={styles.summaryGrid}>
               <div className={styles.formGroup}>
                 <label>Importo totale</label>
-                <input type="text" inputMode="decimal" className={styles.input} value={amount} onChange={event => setAmount(event.target.value)} />
+                <input type="text" inputMode="decimal" className={styles.input} value={amount} onChange={event => setAmount(event.target.value)} disabled={Boolean(attachTarget)} />
               </div>
               <div className={styles.formGroup}>
                 <label>Esercente</label>
@@ -1099,39 +1274,39 @@ export const ScanReceiptPage: React.FC = () => {
               </div>
               <div className={styles.formGroup}>
                 <label>Data</label>
-                <input type="date" className={styles.input} value={date} onChange={event => setDate(event.target.value)} />
+                <input type="date" className={styles.input} value={date} onChange={event => setDate(event.target.value)} disabled={Boolean(attachTarget)} />
               </div>
               {accounts.length > 1 && (
                 <div className={styles.formGroup}>
                   <label>Conto</label>
-                  <select className={styles.input} value={accountId || accounts[0]?.id || ''} onChange={event => setAccountId(event.target.value)}>
+                  <select className={styles.input} value={accountId || accounts[0]?.id || ''} onChange={event => setAccountId(event.target.value)} disabled={Boolean(attachTarget)}>
                     {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
                   </select>
                 </div>
               )}
               <div className={styles.formGroup}>
                 <label>Tipologia pagamento</label>
-                <select className={styles.input} value={paymentMethod} onChange={event => setPaymentMethod(event.target.value as PaymentMethod)}>
+                <select className={styles.input} value={paymentMethod} onChange={event => setPaymentMethod(event.target.value as PaymentMethod)} disabled={Boolean(attachTarget)}>
                   {paymentMethodOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
               <div className={styles.formGroup}>
                 <label>Periodicita dell'acquisto (facoltativa)</label>
-                <select className={styles.input} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)}>
+                <select className={styles.input} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)} disabled={Boolean(attachTarget)}>
                   <option value="">Seleziona periodicita...</option>
                   {transactionFrequencyOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
               <div className={styles.formGroup}>
                 <label>Commento / promemoria</label>
-                <textarea className={styles.input} rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Dettaglio opzionale sulla spesa" />
+                <textarea className={styles.input} rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Dettaglio opzionale sulla spesa" disabled={Boolean(attachTarget)} />
               </div>
             </div>
 
             {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
             {aiNotice && <p className={`${styles.aiNotice} ${aiEnhanced ? styles.aiNoticeSuccess : styles.aiNoticeWarning}`}>{aiNotice}</p>}
 
-            <div className={`${styles.quickSavePanel} ${quickSaveMode ? styles.quickSavePanelActive : ''}`}>
+            {!attachTarget && <div className={`${styles.quickSavePanel} ${quickSaveMode ? styles.quickSavePanelActive : ''}`}>
               <div>
                 <h3>{quickSaveMode ? 'Classificazione rapida attiva' : 'Vuoi evitare la classificazione articolo per articolo?'}</h3>
                 <p>
@@ -1157,7 +1332,7 @@ export const ScanReceiptPage: React.FC = () => {
                   {preparingQuickSave ? 'Preparazione...' : 'Assegna tutto a Spesa'}
                 </Button>
               )}
-            </div>
+            </div>}
 
             {!quickSaveMode && <div className={styles.itemsReview}>
               <div className={styles.itemsHeader}>
@@ -1238,15 +1413,17 @@ export const ScanReceiptPage: React.FC = () => {
                     ? 'Verifica del collegamento al tuo Google Drive...'
                     : personalDriveReady
                       ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese.`
-                      : "Google Drive non e collegato a questo account: collega o ricollega Drive prima di salvare, così lo scontrino non finirà nell archivio interno."}
+                      : personalDriveError || "Google Drive non e collegato a questo account: collega o ricollega Drive prima di salvare, così lo scontrino non finirà nell archivio interno."}
               </span>
             </div>
             {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}
             <div className={styles.actionRow}>
               <Button variant="secondary" onClick={() => setStatus('reviewing')} disabled={archiving}>Rivedi foto</Button>
-              <Button onClick={handleConfirm} disabled={archiving}>
+              <Button onClick={handleConfirm} disabled={archiving || personalDriveLoading || drivePending || attachTargetLoading || Boolean(attachTargetError)}>
                 {archiving
                   ? 'Salvataggio completo...'
+                  : attachTarget
+                    ? 'Collega scontrino alla transazione'
                   : quickSaveMode
                     ? 'Salva tutto come Spesa'
                     : 'Salva scontrino e transazione'}

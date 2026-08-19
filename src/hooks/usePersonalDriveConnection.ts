@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  GoogleDriveAuthError,
   getPersonalDriveConnection,
+  verifyGoogleDriveFolder,
   type PersonalDriveConnection,
 } from '../lib/googleDriveStorage';
 import type { Household } from '../types/database';
@@ -25,6 +27,29 @@ export const usePersonalDriveConnection = (
     setError(null);
     try {
       const nextConnection = await getPersonalDriveConnection(household, userId);
+      if (nextConnection.status === 'ready' && nextConnection.folderId) {
+        try {
+          const verifiedFolder = await verifyGoogleDriveFolder(nextConnection.folderId);
+          const verifiedConnection = {
+            ...nextConnection,
+            folderName: verifiedFolder.name || nextConnection.folderName,
+          };
+          setConnection(verifiedConnection);
+          return verifiedConnection;
+        } catch (verificationError) {
+          const unavailableConnection: PersonalDriveConnection = {
+            ...nextConnection,
+            status: 'connection_error',
+          };
+          setConnection(unavailableConnection);
+          setError(verificationError instanceof GoogleDriveAuthError
+            ? 'L autorizzazione Google Drive e scaduta o non e disponibile in questo browser. Premi Ricollega Google Drive.'
+            : verificationError instanceof Error
+              ? verificationError.message
+              : 'Impossibile verificare la cartella Google Drive.');
+          return unavailableConnection;
+        }
+      }
       setConnection(nextConnection);
       return nextConnection;
     } catch (connectionError) {

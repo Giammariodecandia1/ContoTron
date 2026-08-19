@@ -135,6 +135,19 @@ const ensureFolder = async (name: string, parentId?: string) => {
   return await findFolder(name, parentId) || await createFolder(name, parentId);
 };
 
+export const verifyGoogleDriveFolder = async (folderId: string) => {
+  const response = await driveRequest(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(folderId)}?fields=id,name,mimeType,trashed`,
+  );
+  const folder = await response.json() as GoogleDriveFile & { trashed?: boolean };
+
+  if (folder.trashed || folder.mimeType !== FOLDER_MIME_TYPE) {
+    throw new Error('La cartella Contotron su Google Drive non e piu disponibile.');
+  }
+
+  return folder;
+};
+
 const folderNameForHousehold = (household: Household) => (
   household.google_drive_folder_name || `Contotron - ${household.name}`
 );
@@ -213,9 +226,10 @@ export const ensureHouseholdDriveFolder = async (household: Household, userId?: 
 
   const connection = await getPersonalDriveConnection(household, userId);
   if (connection.status === 'ready' && connection.folderId) {
+    const verifiedFolder = await verifyGoogleDriveFolder(connection.folderId);
     return {
-      id: connection.folderId,
-      name: connection.folderName || folderNameForHousehold(household),
+      id: verifiedFolder.id,
+      name: verifiedFolder.name || connection.folderName || folderNameForHousehold(household),
     };
   }
 

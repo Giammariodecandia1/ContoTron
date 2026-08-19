@@ -253,6 +253,16 @@ const documentArchiveSource = await readFile(new URL('../src/lib/documentArchive
 assert.equal(documentArchiveSource.includes("const requiresGoogleDrive = desiredProvider === 'google_drive';"), true);
 assert.equal(documentArchiveSource.includes('Ricollega Google Drive dalle Impostazioni'), true);
 assert.equal(documentArchiveSource.includes("status: canUseGoogleDrive ? 'archived_drive_fallback' : 'archived'"), false);
+assert.equal(documentArchiveSource.includes('Google Drive non disponibile, uso archivio interno'), false);
+
+const googleDriveSource = await readFile(new URL('../src/lib/googleDriveStorage.ts', import.meta.url), 'utf8');
+const personalDriveHookSource = await readFile(new URL('../src/hooks/usePersonalDriveConnection.ts', import.meta.url), 'utf8');
+const transactionsPageSource = await readFile(new URL('../src/pages/TransactionsPage.tsx', import.meta.url), 'utf8');
+assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
+assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
+assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
+assert.equal(scanReceiptSource.includes('scan_receipt_attached_to_existing_transaction'), true);
+assert.equal(scanReceiptSource.includes('Scontrino collegato alla transazione esistente.'), true);
 
 const atomicMigrationSource = await readFile(new URL('../supabase/migrations/025_atomic_transaction_items.sql', import.meta.url), 'utf8');
 assert.equal(atomicMigrationSource.includes('create or replace function public.create_transaction_with_items'), true);

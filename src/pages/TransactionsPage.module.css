@@ -263,10 +263,12 @@
 .transactionActions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-4);
 }
 
 .editButton,
+.receiptButton,
 .deleteButton {
   padding: var(--space-2);
   background: none;
@@ -278,6 +280,18 @@
   align-items: center;
   gap: var(--space-1);
   color: var(--color-primary);
+}
+
+.receiptButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-primary);
+}
+
+.receiptButton:disabled {
+  color: var(--color-gray-400);
+  cursor: default;
 }
 
 .sectionTitle {
@@ -376,8 +390,13 @@
 
   .transactionActions {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: var(--space-2);
+  }
+
+  .expenseAmount,
+  .incomeAmount {
+    width: 100%;
   }
 
   .memberSummaryToolbar {

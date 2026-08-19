@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
-import { ListPlus, Pencil, Plus, RefreshCw, Users } from 'lucide-react';
+import { Camera, ListPlus, Pencil, Plus, RefreshCw, Users } from 'lucide-react';
 import { useAuth, useTransactions, useHousehold, useViewMode } from '../hooks';
 import { Button } from '../components/ui/Button';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -188,6 +188,17 @@ export const TransactionsPage: React.FC = () => {
         <button onClick={() => navigate(`/transazioni/${tx.id}/modifica`)} className={styles.editButton}>
           <Pencil size={14} /> Modifica
         </button>
+        {tx.type === 'expense' && (
+          <button
+            type="button"
+            onClick={() => navigate(`/scan?transactionId=${encodeURIComponent(tx.id)}`)}
+            className={styles.receiptButton}
+            disabled={Boolean(tx.document_id)}
+            title={tx.document_id ? 'Questa transazione ha gia uno scontrino collegato' : 'Aggiungi uno scontrino a questa transazione'}
+          >
+            <Camera size={14} /> {tx.document_id ? 'Scontrino collegato' : 'Aggiungi scontrino'}
+          </button>
+        )}
         <button onClick={() => handleDelete(tx.id)} className={styles.deleteButton}>Elimina</button>
       </div>
     </div>

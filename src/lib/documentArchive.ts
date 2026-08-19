@@ -319,29 +319,27 @@ const uploadSupplementalDocumentPage = async ({
   const pageFilename = `pagina-${String(pageNumber).padStart(2, '0')}-${safeFilename(storageFile.name)}`;
   const parentUsesDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
 
-  if (parentUsesDrive && household) {
-    try {
-      const driveFile = await uploadFileToGoogleDrive({
-        household,
-        userId: uploadedBy,
-        file: storageFile,
-        documentDate,
-        filename: pageFilename,
-      });
-
-      return {
-        storage_path: `google_drive:${driveFile.id}`,
-        storage_provider: 'google_drive' as const,
-        external_file_id: driveFile.id,
-        external_url: driveFile.webViewLink || null,
-        mime_type: storageFile.type || null,
-        file_size_bytes: storageFile.size,
-      };
-    } catch (error) {
-      if (!(error instanceof GoogleDriveAuthError)) {
-        console.warn(`Pagina ${pageNumber}: Google Drive non disponibile, uso archivio interno.`, error);
-      }
+  if (parentUsesDrive) {
+    if (!household || !uploadedBy) {
+      throw new GoogleDriveAuthError('Google Drive non e pronto per caricare tutte le pagine. Ricollega Google Drive dalle Impostazioni.');
     }
+
+    const driveFile = await uploadFileToGoogleDrive({
+      household,
+      userId: uploadedBy,
+      file: storageFile,
+      documentDate,
+      filename: pageFilename,
+    });
+
+    return {
+      storage_path: `google_drive:${driveFile.id}`,
+      storage_provider: 'google_drive' as const,
+      external_file_id: driveFile.id,
+      external_url: driveFile.webViewLink || null,
+      mime_type: storageFile.type || null,
+      file_size_bytes: storageFile.size,
+    };
   }
 
   const [year, month] = documentDate.split('-');
