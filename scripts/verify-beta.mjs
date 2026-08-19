@@ -263,6 +263,9 @@ const transactionsPageSource = await readFile(new URL('../src/pages/Transactions
 assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
 assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), true);
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
+assert.equal(googleDriveSource.includes('?alt=media'), true);
+assert.equal(documentArchiveSource.includes('getGoogleDriveFileObjectUrl'), true);
+assert.equal(documentArchiveSource.includes('getDocumentPreviewUrl'), true);
 assert.equal(googleDriveTokenSource.includes('TOKEN_LIFETIME_MS = 50 * 60 * 1000'), true);
 assert.equal(authContextSource.includes('exchangeData.session.provider_token'), true);
 assert.equal(authContextSource.includes("hashParams.get('provider_token')"), true);

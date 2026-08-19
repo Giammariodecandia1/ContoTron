@@ -350,3 +350,12 @@ export const verifyGoogleDriveUploadCapability = async (
 
   return uploadedFile;
 };
+
+export const getGoogleDriveFileObjectUrl = async (fileId: string) => {
+  if (!fileId) return '';
+  const response = await driveRequest(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?alt=media`,
+  );
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+};

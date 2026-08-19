@@ -1,6 +1,10 @@
 import { supabase } from './supabaseClient';
 import { getDocumentStorageProvider } from './documentStoragePreference';
-import { GoogleDriveAuthError, uploadFileToGoogleDrive } from './googleDriveStorage';
+import {
+  getGoogleDriveFileObjectUrl,
+  GoogleDriveAuthError,
+  uploadFileToGoogleDrive,
+} from './googleDriveStorage';
 import type { Document, DocumentPage, DocumentType, Household } from '../types/database';
 
 export const DOCUMENT_BUCKET = 'documents';
@@ -457,7 +461,10 @@ export const uploadArchiveDocumentPages = async ({
   }
 };
 
-export const getDocumentPages = async (documents: Document[]): Promise<Record<string, DocumentPageWithUrl[]>> => {
+export const getDocumentPages = async (
+  documents: Document[],
+  currentUserId?: string | null,
+): Promise<Record<string, DocumentPageWithUrl[]>> => {
   if (documents.length === 0) return {};
 
   const { data, error } = await supabase
@@ -468,10 +475,18 @@ export const getDocumentPages = async (documents: Document[]): Promise<Record<st
 
   if (error) console.warn('Pagine documento non disponibili, uso anteprima principale:', error.message);
   const rows = error ? [] : (data || []) as DocumentPage[];
-  const pagesWithUrls = await Promise.all(rows.map(async page => ({
-    ...page,
-    url: await getDocumentUrl(page.storage_path, page.storage_provider, page.external_url),
-  })));
+  const documentById = new Map(documents.map(document => [document.id, document]));
+  const pagesWithUrls = await Promise.all(rows.map(async page => {
+    const ownerId = documentById.get(page.document_id)?.uploaded_by;
+    return {
+      ...page,
+      url: await getDocumentPreviewUrl(
+        page.storage_path,
+        page.storage_provider,
+        ownerId === currentUserId,
+      ),
+    };
+  }));
   const byDocument = pagesWithUrls.reduce<Record<string, DocumentPageWithUrl[]>>((result, page) => {
     result[page.document_id] = [...(result[page.document_id] || []), page];
     return result;
@@ -493,7 +508,11 @@ export const getDocumentPages = async (documents: Document[]): Promise<Record<st
       mime_type: document.mime_type,
       file_size_bytes: document.file_size_bytes,
       created_at: document.created_at,
-      url: await getDocumentUrl(document.storage_path, document.storage_provider, document.external_url),
+      url: await getDocumentPreviewUrl(
+        document.storage_path,
+        document.storage_provider,
+        document.uploaded_by === currentUserId,
+      ),
     }];
   }
 
@@ -574,4 +593,25 @@ export const getDocumentUrl = async (
   }
 
   return '';
+};
+
+export const getDocumentPreviewUrl = async (
+  storagePath: string,
+  storageProvider?: string | null,
+  canReadPersonalDrive = false,
+) => {
+  if (storageProvider === 'google_drive' || storagePath.startsWith('google_drive:')) {
+    if (!canReadPersonalDrive) return '';
+    const fileId = storagePath.replace(/^google_drive:/, '');
+    if (!fileId) return '';
+
+    try {
+      return await getGoogleDriveFileObjectUrl(fileId);
+    } catch (error) {
+      console.warn('Anteprima Google Drive non disponibile:', error);
+      return '';
+    }
+  }
+
+  return getDocumentUrl(storagePath, storageProvider);
 };

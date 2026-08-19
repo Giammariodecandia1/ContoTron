@@ -68,6 +68,7 @@ export const DocumentsPage: React.FC = () => {
   const { user } = useAuth();
   const today = new Date();
   const householdId = household?.id || null;
+  const userId = user?.id || null;
 
   const [documents, setDocuments] = useState<ArchiveDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -174,7 +175,7 @@ export const DocumentsPage: React.FC = () => {
         }, {});
       }
 
-      const pagesByDocumentId = await getDocumentPages(documentRows as Document[]);
+      const pagesByDocumentId = await getDocumentPages(documentRows as Document[], userId);
       const withUrls = documentRows.map(doc => ({
         ...doc,
         pages: pagesByDocumentId[doc.id] || [],
@@ -192,7 +193,7 @@ export const DocumentsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [householdId, selectedMonth, selectedType, selectedYear]);
+  }, [householdId, selectedMonth, selectedType, selectedYear, userId]);
 
   useEffect(() => {
     const loadTimer = window.setTimeout(() => {
@@ -201,6 +202,16 @@ export const DocumentsPage: React.FC = () => {
 
     return () => window.clearTimeout(loadTimer);
   }, [fetchDocuments]);
+
+  useEffect(() => () => {
+    const temporaryUrls = new Set(
+      documents.flatMap(document => [
+        document.url,
+        ...(document.pages || []).map(page => page.url),
+      ]).filter((url): url is string => Boolean(url?.startsWith('blob:'))),
+    );
+    temporaryUrls.forEach(url => URL.revokeObjectURL(url));
+  }, [documents]);
 
   const filteredDocuments = useMemo(() => {
     const query = searchText.trim().toLowerCase();
@@ -292,9 +303,7 @@ export const DocumentsPage: React.FC = () => {
 
       const usedGoogleDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
       let uploadMessage = 'Documento archiviato correttamente.';
-      if (documentStorageProvider === 'google_drive' && !usedGoogleDrive) {
-        uploadMessage = "Google Drive non e' disponibile ora: documento salvato nell'archivio interno provvisorio.";
-      } else if (usedGoogleDrive) {
+      if (usedGoogleDrive) {
         uploadMessage = 'Documento archiviato nel tuo Google Drive. Gli altri membri vedranno dati, OCR e chi lo ha caricato.';
       }
 
@@ -541,8 +550,8 @@ export const DocumentsPage: React.FC = () => {
                           <button type="button" className={styles.openDocumentButton} onClick={() => setViewingDocument(doc)}>
                             <Images size={14} /> Apri tutte le pagine
                           </button>
-                        ) : doc.url && (
-                          <a href={doc.url} target="_blank" rel="noreferrer">
+                        ) : (doc.external_url || doc.url) && (
+                          <a href={doc.external_url || doc.url} target="_blank" rel="noreferrer">
                             <ExternalLink size={14} /> Apri documento
                           </a>
                         )}
@@ -595,8 +604,8 @@ export const DocumentsPage: React.FC = () => {
                 <article key={page.id} className={styles.viewerPage}>
                   <div className={styles.viewerPageHeading}>
                     <strong>Pagina {page.page_number}</strong>
-                    {page.url && (
-                      <a href={page.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Apri originale</a>
+                    {(page.external_url || page.url) && (
+                      <a href={page.external_url || page.url} target="_blank" rel="noreferrer"><ExternalLink size={14} /> Apri originale</a>
                     )}
                   </div>
                   {page.mime_type?.startsWith('image/') && page.url ? (
