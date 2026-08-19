@@ -354,5 +354,20 @@ export const getGoogleDriveFileObjectUrl = async (fileId: string) => {
     `${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?alt=media`,
   );
   const blob = await response.blob();
-  return URL.createObjectURL(blob);
+  if (blob.size === 0) {
+    throw new Error('Google Drive ha restituito un file vuoto.');
+  }
+
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string' && reader.result.startsWith('data:')) {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error('Impossibile preparare l\'anteprima Google Drive.'));
+    };
+    reader.onerror = () => reject(new Error('Impossibile leggere il file scaricato da Google Drive.'));
+    reader.readAsDataURL(blob);
+  });
 };

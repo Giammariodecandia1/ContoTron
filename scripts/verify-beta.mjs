@@ -265,6 +265,8 @@ assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), tr
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(googleDriveSource.includes('?alt=media'), true);
 assert.equal(googleDriveSource.includes('accessToken: dedicatedDriveToken || providerToken'), true);
+assert.equal(googleDriveSource.includes('reader.readAsDataURL(blob)'), true);
+assert.equal(googleDriveSource.includes('return URL.createObjectURL(blob)'), false);
 assert.equal(googleDriveSource.includes('saveGoogleDriveAccessToken(userId, providerToken)'), false);
 assert.equal(documentArchiveSource.includes('getGoogleDriveFileObjectUrl'), true);
 assert.equal(documentArchiveSource.includes('getDocumentPreviewUrl'), true);
