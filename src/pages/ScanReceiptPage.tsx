@@ -23,7 +23,6 @@ import { supabase } from '../lib/supabaseClient';
 import { toIsoDate } from '../lib/dates';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
 import { getDocumentStorageProvider } from '../lib/documentStoragePreference';
-import { ensureHouseholdDriveFolder } from '../lib/googleDriveStorage';
 import {
   classifyReceiptText,
   countReceiptItemLikeLines,
@@ -460,11 +459,6 @@ export const ScanReceiptPage: React.FC = () => {
   };
 
   const addFiles = async (selectedFiles: File[]) => {
-    if (documentStorageProvider === 'google_drive' && !personalDriveReady) {
-      setArchiveError(personalDriveError || 'Ricollega Google Drive dalle Impostazioni prima di acquisire lo scontrino.');
-      return;
-    }
-
     const availableSlots = MAX_RECEIPT_PAGES - pages.length;
     const acceptedFiles = selectedFiles.filter(isSupportedImageFile).slice(0, availableSlots);
     if (acceptedFiles.length === 0) {
@@ -507,10 +501,6 @@ export const ScanReceiptPage: React.FC = () => {
   };
 
   const captureWebcam = useCallback(() => {
-    if (documentStorageProvider === 'google_drive' && !personalDriveReady) {
-      setArchiveError(personalDriveError || 'Ricollega Google Drive dalle Impostazioni prima di acquisire lo scontrino.');
-      return;
-    }
     const imageSource = webcamRef.current?.getScreenshot();
     if (!imageSource) return;
     setPages(previous => [...previous, createReceiptPage(imageSource)].slice(0, MAX_RECEIPT_PAGES));
@@ -518,7 +508,7 @@ export const ScanReceiptPage: React.FC = () => {
     resetResults();
     setArchiveError(null);
     setStatus('reviewing');
-  }, [documentStorageProvider, pages.length, personalDriveError, personalDriveReady]);
+  }, [pages.length]);
 
   const updateActiveCrop = (crop: PercentCrop) => {
     setPages(previous => previous.map((page, index) => index === activePageIndex ? { ...page, crop } : page));
@@ -834,7 +824,7 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
-    if (documentStorageProvider === 'google_drive' && (personalDriveLoading || !personalDriveReady)) {
+    if (attachTarget && documentStorageProvider === 'google_drive' && (personalDriveLoading || !personalDriveReady)) {
       setArchiveError(personalDriveError || 'Google Drive deve essere ricollegato dalle Impostazioni prima di salvare lo scontrino.');
       return;
     }
@@ -876,10 +866,6 @@ export const ScanReceiptPage: React.FC = () => {
     setArchiveError(null);
     try {
       const totalAmount = receiptAmountNumber;
-      if (documentStorageProvider === 'google_drive') {
-        await ensureHouseholdDriveFolder(household, user?.id || null);
-      }
-
       const timestamp = Date.now();
       const files = await Promise.all(pages.map((page, index) => (
         dataUrlToFile(page.image, `scontrino-${timestamp}-pagina-${index + 1}.jpg`)
@@ -1138,7 +1124,8 @@ export const ScanReceiptPage: React.FC = () => {
       {documentStorageProvider === 'google_drive' && !personalDriveLoading && !personalDriveReady && (
         <div className={`${styles.attachNotice} ${styles.attachNoticeError}`}>
           <strong>Google Drive da ricollegare.</strong>{' '}
-          {personalDriveError || 'Il collegamento salvato non dispone piu di un autorizzazione Google valida.'}
+          {personalDriveError || 'Il collegamento salvato non dispone piu di un autorizzazione Google valida.'}{' '}
+          Puoi comunque registrare una nuova transazione: se la foto non riesce a essere caricata, potrai collegarla in seguito dalla lista Transazioni.
           <Button size="sm" variant="secondary" onClick={() => navigate('/impostazioni?driveSetup=1')}>
             Vai alle Impostazioni
           </Button>
@@ -1413,13 +1400,19 @@ export const ScanReceiptPage: React.FC = () => {
                     ? 'Verifica del collegamento al tuo Google Drive...'
                     : personalDriveReady
                       ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese.`
-                      : personalDriveError || "Google Drive non e collegato a questo account: collega o ricollega Drive prima di salvare, così lo scontrino non finirà nell archivio interno."}
+                      : personalDriveError || "Google Drive non e collegato a questo account. La transazione verra comunque registrata; la foto non sara spostata nell archivio interno e potrai collegarla dopo aver ricollegato Drive."}
               </span>
             </div>
             {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}
             <div className={styles.actionRow}>
               <Button variant="secondary" onClick={() => setStatus('reviewing')} disabled={archiving}>Rivedi foto</Button>
-              <Button onClick={handleConfirm} disabled={archiving || personalDriveLoading || drivePending || attachTargetLoading || Boolean(attachTargetError)}>
+              <Button
+                onClick={handleConfirm}
+                disabled={archiving
+                  || attachTargetLoading
+                  || Boolean(attachTargetError)
+                  || (Boolean(attachTarget) && (personalDriveLoading || drivePending))}
+              >
                 {archiving
                   ? 'Salvataggio completo...'
                   : attachTarget

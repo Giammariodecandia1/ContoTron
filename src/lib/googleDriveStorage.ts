@@ -307,3 +307,31 @@ export const uploadFileToGoogleDrive = async ({
 
   return response.json() as Promise<GoogleDriveFile>;
 };
+
+export const verifyGoogleDriveUploadCapability = async (
+  household: Household,
+  userId?: string | null,
+) => {
+  const testFile = new File(
+    ['Contotron: verifica automatica del collegamento Google Drive.'],
+    `contotron-test-${Date.now()}.txt`,
+    { type: 'text/plain' },
+  );
+  const uploadedFile = await uploadFileToGoogleDrive({
+    household,
+    userId,
+    file: testFile,
+    documentDate: new Date().toISOString().slice(0, 10),
+    filename: testFile.name,
+  });
+
+  try {
+    await driveRequest(`${DRIVE_API_BASE}/files/${encodeURIComponent(uploadedFile.id)}`, {
+      method: 'DELETE',
+    });
+  } catch (cleanupError) {
+    console.warn('Il test di upload Google Drive e riuscito, ma il file tecnico non e stato eliminato.', cleanupError);
+  }
+
+  return uploadedFile;
+};

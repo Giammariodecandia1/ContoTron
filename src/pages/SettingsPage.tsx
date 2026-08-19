@@ -41,6 +41,7 @@ import {
   ensureHouseholdDriveFolder,
   GoogleDriveAuthError,
   requestGoogleDriveConnection,
+  verifyGoogleDriveUploadCapability,
 } from '../lib/googleDriveStorage';
 import {
   getFontScale,
@@ -177,6 +178,7 @@ export const SettingsPage: React.FC = () => {
 
     try {
       const folder = await ensureHouseholdDriveFolder(household, userId);
+      await verifyGoogleDriveUploadCapability(household, userId);
       setPersonalDriveConnection({
         status: 'ready',
         folderId: folder.id,
@@ -186,7 +188,7 @@ export const SettingsPage: React.FC = () => {
       });
       await refreshData();
       await refreshPersonalDriveConnection();
-      setStorageMessage(`Google Drive personale collegato. I tuoi nuovi scontrini andranno nella cartella ${folder.name}.`);
+      setStorageMessage(`Google Drive personale collegato e upload verificato. I tuoi nuovi scontrini andranno nella cartella ${folder.name}.`);
       if (location.search.includes('connectDrive=1')) {
         navigate('/impostazioni', { replace: true });
       }

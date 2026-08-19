@@ -259,10 +259,14 @@ const googleDriveSource = await readFile(new URL('../src/lib/googleDriveStorage.
 const personalDriveHookSource = await readFile(new URL('../src/hooks/usePersonalDriveConnection.ts', import.meta.url), 'utf8');
 const transactionsPageSource = await readFile(new URL('../src/pages/TransactionsPage.tsx', import.meta.url), 'utf8');
 assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
+assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), true);
+assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
 assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
 assert.equal(scanReceiptSource.includes('scan_receipt_attached_to_existing_transaction'), true);
 assert.equal(scanReceiptSource.includes('Scontrino collegato alla transazione esistente.'), true);
+assert.equal(scanReceiptSource.includes("if (attachTarget && documentStorageProvider === 'google_drive'"), true);
+assert.equal(scanReceiptSource.includes('Transazione salvata. Non sono riuscito ad archiviare le foto'), true);
 
 const atomicMigrationSource = await readFile(new URL('../supabase/migrations/025_atomic_transaction_items.sql', import.meta.url), 'utf8');
 assert.equal(atomicMigrationSource.includes('create or replace function public.create_transaction_with_items'), true);
