@@ -157,6 +157,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       const code = url.searchParams.get('code');
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
+      const providerToken = hashParams.get('provider_token');
       const callbackInUrl = hasAuthCallbackInUrl();
 
       try {
@@ -183,11 +184,21 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
             );
           }
         } else if (accessToken && refreshToken) {
-          const { error } = await supabase.auth.setSession({
+          const { data: sessionData, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
           if (error) throw error;
+          if (
+            url.searchParams.get('connectDrive') === '1'
+            && sessionData.session?.user.id
+            && providerToken
+          ) {
+            saveGoogleDriveAccessToken(
+              sessionData.session.user.id,
+              providerToken,
+            );
+          }
         }
 
         const { data } = await supabase.auth.getSession();

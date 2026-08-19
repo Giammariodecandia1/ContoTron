@@ -265,6 +265,8 @@ assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), tr
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(googleDriveTokenSource.includes('TOKEN_LIFETIME_MS = 50 * 60 * 1000'), true);
 assert.equal(authContextSource.includes('exchangeData.session.provider_token'), true);
+assert.equal(authContextSource.includes("hashParams.get('provider_token')"), true);
+assert.equal(authContextSource.includes('sessionData.session.user.id'), true);
 assert.equal(settingsSource.includes('driveCallbackAttemptedRef.current = true'), true);
 assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
 assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
