@@ -264,7 +264,7 @@ assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
 assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), true);
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(googleDriveSource.includes('?alt=media'), true);
-assert.equal(googleDriveSource.includes('accessToken: dedicatedDriveToken || providerToken'), true);
+assert.equal(googleDriveSource.includes('accessToken: serverAccessToken || dedicatedDriveToken || providerToken'), true);
 assert.equal(googleDriveSource.includes('reader.readAsDataURL(blob)'), true);
 assert.equal(googleDriveSource.includes('return URL.createObjectURL(blob)'), false);
 assert.equal(googleDriveSource.includes('markGoogleDriveConnectionRequested()'), true);
@@ -299,10 +299,16 @@ assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);
 assert.equal(splitPageSource.includes('useState(currentMonthEnd)'), true);
 
 const voiceTransactionSource = await readFile(new URL('../src/lib/aiVoiceTransaction.ts', import.meta.url), 'utf8');
+const googleDriveServerTokenSource = await readFile(new URL('../src/lib/googleDriveServerToken.ts', import.meta.url), 'utf8');
+const googleDriveTokenFunctionSource = await readFile(new URL('../supabase/functions/google-drive-token/index.ts', import.meta.url), 'utf8');
 assert.equal(voiceTransactionSource.includes('analyzeVoiceTransactionWithAi'), true);
 assert.equal(voiceTransactionSource.includes('Usa esclusivamente gli ID di categorie, sottocategorie e conti'), true);
 assert.equal(newTransactionSource.includes('webkitSpeechRecognition'), true);
 assert.equal(newTransactionSource.includes('Compila modulo'), true);
 assert.equal(newTransactionSource.includes('nulla viene salvato senza la tua conferma'), true);
+assert.equal(googleDriveServerTokenSource.includes("action: 'get_access_token'"), true);
+assert.equal(googleDriveTokenFunctionSource.includes('store_refresh_token'), true);
+assert.equal(googleDriveTokenFunctionSource.includes('GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY'), true);
+assert.equal(googleDriveTokenFunctionSource.includes('crypto.subtle.encrypt'), true);
 
 console.log('Verifica beta: logiche finanziarie e fix visuali agosto 2026 OK');

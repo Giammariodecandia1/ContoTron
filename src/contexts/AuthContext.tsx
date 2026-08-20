@@ -6,6 +6,7 @@ import {
   hasGoogleDriveConnectionRequest,
   saveGoogleDriveAccessToken,
 } from '../lib/googleDriveTokenStorage';
+import { saveGoogleDriveRefreshToken } from '../lib/googleDriveServerToken';
 import type { Profile } from '../types/database';
 
 type AppUser = Profile & {
@@ -62,6 +63,13 @@ const cleanAuthCallbackUrl = () => {
 
   url.hash = '';
   window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}`);
+};
+
+const persistDriveRefreshToken = (refreshToken: string | null | undefined) => {
+  if (!refreshToken) return;
+  void saveGoogleDriveRefreshToken(refreshToken).catch(error => {
+    console.warn('Salvataggio sicuro del rinnovo Google Drive non disponibile:', error);
+  });
 };
 
 const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
@@ -189,6 +197,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
               exchangeData.session.user.id,
               exchangeData.session.provider_token,
             );
+            persistDriveRefreshToken(exchangeData.session.provider_refresh_token);
           }
         } else if (accessToken && refreshToken) {
           const { data: sessionData, error } = await supabase.auth.setSession({
@@ -205,6 +214,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
               sessionData.session.user.id,
               providerToken,
             );
+            persistDriveRefreshToken(sessionData.session.provider_refresh_token);
           }
         }
 
@@ -218,6 +228,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
             data.session.user.id,
             data.session.provider_token,
           );
+          persistDriveRefreshToken(data.session.provider_refresh_token);
           clearGoogleDriveConnectionRequest();
         }
         if (isMounted) {

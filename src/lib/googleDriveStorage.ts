@@ -13,6 +13,7 @@ import {
   markGoogleDriveConnectionRequested,
   readGoogleDriveAccessToken,
 } from './googleDriveTokenStorage';
+import { getGoogleDriveServerAccessToken } from './googleDriveServerToken';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -72,9 +73,16 @@ export const getGoogleDriveAccessToken = async () => {
   const userId = data.session?.user.id || null;
   const providerToken = data.session?.provider_token || null;
   const dedicatedDriveToken = userId ? readGoogleDriveAccessToken(userId) : null;
+  let serverAccessToken: string | null = null;
+
+  try {
+    serverAccessToken = await getGoogleDriveServerAccessToken();
+  } catch {
+    // La funzione server viene introdotta senza interrompere i collegamenti esistenti.
+  }
 
   return {
-    accessToken: dedicatedDriveToken || providerToken,
+    accessToken: serverAccessToken || dedicatedDriveToken || providerToken,
     userId,
   };
 };
