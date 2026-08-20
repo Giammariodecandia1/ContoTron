@@ -23,6 +23,44 @@
   gap: var(--space-4);
 }
 
+.voiceAssistant {
+  background: color-mix(in srgb, var(--color-primary-light) 74%, var(--color-white));
+  border: 1px solid color-mix(in srgb, var(--color-primary) 38%, transparent);
+  border-radius: var(--border-radius-md);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.voiceAssistant strong {
+  align-items: center;
+  color: var(--color-primary);
+  display: flex;
+  gap: var(--space-2);
+}
+
+.voiceAssistant span,
+.voiceMessage,
+.voiceTranscript {
+  color: var(--color-gray-600);
+  display: block;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  margin: var(--space-1) 0 0;
+}
+
+.voiceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.voiceTranscript {
+  background: var(--color-white);
+  border-radius: var(--border-radius-sm);
+  padding: var(--space-2);
+}
+
 .simpleNotice {
   background: var(--color-success-bg);
   border: 1px solid color-mix(in srgb, var(--color-success) 32%, transparent);

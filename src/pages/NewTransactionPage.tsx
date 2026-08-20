@@ -1,14 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Mic, Square, Sparkles } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useAuth, useHousehold, useTransactions, useViewMode } from '../hooks';
+import { useAiConfiguration, useAuth, useHousehold, useTransactions, useViewMode } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
 import { saveProductClassificationRules } from '../lib/productLearning';
 import { toIsoDate } from '../lib/dates';
+import { analyzeVoiceTransactionWithAi } from '../lib/aiVoiceTransaction';
 import type { PaymentMethod, Transaction, TransactionFrequency, TransactionType } from '../types/database';
 import styles from './NewTransactionPage.module.css';
 
@@ -33,12 +34,41 @@ interface TransactionFormState {
   }>;
 }
 
+interface BrowserSpeechRecognition extends EventTarget {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionEvent {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string;
+}
+
+type SpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+declare global {
+  interface Window {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  }
+}
+
 export const NewTransactionPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { transactionId } = useParams();
   const { household, accounts, categories, subcategories } = useHousehold();
   const { user } = useAuth();
+  const { configuration: aiConfiguration } = useAiConfiguration();
   const { isSimple } = useViewMode();
   const { addTransaction, addTransactionWithItems, updateTransaction, loading } = useTransactions();
   const initialState = (location.state || {}) as TransactionFormState;
@@ -59,7 +89,12 @@ export const NewTransactionPage: React.FC = () => {
   const [accountId, setAccountId] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [voiceTranscript, setVoiceTranscript] = useState('');
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceProcessing, setVoiceProcessing] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const submissionInFlightRef = useRef(false);
+  const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const filteredCategories = categories.filter(c => c.type === transactionType);
   const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
@@ -110,6 +145,75 @@ export const NewTransactionPage: React.FC = () => {
 
     loadTransaction();
   }, [householdId, isEditMode, transactionId]);
+
+  useEffect(() => () => {
+    speechRecognitionRef.current?.stop();
+  }, []);
+
+  const applyVoiceTransaction = async (transcript: string) => {
+    if (!aiConfiguration || !transcript.trim()) return;
+    setVoiceProcessing(true);
+    setVoiceMessage('Sto compilando la transazione: controlla sempre i campi prima di salvare.');
+    setError(null);
+    try {
+      const result = await analyzeVoiceTransactionWithAi({
+        configuration: aiConfiguration,
+        transcript,
+        categories,
+        subcategories,
+        accounts,
+        today: toIsoDate(new Date()),
+      });
+      if (result.type) changeTransactionType(result.type);
+      if (result.amount !== null) setAmount(String(result.amount));
+      if (result.date) setDate(result.date);
+      if (result.categoryId) setCategoryId(result.categoryId);
+      setSubcategoryId(result.subcategoryId);
+      if (result.accountId) setAccountId(result.accountId);
+      if (result.merchant) setMerchant(result.merchant);
+      if (result.description) setDescription(result.description);
+      if (result.notes) setNotes(result.notes);
+      if (result.paymentMethod) setPaymentMethod(result.paymentMethod);
+      if (result.isShared !== null) setIsShared(result.isShared);
+      setVoiceMessage('Campi compilati dalla dettatura. Verificali e poi salva la transazione.');
+    } catch (voiceError) {
+      setVoiceMessage(null);
+      setError(voiceError instanceof Error ? voiceError.message : 'Non riesco a interpretare la dettatura.');
+    } finally {
+      setVoiceProcessing(false);
+    }
+  };
+
+  const startVoiceInput = () => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) {
+      setError('La dettatura non e disponibile in questo browser. Puoi usare Chrome aggiornato oppure scrivere la spesa.');
+      return;
+    }
+    setError(null);
+    setVoiceMessage('In ascolto: descrivi la spesa, ad esempio “28 euro alla Tigre oggi, familiare”.');
+    setVoiceTranscript('');
+    const recognition = new Recognition();
+    speechRecognitionRef.current = recognition;
+    recognition.lang = 'it-IT';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.onresult = event => {
+      const transcript = Array.from(event.results).map(result => result[0]?.transcript || '').join(' ').trim();
+      setVoiceTranscript(transcript);
+    };
+    recognition.onerror = event => {
+      setVoiceListening(false);
+      if (event.error !== 'aborted') setError(`Dettatura non riuscita: ${event.error}.`);
+    };
+    recognition.onend = () => {
+      setVoiceListening(false);
+    };
+    recognition.start();
+    setVoiceListening(true);
+  };
+
+  const stopVoiceInput = () => speechRecognitionRef.current?.stop();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -211,6 +315,26 @@ export const NewTransactionPage: React.FC = () => {
           <div style={{ textAlign: 'center', padding: '2rem' }}>Caricamento transazione...</div>
         ) : (
           <form onSubmit={handleSubmit} className={styles.form}>
+            {aiConfiguration && !isEditMode && (
+              <section className={styles.voiceAssistant} aria-label="Inserimento transazione con la voce">
+                <div>
+                  <strong><Sparkles size={16} /> Detta una spesa</strong>
+                  <span>La voce compila il modulo con l'AI: nulla viene salvato senza la tua conferma.</span>
+                </div>
+                <div className={styles.voiceActions}>
+                  <Button type="button" variant={voiceListening ? 'danger' : 'secondary'} size="sm" onClick={voiceListening ? stopVoiceInput : startVoiceInput} disabled={voiceProcessing} icon={voiceListening ? <Square size={15} /> : <Mic size={16} />}>
+                    {voiceListening ? 'Termina' : 'Detta spesa'}
+                  </Button>
+                  {voiceTranscript && !voiceListening && (
+                    <Button type="button" variant="primary" size="sm" onClick={() => void applyVoiceTransaction(voiceTranscript)} disabled={voiceProcessing} icon={<Sparkles size={16} />}>
+                      {voiceProcessing ? 'Analisi...' : 'Compila modulo'}
+                    </Button>
+                  )}
+                </div>
+                {voiceTranscript && <p className={styles.voiceTranscript}>“{voiceTranscript}”</p>}
+                {voiceMessage && <p className={styles.voiceMessage}>{voiceMessage}</p>}
+              </section>
+            )}
             {isSimple && (
               <div className={styles.simpleNotice}>
                 <strong>Inserimento semplice</strong>

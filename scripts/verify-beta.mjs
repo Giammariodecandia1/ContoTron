@@ -298,4 +298,11 @@ const splitPageSource = await readFile(new URL('../src/pages/SplitPage.tsx', imp
 assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);
 assert.equal(splitPageSource.includes('useState(currentMonthEnd)'), true);
 
+const voiceTransactionSource = await readFile(new URL('../src/lib/aiVoiceTransaction.ts', import.meta.url), 'utf8');
+assert.equal(voiceTransactionSource.includes('analyzeVoiceTransactionWithAi'), true);
+assert.equal(voiceTransactionSource.includes('Usa esclusivamente gli ID di categorie, sottocategorie e conti'), true);
+assert.equal(newTransactionSource.includes('webkitSpeechRecognition'), true);
+assert.equal(newTransactionSource.includes('Compila modulo'), true);
+assert.equal(newTransactionSource.includes('nulla viene salvato senza la tua conferma'), true);
+
 console.log('Verifica beta: logiche finanziarie e fix visuali agosto 2026 OK');
