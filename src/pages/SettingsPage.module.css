@@ -242,6 +242,41 @@
   margin-top: var(--space-3);
 }
 
+.moneyDisplayToggle {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--space-3);
+}
+
+.moneyDisplayToggle button {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-800);
+  display: grid;
+  gap: 2px;
+  min-height: 64px;
+  padding: var(--space-3);
+}
+
+.moneyDisplayToggle small {
+  color: var(--color-gray-500);
+}
+
+.moneyDisplayToggle .moneyDisplayActive {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 800;
+}
+
+@media (max-width: 560px) {
+  .moneyDisplayToggle {
+    grid-template-columns: 1fr;
+  }
+}
+
 .navigationOptions label {
   align-items: center;
   background: var(--color-gray-50);

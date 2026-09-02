@@ -18,7 +18,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
 import { foodCharacteristicOptions, getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
-import { formatCurrency } from '../lib/money';
+import { formatCurrency, formatPercentage } from '../lib/money';
 import { spendingTypeOptions } from '../lib/spendingTypes';
 import { supabase } from '../lib/supabaseClient';
 import styles from './AnnualAnalysisPage.module.css';
@@ -508,7 +508,7 @@ export const AnnualAnalysisPage: React.FC = () => {
                       <tr key={row.id}>
                         <td><strong>{row.name}</strong></td>
                         <td>{exactCurrency(row.amount, currency)}</td>
-                        <td>{row.percent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{formatPercentage(row.percent, 2)}</td>
                         <td>{row.count}</td>
                       </tr>
                     ))}
@@ -535,9 +535,9 @@ export const AnnualAnalysisPage: React.FC = () => {
                       <tr key={row.id}>
                         <td><strong>{row.name}</strong></td>
                         <td>{exactCurrency(row.planned, currency)}</td>
-                        <td>{row.plannedPercent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{formatPercentage(row.plannedPercent, 2)}</td>
                         <td>{exactCurrency(row.actual, currency)}</td>
-                        <td>{row.actualPercent.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</td>
+                        <td>{formatPercentage(row.actualPercent, 2)}</td>
                         <td>{row.subcategoryCount}</td>
                       </tr>
                     ))}

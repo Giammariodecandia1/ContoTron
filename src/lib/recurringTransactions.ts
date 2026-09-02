@@ -166,16 +166,18 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
   const now = new Date();
   const requestedMonth = new Date(year, month - 1, 1);
   const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  if (requestedMonth > currentMonth) {
-    return { createdCount: 0, rulesCount: activeRules.length, rules: [] };
-  }
-
   await syncFixedExpensesIntoBudget({
     householdId,
     activeRules,
     year,
     month,
   });
+
+  // Anche nei mesi futuri il budget deve mostrare le spese fisse. Soltanto le
+  // transazioni contabili vengono create quando il mese e effettivamente iniziato.
+  if (requestedMonth > currentMonth) {
+    return { createdCount: 0, rulesCount: activeRules.length, rules: activeRules };
+  }
 
   let createdCount = 0;
 

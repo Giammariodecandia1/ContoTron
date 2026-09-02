@@ -3,7 +3,7 @@ import { CalendarRange, RefreshCw, Scale, Users } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
-import { formatCurrency } from '../lib/money';
+import { formatCurrency, formatPercentage } from '../lib/money';
 import { calculateEqualSplit, transactionBelongsToSplit } from '../lib/splitCalculator';
 import { supabase } from '../lib/supabaseClient';
 import styles from './SplitPage.module.css';
@@ -263,7 +263,7 @@ export const SplitPage: React.FC = () => {
                     <tr key={member.userId}>
                       <td><strong>{member.displayName}</strong><small>{member.transactionCount} movimenti</small></td>
                       <td>{formatCurrency(member.paidCents / 100, currency)}</td>
-                      <td>{member.percentage.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</td>
+                      <td>{formatPercentage(member.percentage, 1)}</td>
                       <td>{formatCurrency(member.shareCents / 100, currency)}</td>
                       <td className={member.balanceCents > 0 ? styles.credit : member.balanceCents < 0 ? styles.debt : styles.even}>
                         <strong>{member.balanceCents > 0 ? 'Deve ricevere' : member.balanceCents < 0 ? 'Deve versare' : 'In pari'}</strong>

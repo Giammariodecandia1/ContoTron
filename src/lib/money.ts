@@ -1,8 +1,23 @@
+import { getMoneyDisplayMode } from './moneyDisplayPreference';
+
 export function formatCurrency(amount: number, currency: string = 'EUR'): string {
+  const displayMode = getMoneyDisplayMode();
   return new Intl.NumberFormat('it-IT', {
     style: 'currency',
     currency,
+    minimumFractionDigits: displayMode === 'always' ? 2 : 0,
+    maximumFractionDigits: displayMode === 'whole' ? 0 : 2,
   }).format(amount);
+}
+
+export function formatPercentage(value: number, fractionDigits: number = 2): string {
+  const displayMode = getMoneyDisplayMode();
+  const maximumFractionDigits = displayMode === 'whole' ? 0 : fractionDigits;
+  const minimumFractionDigits = displayMode === 'always' ? fractionDigits : 0;
+  return `${value.toLocaleString('it-IT', {
+    minimumFractionDigits,
+    maximumFractionDigits,
+  })}%`;
 }
 
 export function parseCurrencyInput(value: string): number {

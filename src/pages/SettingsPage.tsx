@@ -57,6 +57,11 @@ import {
 } from '../lib/aiConfiguration';
 import { testAiConnection } from '../lib/aiClient';
 import { navigationVisibilityOptions } from '../lib/navigationVisibilityPreference';
+import {
+  getMoneyDisplayMode,
+  saveMoneyDisplayMode,
+  type MoneyDisplayMode,
+} from '../lib/moneyDisplayPreference';
 import styles from './SettingsPage.module.css';
 
 export const SettingsPage: React.FC = () => {
@@ -75,6 +80,7 @@ export const SettingsPage: React.FC = () => {
   const [storageError, setStorageError] = useState<string | null>(null);
   const driveCallbackAttemptedRef = useRef(false);
   const [fontScale, setFontScale] = useState<FontScale>(() => getFontScale());
+  const [moneyDisplayMode, setMoneyDisplayMode] = useState<MoneyDisplayMode>(() => getMoneyDisplayMode());
   const [aiExpanded, setAiExpanded] = useState(false);
   const [aiAdvanced, setAiAdvanced] = useState(false);
   const [aiKeyVisible, setAiKeyVisible] = useState(false);
@@ -102,6 +108,11 @@ export const SettingsPage: React.FC = () => {
   const handleFontScaleChange = (nextScale: FontScale) => {
     setFontScale(nextScale);
     saveFontScale(nextScale);
+  };
+
+  const handleMoneyDisplayModeChange = (nextMode: MoneyDisplayMode) => {
+    setMoneyDisplayMode(nextMode);
+    saveMoneyDisplayMode(nextMode);
   };
 
   const handleViewModeChange = (nextMode: 'simple' | 'complete') => {
@@ -587,6 +598,29 @@ export const SettingsPage: React.FC = () => {
             ))}
           </div>
           <p className={styles.fontPreview}>Anteprima: entrate, uscite e budget familiare.</p>
+          <div className={styles.preferenceDivider} />
+          <div className={styles.preferenceHeader}>
+            <strong>Visualizzazione di importi e percentuali</strong>
+            <span className="text-muted fs-sm">Cambia soltanto l'aspetto dei numeri sul tuo browser; calcoli e centesimi salvati restano invariati.</span>
+          </div>
+          <div className={styles.moneyDisplayToggle} role="group" aria-label="Visualizzazione centesimi">
+            {([
+              ['always', 'Sempre', '650,00 €'],
+              ['automatic', 'Solo se servono', '650 € / 4,68 €'],
+              ['whole', 'Senza decimali', '650 €'],
+            ] as const).map(([value, label, example]) => (
+              <button
+                key={value}
+                type="button"
+                className={moneyDisplayMode === value ? styles.moneyDisplayActive : ''}
+                aria-pressed={moneyDisplayMode === value}
+                onClick={() => handleMoneyDisplayModeChange(value)}
+              >
+                <span>{label}</span>
+                <small>{example}</small>
+              </button>
+            ))}
+          </div>
         </Card>
 
         <Card title="Account" icon={<LogOut size={20} />}>

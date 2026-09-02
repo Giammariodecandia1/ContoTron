@@ -40,6 +40,7 @@ import {
 } from '../lib/productLearning';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
+import { formatCurrency } from '../lib/money';
 import { analyzeReceiptWithAi } from '../lib/aiReceiptAnalysis';
 import type { PaymentMethod, Transaction, TransactionFrequency } from '../types/database';
 import styles from './ScanReceiptPage.module.css';
@@ -1118,7 +1119,7 @@ export const ScanReceiptPage: React.FC = () => {
       {attachTargetError && <div className={`${styles.attachNotice} ${styles.attachNoticeError}`}>{attachTargetError}</div>}
       {attachTarget && (
         <div className={styles.attachNotice}>
-          <strong>Transazione selezionata:</strong> {attachTarget.description} · {attachTarget.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })} · {new Date(`${attachTarget.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
+          <strong>Transazione selezionata:</strong> {attachTarget.description} · {formatCurrency(attachTarget.amount, household?.currency || 'EUR')} · {new Date(`${attachTarget.transaction_date}T00:00:00`).toLocaleDateString('it-IT')}
         </div>
       )}
       {documentStorageProvider === 'google_drive' && !personalDriveLoading && !personalDriveReady && (

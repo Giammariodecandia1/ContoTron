@@ -4,6 +4,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
 import { getDocumentUrl } from '../lib/documentArchive';
+import { formatCurrency } from '../lib/money';
 import { useHousehold } from '../hooks';
 import type { DocumentType } from '../types/database';
 import styles from './SearchPage.module.css';
@@ -404,19 +405,19 @@ export const SearchPage: React.FC = () => {
       <div className={styles.stats}>
         <div className={styles.statBox}>
           <div className={styles.statLabel}>Spesa transazioni filtrate</div>
-          <div className={styles.statValue}>{totalExpense.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+          <div className={styles.statValue}>{formatCurrency(totalExpense, household?.currency || 'EUR')}</div>
         </div>
         <div className={styles.statBox}>
           <div className={styles.statLabel}>Totale righe articolo</div>
-          <div className={styles.statValue}>{itemTotal.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+          <div className={styles.statValue}>{formatCurrency(itemTotal, household?.currency || 'EUR')}</div>
         </div>
         <div className={styles.statBox}>
           <div className={styles.statLabel}>Categoria principale</div>
-          <div className={styles.statValue}>{topCategory ? `${topCategory[0]} (${topCategory[1].toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })})` : '-'}</div>
+          <div className={styles.statValue}>{topCategory ? `${topCategory[0]} (${formatCurrency(topCategory[1], household?.currency || 'EUR')})` : '-'}</div>
         </div>
         <div className={styles.statBox}>
           <div className={styles.statLabel}>Da dove viene la spesa maggiore</div>
-          <div className={styles.statValue}>{topMerchant ? `${topMerchant[0]} (${topMerchant[1].toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })})` : '-'}</div>
+          <div className={styles.statValue}>{topMerchant ? `${topMerchant[0]} (${formatCurrency(topMerchant[1], household?.currency || 'EUR')})` : '-'}</div>
         </div>
       </div>
 
@@ -430,7 +431,7 @@ export const SearchPage: React.FC = () => {
                     <div className={styles.resultTitle}>{tx.description}</div>
                     <div className={styles.meta}>{tx.transaction_date} - {tx.merchant || 'Senza esercente'} - {tx.categories?.name || 'Non classificato'} - inserita da {tx.inserted_by_profile?.display_name || 'Sconosciuto'}</div>
                   </div>
-                  <div className={styles.amount}>{tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+                  <div className={styles.amount}>{tx.type === 'expense' ? '-' : '+'}{formatCurrency(tx.amount, household?.currency || 'EUR')}</div>
                 </div>
               </div>
             ))}
@@ -446,7 +447,7 @@ export const SearchPage: React.FC = () => {
                     <div className={styles.resultTitle}>{item.description}</div>
                     <div className={styles.meta}>{item.transactions?.transaction_date || ''} - {item.transactions?.merchant || item.transactions?.description || ''}</div>
                   </div>
-                  <div className={styles.amount}>{item.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+                  <div className={styles.amount}>{formatCurrency(item.amount, household?.currency || 'EUR')}</div>
                 </div>
               </div>
             ))}
@@ -460,7 +461,7 @@ export const SearchPage: React.FC = () => {
                 <div className={styles.resultTitle}>{doc.vendor_name || doc.original_filename}</div>
                 <div className={styles.meta}>{doc.document_date || 'Senza data'} - {documentTypeLabels[doc.type] || doc.type} - {doc.original_filename}</div>
                 {doc.total_amount !== null && doc.total_amount !== undefined && (
-                  <div className={styles.amount}>{doc.total_amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+                  <div className={styles.amount}>{formatCurrency(doc.total_amount, household?.currency || 'EUR')}</div>
                 )}
                 {doc.ocr_text && <div className={styles.meta}>{doc.ocr_text.slice(0, 180)}...</div>}
                 {doc.url && <a href={doc.url} target="_blank" rel="noreferrer">Apri documento</a>}
@@ -474,7 +475,7 @@ export const SearchPage: React.FC = () => {
             <div className={styles.resultItem}>
               <div className={styles.resultTitle}>{biggestExpense.description}</div>
               <div className={styles.meta}>{biggestExpense.transaction_date} - {biggestExpense.merchant || 'Senza esercente'} - {biggestExpense.categories?.name || 'Non classificato'} - inserita da {biggestExpense.inserted_by_profile?.display_name || 'Sconosciuto'}</div>
-              <div className={styles.amount}>{biggestExpense.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+              <div className={styles.amount}>{formatCurrency(biggestExpense.amount, household?.currency || 'EUR')}</div>
             </div>
           ) : (
             <div className={styles.empty}>Nessuna spesa trovata.</div>

@@ -4,6 +4,7 @@ import { Camera, TrendingDown, TrendingUp, Wallet } from 'lucide-react';
 import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
+import { formatCurrency, formatPercentage } from '../lib/money';
 import type { Transaction } from '../types/database';
 import styles from './DashboardPage.module.css';
 
@@ -56,7 +57,7 @@ const monthNames = [
 ];
 
 const currency = (value: number, currencyCode = 'EUR') => (
-  value.toLocaleString('it-IT', { style: 'currency', currency: currencyCode })
+  formatCurrency(value, currencyCode)
 );
 
 export const DashboardPage: React.FC = () => {
@@ -528,7 +529,7 @@ export const DashboardPage: React.FC = () => {
                     <span>{row.name}</span>
                     <strong>
                       {currency(row.actualTotal, currencyCode)}
-                      <small>{percentage.toLocaleString('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</small>
+                      <small>{formatPercentage(percentage, 1)}</small>
                     </strong>
                   </div>
                   <div className={styles.histogramTrack} aria-hidden="true">

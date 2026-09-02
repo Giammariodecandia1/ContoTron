@@ -6,6 +6,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
 import { toIsoDate } from '../lib/dates';
+import { formatCurrency } from '../lib/money';
 import { useAuth, useHousehold, usePersonalDriveConnection } from '../hooks';
 import {
   formatMonthKey,
@@ -495,7 +496,7 @@ export const DocumentsPage: React.FC = () => {
             </div>
             <div className={styles.statBox}>
               <div className="fs-sm text-muted">Importi tracciati</div>
-              <div className={styles.statValue}>{totalAmountVisible.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+              <div className={styles.statValue}>{formatCurrency(totalAmountVisible, household?.currency || 'EUR')}</div>
             </div>
           </div>
 
@@ -541,7 +542,7 @@ export const DocumentsPage: React.FC = () => {
                           </div>
                         )}
                         {doc.total_amount !== null && doc.total_amount !== undefined && (
-                          <div className="fw-bold">{doc.total_amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}</div>
+                          <div className="fw-bold">{formatCurrency(doc.total_amount, household?.currency || 'EUR')}</div>
                         )}
                         {doc.ocr_text && (
                           <div className={styles.meta}>{doc.ocr_text.slice(0, 120)}...</div>

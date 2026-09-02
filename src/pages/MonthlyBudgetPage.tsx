@@ -2,8 +2,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from '../components/ui/Card';
 import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { useHousehold, useTransactions } from '../hooks';
+import { RecurringBudgetPlanPanel } from '../components/budget/RecurringBudgetPlanPanel';
+import { useAuth, useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
+import { syncRecurringBudgetPlans } from '../lib/recurringBudgetPlans';
+import { formatCurrency } from '../lib/money';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule, Transaction } from '../types/database';
@@ -17,6 +20,7 @@ type BudgetTransactionItem = {
 };
 
 export const MonthlyBudgetPage: React.FC = () => {
+  const { user } = useAuth();
   const { household, accounts, categories, subcategories } = useHousehold();
   const { fetchTransactions } = useTransactions();
   const { fetchBudgetTargets, upsertBudgetTarget, loading: budgetLoading } = useBudget();
@@ -78,6 +82,18 @@ export const MonthlyBudgetPage: React.FC = () => {
       console.error('Errore generazione spese fisse:', error);
       setRecurringError(error instanceof Error ? error.message : 'Non riesco a generare le spese fisse del mese.');
       setMonthlyRecurringRules([]);
+    }
+
+    try {
+      await syncRecurringBudgetPlans(householdId, year, month);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // Compatibilita durante il rilascio: il budget tradizionale continua a
+      // funzionare anche prima dell'applicazione della nuova migrazione.
+      if (!message.toLowerCase().includes('recurring_budget_plan')) {
+        console.error('Errore piano budget ricorrente:', error);
+        setLoadError('Il piano budget ricorrente non e stato applicato. Il resto del budget resta disponibile.');
+      }
     }
 
     // 1. Fetch transactions for the current month
@@ -181,7 +197,7 @@ export const MonthlyBudgetPage: React.FC = () => {
     const monthLabel = `${monthNames[month - 1]} ${year}`;
     if (!window.confirm(
       `Azzerare il budget previsto di ${monthLabel}?\n\n`
-      + 'Le transazioni non verranno eliminate. Le spese fisse attive saranno reinserite automaticamente se il mese e gia iniziato.',
+      + 'Le transazioni non verranno eliminate. Le spese fisse e i piani ricorrenti attivi saranno riproposti automaticamente.',
     )) return;
 
     setLoading(true);
@@ -371,6 +387,20 @@ export const MonthlyBudgetPage: React.FC = () => {
         </div>
       </div>
 
+      {householdId && (
+        <RecurringBudgetPlanPanel
+          householdId={householdId}
+          userId={user?.id || null}
+          categories={categories}
+          subcategories={subcategories}
+          currency={household?.currency || 'EUR'}
+          year={year}
+          month={month}
+          monthLabel={`${monthNames[month - 1]} ${year}`}
+          onApplied={loadData}
+        />
+      )}
+
       <Card>
         <div className={styles.periodBanner}>
           Stai modificando il budget di <strong>{monthNames[month - 1]} {year}</strong>. I valori salvati qui non modificano gli altri mesi.
@@ -382,7 +412,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                 <h3>Spese ripetitive mensili incluse</h3>
                 <p>Tutte le voci caricate automaticamente quando il mese è iniziato.</p>
               </div>
-              <strong>{monthlyRecurringTotal.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+              <strong>{formatCurrency(monthlyRecurringTotal, household?.currency || 'EUR')}</strong>
             </header>
             <div className={styles.recurringRuleGrid}>
               {monthlyRecurringRules.map(rule => {
@@ -397,7 +427,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                         {subcategory ? ` / ${subcategory.name}` : ''}
                       </small>
                     </span>
-                    <strong>{Number(rule.amount || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                    <strong>{formatCurrency(Number(rule.amount || 0), household?.currency || 'EUR')}</strong>
                   </div>
                 );
               })}
@@ -432,9 +462,9 @@ export const MonthlyBudgetPage: React.FC = () => {
         ) : (
           <>
             <div className={styles.budgetSummary}>
-              <div><span>Totale previsto</span><strong>{totalPlanned.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
-              <div><span>Totale effettivo</span><strong>{totalActual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
-              <div><span>Differenza</span><strong className={totalDiff >= 0 ? styles.diffPositive : styles.diffNegative}>{totalDiff > 0 ? '+' : ''}{totalDiff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong></div>
+              <div><span>Totale previsto</span><strong>{formatCurrency(totalPlanned, household?.currency || 'EUR')}</strong></div>
+              <div><span>Totale effettivo</span><strong>{formatCurrency(totalActual, household?.currency || 'EUR')}</strong></div>
+              <div><span>Differenza</span><strong className={totalDiff >= 0 ? styles.diffPositive : styles.diffNegative}>{totalDiff > 0 ? '+' : ''}{formatCurrency(totalDiff, household?.currency || 'EUR')}</strong></div>
             </div>
 
             <table className={styles.budgetTable}>
@@ -503,10 +533,10 @@ export const MonthlyBudgetPage: React.FC = () => {
                         /> €</>
                       </td>
                       <td data-label="Effettivo" className={styles.amount}>
-                        {actual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                        {formatCurrency(actual, household?.currency || 'EUR')}
                       </td>
                       <td data-label="Differenza" className={`${styles.amount} ${diff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                        {diff > 0 ? '+' : ''}{diff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                        {diff > 0 ? '+' : ''}{formatCurrency(diff, household?.currency || 'EUR')}
                       </td>
                     </tr>
 
@@ -522,12 +552,12 @@ export const MonthlyBudgetPage: React.FC = () => {
                             </div>
                           </td>
                           <td data-label="Previsto" className={styles.amount}>
-                            <strong>{(categoryBudgets[cat.id] || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</strong>
+                            <strong>{formatCurrency(categoryBudgets[cat.id] || 0, household?.currency || 'EUR')}</strong>
                             <small className={styles.calculatedLabel}>calcolato</small>
                           </td>
-                          <td data-label="Effettivo" className={styles.amount}>{(actuals.unallocatedByCategory[cat.id] || 0).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                          <td data-label="Effettivo" className={styles.amount}>{formatCurrency(actuals.unallocatedByCategory[cat.id] || 0, household?.currency || 'EUR')}</td>
                           <td data-label="Differenza" className={`${styles.amount} ${(categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0) >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                            {((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)) > 0 ? '+' : ''}{((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)).toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                            {((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)) > 0 ? '+' : ''}{formatCurrency((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0), household?.currency || 'EUR')}
                           </td>
                         </tr>
                         {categorySubcategories.map(subcategory => {
@@ -555,9 +585,9 @@ export const MonthlyBudgetPage: React.FC = () => {
                                   placeholder="0"
                                 /> €
                               </td>
-                              <td data-label="Effettivo" className={styles.amount}>{subcategoryActual.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                              <td data-label="Effettivo" className={styles.amount}>{formatCurrency(subcategoryActual, household?.currency || 'EUR')}</td>
                               <td data-label="Differenza" className={`${styles.amount} ${subcategoryDiff >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                                {subcategoryDiff > 0 ? '+' : ''}{subcategoryDiff.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €
+                                {subcategoryDiff > 0 ? '+' : ''}{formatCurrency(subcategoryDiff, household?.currency || 'EUR')}
                               </td>
                             </tr>
                           );
@@ -571,9 +601,9 @@ export const MonthlyBudgetPage: React.FC = () => {
               {(actuals.byCategory.uncategorized || 0) > 0 && (
                 <tr className={styles.uncategorizedRow}>
                   <td data-label="Categoria"><div className={styles.categoryName}>Non classificato</div></td>
-                  <td data-label="Previsto" className={styles.amount}>0,00 €</td>
-                  <td data-label="Effettivo" className={styles.amount}>{actuals.byCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
-                  <td data-label="Differenza" className={`${styles.amount} ${styles.diffNegative}`}>-{actuals.byCategory.uncategorized.toLocaleString('it-IT', { minimumFractionDigits: 2 })} €</td>
+                  <td data-label="Previsto" className={styles.amount}>{formatCurrency(0, household?.currency || 'EUR')}</td>
+                  <td data-label="Effettivo" className={styles.amount}>{formatCurrency(actuals.byCategory.uncategorized, household?.currency || 'EUR')}</td>
+                  <td data-label="Differenza" className={`${styles.amount} ${styles.diffNegative}`}>-{formatCurrency(actuals.byCategory.uncategorized, household?.currency || 'EUR')}</td>
                 </tr>
               )}
             </tbody>

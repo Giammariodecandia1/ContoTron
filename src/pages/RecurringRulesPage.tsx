@@ -5,6 +5,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import { formatCurrency } from '../lib/money';
 import { toIsoDate } from '../lib/dates';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule } from '../types/database';
@@ -426,7 +427,7 @@ export const RecurringRulesPage: React.FC = () => {
                       {!rule.is_active && <div className={styles.ruleMeta}>Disattivata</div>}
                     </div>
                     <div className={styles.ruleAmount}>
-                      {rule.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
+                      {formatCurrency(rule.amount, household?.currency || 'EUR')}
                     </div>
                   </div>
                   <div className={styles.ruleActions}>

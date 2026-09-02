@@ -3,7 +3,7 @@ import { BarChart3, Calendar, ChevronDown, ChevronRight, Download, FileSpreadshe
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { supabase } from '../lib/supabaseClient';
-import { formatCurrency } from '../lib/money';
+import { formatCurrency, formatPercentage } from '../lib/money';
 import { createTextPdf, type PdfLine } from '../lib/textPdf';
 import { createExcelWorkbook, type ExcelSheet } from '../lib/excelXml';
 import { getFoodCharacteristicLabel } from '../lib/foodCharacteristics';
@@ -182,7 +182,7 @@ const compactText = (value: string, width: number) => {
   return `${clean.slice(0, Math.max(0, width - 1))}~`;
 };
 
-const formatPercent = (value: number) => `${value.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+const formatPercent = (value: number) => formatPercentage(value, 2);
 
 const tableLine = (columns: string[], widths: number[], alignRight: number[] = []) => (
   columns.map((column, index) => {

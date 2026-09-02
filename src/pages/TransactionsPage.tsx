@@ -183,7 +183,7 @@ export const TransactionsPage: React.FC = () => {
       </div>
       <div className={styles.transactionActions}>
         <div className={tx.type === 'expense' ? styles.expenseAmount : styles.incomeAmount}>
-          {tx.type === 'expense' ? '-' : '+'}{tx.amount.toLocaleString('it-IT', { style: 'currency', currency: household?.currency || 'EUR' })}
+          {tx.type === 'expense' ? '-' : '+'}{formatCurrency(tx.amount, household?.currency || 'EUR')}
         </div>
         <button onClick={() => navigate(`/transazioni/${tx.id}/modifica`)} className={styles.editButton}>
           <Pencil size={14} /> Modifica

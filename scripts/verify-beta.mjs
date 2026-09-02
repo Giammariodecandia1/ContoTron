@@ -27,6 +27,11 @@ const supabaseStubUrl = `data:text/javascript;base64,${Buffer.from('export const
 const recurringUrl = await transpileModule('src/lib/recurringTransactions.ts', [
   ["'./supabaseClient'", `'${supabaseStubUrl}'`],
 ]);
+const moneyStubUrl = `data:text/javascript;base64,${Buffer.from('export const roundMoney = value => Math.round(value * 100) / 100;').toString('base64')}`;
+const recurringBudgetPlanUrl = await transpileModule('src/lib/recurringBudgetPlans.ts', [
+  ["'./supabaseClient'", `'${supabaseStubUrl}'`],
+  ["'./money'", `'${moneyStubUrl}'`],
+]);
 const viewModeUrl = await transpileModule('src/lib/viewModePreference.ts');
 const navigationVisibilityUrl = await transpileModule('src/lib/navigationVisibilityPreference.ts');
 const memberSummaryUrl = await transpileModule('src/lib/memberTransactionSummary.ts');
@@ -40,6 +45,7 @@ const {
 const { parseReceiptDiscount } = await import(discountUrl);
 const { calculateEqualSplit, transactionBelongsToSplit } = await import(splitUrl);
 const { recurringRuleAppliesToMonth } = await import(recurringUrl);
+const { calculateMonthlyBudgetAllocations } = await import(recurringBudgetPlanUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
 const { getHiddenNavigationPaths, saveHiddenNavigationPaths } = await import(navigationVisibilityUrl);
 const {
@@ -119,6 +125,20 @@ assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 3), true);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 8), true);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 2), false);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 9), false);
+
+const weeklyFoodPlan = [
+  2.5319607843137262, 1.1460784313725492, 1.7468627450980392, 0.84392156862745094,
+  4.0501960784313722, 3.7801960784313722, 12.846862745098038, 1.6145098039215686,
+  5.871764705882355, 9.4358823529411762, 16.484509803921569, 2.2927450980392154,
+  3.9347058823529415, 2.6964705882352944, 0.47549019607843146, 1.9486274509803923,
+  0.76549019607843138, 5.2794117647058822, 5.2598039215686274, 2.8866666666666672,
+  4.1596078431372554, 18.7856862745098, 4.4803921568627443, 0.53196078431372551,
+  0.92352941176470582, 0.41235294117647059, 1.509215686274509, 14.179019607843134,
+  5.9550980392156863,
+].map((weeklyAmount, index) => ({ subcategoryId: `food-${index}`, weeklyAmount }));
+const normalizedFoodPlan = calculateMonthlyBudgetAllocations(weeklyFoodPlan, 4.75, 650);
+assert.equal(Math.round(normalizedFoodPlan.reduce((sum, item) => sum + item.monthlyAmount, 0) * 100), 65000);
+assert.equal(normalizedFoodPlan.every(item => item.monthlyAmount >= 0), true);
 
 const storedPreferences = new Map();
 globalThis.window = {
@@ -248,6 +268,7 @@ assert.equal(sidebarSource.includes(".filter(item => !isHidden(item.path))"), tr
 const settingsSource = await readFile(new URL('../src/pages/SettingsPage.tsx', import.meta.url), 'utf8');
 assert.equal(settingsSource.includes('Voci da mostrare nel menu'), true);
 assert.equal(settingsSource.includes('Mostra tutte'), true);
+assert.equal(settingsSource.includes('Senza decimali'), true);
 
 const documentArchiveSource = await readFile(new URL('../src/lib/documentArchive.ts', import.meta.url), 'utf8');
 assert.equal(documentArchiveSource.includes("const requiresGoogleDrive = desiredProvider === 'google_drive';"), true);
@@ -293,6 +314,12 @@ assert.equal(atomicMigrationSource.includes('return to_jsonb(saved_transaction);
 
 const monthlyBudgetSource = await readFile(new URL('../src/pages/MonthlyBudgetPage.tsx', import.meta.url), 'utf8');
 assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), true);
+assert.equal(monthlyBudgetSource.includes('<RecurringBudgetPlanPanel'), true);
+const recurringSource = await readFile(new URL('../src/lib/recurringTransactions.ts', import.meta.url), 'utf8');
+assert.equal(
+  recurringSource.indexOf('await syncFixedExpensesIntoBudget') < recurringSource.indexOf('if (requestedMonth > currentMonth)'),
+  true,
+);
 
 const splitPageSource = await readFile(new URL('../src/pages/SplitPage.tsx', import.meta.url), 'utf8');
 assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);

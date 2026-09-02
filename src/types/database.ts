@@ -209,6 +209,31 @@ export interface BudgetTarget {
   updated_at: string;
 }
 
+export interface RecurringBudgetPlan {
+  id: string;
+  household_id: string;
+  category_id: string;
+  name: string;
+  weeks_per_month: number;
+  monthly_target: number | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RecurringBudgetPlanItem {
+  id: string;
+  plan_id: string;
+  household_id: string;
+  category_id: string;
+  subcategory_id: string;
+  weekly_amount: number;
+  monthly_amount: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   household_id: string;

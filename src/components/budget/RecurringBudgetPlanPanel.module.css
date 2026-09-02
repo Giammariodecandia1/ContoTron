@@ -1,0 +1,133 @@
+.panel {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  margin-bottom: var(--space-4);
+  overflow: hidden;
+}
+
+.header {
+  align-items: center;
+  background: var(--color-gray-50);
+  color: var(--color-gray-800);
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  text-align: left;
+  width: 100%;
+}
+
+.header > span {
+  flex: 1;
+}
+
+.header strong,
+.header small {
+  display: block;
+}
+
+.header small {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.content {
+  padding: var(--space-4);
+}
+
+.explanation,
+.roundingNote {
+  color: var(--color-gray-600);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.controls {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: var(--space-4) 0;
+}
+
+.controls label {
+  color: var(--color-gray-700);
+  display: grid;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  gap: var(--space-2);
+}
+
+.controls input,
+.controls select,
+.tableWrap input {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-gray-900);
+  min-height: 40px;
+  padding: var(--space-2);
+}
+
+.tableWrap {
+  max-height: 440px;
+  overflow: auto;
+}
+
+.tableWrap table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.tableWrap th,
+.tableWrap td {
+  border-bottom: 1px solid var(--color-gray-100);
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.tableWrap th:last-child,
+.tableWrap td:last-child {
+  text-align: right;
+}
+
+.tableWrap input {
+  text-align: right;
+  width: 110px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
+.success,
+.error {
+  border-radius: var(--border-radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  padding: var(--space-3);
+}
+
+.success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+@media (max-width: 768px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .header small {
+    display: none;
+  }
+}
