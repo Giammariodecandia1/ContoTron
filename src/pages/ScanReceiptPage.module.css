@@ -434,6 +434,12 @@
   background: var(--color-danger-bg);
 }
 
+.addItemAction {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
 .reconciliationSummary {
   display: flex;
   flex-wrap: wrap;
@@ -524,6 +530,10 @@
   }
 
   .removeItemButton {
+    width: 100%;
+  }
+
+  .addItemAction > * {
     width: 100%;
   }
 

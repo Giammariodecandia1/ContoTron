@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Bot, Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
+import { Bot, CalendarClock, Home, PieChart, List, FileText, Settings, Upload, LogOut, Search, BarChart3, TrendingUp, ShoppingBasket, Scale, PlusCircle } from 'lucide-react';
 import { ContotronBrand } from '../brand/ContotronBrand';
 import { useAiConfiguration, useAuth, useNavigationVisibility, useViewMode } from '../../hooks';
 import styles from './AppLayout.module.css';
@@ -9,6 +9,7 @@ const navItems = [
   { path: '/dashboard', label: 'Dashboard', icon: <Home size={20} /> },
   { path: '/transazioni', label: 'Transazioni', icon: <List size={20} /> },
   { path: '/split', label: 'Split', icon: <Scale size={20} /> },
+  { path: '/abbonamenti', label: 'Abbonamenti', mobileLabel: 'Abbonam.', icon: <CalendarClock size={20} /> },
   { path: '/report', label: 'Consuntivo mensile', mobileLabel: 'Consuntivo', icon: <BarChart3 size={20} /> },
   { path: '/mensile', label: 'Budget Mensile', icon: <PieChart size={20} /> },
   { path: '/analisi-annuale', label: 'Analisi annuale', mobileLabel: 'Annuale', icon: <TrendingUp size={20} /> },
@@ -23,6 +24,7 @@ const simpleNavItems = [
   { path: '/transazioni/nuova', label: 'Aggiungi spesa', icon: <PlusCircle size={20} /> },
   { path: '/transazioni', label: 'Movimenti', icon: <List size={20} /> },
   { path: '/split', label: 'Split', icon: <Scale size={20} /> },
+  { path: '/abbonamenti', label: 'Abbonamenti', mobileLabel: 'Abbonam.', icon: <CalendarClock size={20} /> },
   { path: '/impostazioni', label: 'Impostazioni', icon: <Settings size={20} /> },
 ];
 

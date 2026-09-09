@@ -7,6 +7,8 @@ import { useAuth, useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
 import { syncRecurringBudgetPlans } from '../lib/recurringBudgetPlans';
 import { formatCurrency } from '../lib/money';
+import { getMoneyDisplayMode } from '../lib/moneyDisplayPreference';
+import { calculateUnallocatedBudgetBreakdown } from '../lib/monthlyBudgetBreakdown';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule, Transaction } from '../types/database';
@@ -42,6 +44,8 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [prefillNotice, setPrefillNotice] = useState<string | null>(null);
   const loadRequestRef = useRef(0);
+  const dirtyCategoryBudgetIdsRef = useRef(new Set<string>());
+  const dirtySubcategoryBudgetIdsRef = useRef(new Set<string>());
   const householdId = household?.id || null;
 
   const year = selectedYear;
@@ -224,6 +228,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   );
 
   const handleCategoryTotalChange = (categoryId: string, val: string) => {
+    dirtyCategoryBudgetIdsRef.current.add(categoryId);
     setCategoryTotalDrafts(prev => ({ ...prev, [categoryId]: val }));
     if (!val.trim()) return;
     const requestedTotal = parseFloat(val) || 0;
@@ -235,6 +240,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   };
 
   const handleCategoryTotalBlur = async (categoryId: string, val: string) => {
+    if (!dirtyCategoryBudgetIdsRef.current.delete(categoryId)) return;
     const allocated = subcategoryPlannedTotal(categoryId);
     const parsedTotal = parseFloat(val);
     const requestedTotal = Number.isFinite(parsedTotal) ? parsedTotal : allocated;
@@ -247,6 +253,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   };
 
   const handleSubcategoryBudgetChange = (categoryId: string, subcategoryId: string, val: string) => {
+    dirtySubcategoryBudgetIdsRef.current.add(subcategoryId);
     const num = parseFloat(val) || 0;
     const nextSubcategoryBudgets = { ...subcategoryBudgets, [subcategoryId]: num };
     setSubcategoryBudgets(nextSubcategoryBudgets);
@@ -259,6 +266,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   };
 
   const handleSubcategoryBudgetBlur = async (categoryId: string, subcategoryId: string) => {
+    if (!dirtySubcategoryBudgetIdsRef.current.delete(subcategoryId)) return;
     const amount = subcategoryBudgets[subcategoryId] || 0;
     const saved = await Promise.all([
       upsertBudgetTarget(categoryId, amount, year, month, subcategoryId),
@@ -281,6 +289,7 @@ export const MonthlyBudgetPage: React.FC = () => {
     const byCategory: Record<string, number> = {};
     const bySubcategory: Record<string, number> = {};
     const unallocatedByCategory: Record<string, number> = {};
+    const byRecurringRule: Record<string, number> = {};
     const transactionById = new Map(transactions.map(transaction => [transaction.id, transaction]));
     const itemsByTransaction = new Map<string, BudgetTransactionItem[]>();
     transactionItems.forEach(item => {
@@ -304,6 +313,10 @@ export const MonthlyBudgetPage: React.FC = () => {
       const itemGroup = itemsByTransaction.get(transaction.id) || [];
       const itemTotal = itemGroup.reduce((sum, item) => sum + Number(item.amount || 0), 0);
       if (itemTotal <= 0) {
+        if (transaction.recurring_rule_id && !transaction.subcategory_id) {
+          byRecurringRule[transaction.recurring_rule_id] = (byRecurringRule[transaction.recurring_rule_id] || 0)
+            + Number(transaction.amount || 0);
+        }
         addAmount(transaction.category_id, transaction.subcategory_id, Number(transaction.amount || 0));
         return;
       }
@@ -313,7 +326,7 @@ export const MonthlyBudgetPage: React.FC = () => {
         addAmount(item.category_id, item.subcategory_id, allocatedAmount);
       });
     });
-    return { byCategory, bySubcategory, unallocatedByCategory };
+    return { byCategory, bySubcategory, unallocatedByCategory, byRecurringRule };
   }, [transactionItems, transactions]);
 
   const expenseCategories = categories.filter(c => c.type === 'expense').sort((a, b) => a.name.localeCompare(b.name));
@@ -342,6 +355,13 @@ export const MonthlyBudgetPage: React.FC = () => {
   const totalDiff = totalPlanned - totalActual;
   const monthlyRecurringTotal = monthlyRecurringRules.reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
   const unclassifiedRecurringRules = monthlyRecurringRules.filter(rule => !rule.category_id);
+  const wholeNumberDisplay = getMoneyDisplayMode() === 'whole';
+  const budgetInputValue = (value: string | number | undefined) => {
+    if (value === '' || value === undefined) return '';
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return value;
+    return wholeNumberDisplay ? String(Math.round(numericValue)) : value;
+  };
 
   return (
     <div className={styles.page}>
@@ -479,10 +499,12 @@ export const MonthlyBudgetPage: React.FC = () => {
             <tbody>
               {expenseCategories.map(cat => {
                 const categorySubcategories = subcategoriesByCategory.get(cat.id) || [];
-                const hasSubcategories = categorySubcategories.length > 0;
-                const isExpanded = expandedCategoryIds.has(cat.id);
                 const categoryRecurringRules = monthlyRecurringRules.filter(rule => rule.category_id === cat.id);
                 const unallocatedRecurringRules = categoryRecurringRules.filter(rule => !rule.subcategory_id);
+                const hasSubcategories = categorySubcategories.length > 0;
+                const hasBreakdownRows = hasSubcategories || unallocatedRecurringRules.length > 0;
+                const breakdownCount = categorySubcategories.length + unallocatedRecurringRules.length;
+                const isExpanded = expandedCategoryIds.has(cat.id);
                 const hasAutomaticCategoryBudget = categoryRecurringRules.length > 0;
                 const recurringBadgeLabel = categoryRecurringRules.length === 1
                   ? '1 spesa ripetitiva'
@@ -492,12 +514,29 @@ export const MonthlyBudgetPage: React.FC = () => {
                 const diff = planned - actual;
                 const percent = planned > 0 ? Math.min((actual / planned) * 100, 100) : (actual > 0 ? 100 : 0);
                 const progressClass = percent > 90 ? styles.danger : percent > 75 ? styles.warning : '';
+                const {
+                  fixedRows: unallocatedFixedRows,
+                  trulyUnallocatedPlanned,
+                  trulyUnallocatedActual,
+                } = calculateUnallocatedBudgetBreakdown({
+                  categoryBudget: categoryBudgets[cat.id] || 0,
+                  unallocatedActual: actuals.unallocatedByCategory[cat.id] || 0,
+                  fixedRules: unallocatedRecurringRules.map(rule => ({
+                    id: rule.id,
+                    description: rule.description,
+                    amount: Number(rule.amount || 0),
+                  })),
+                  actualByRecurringRule: actuals.byRecurringRule,
+                });
+                const showTrulyUnallocated = unallocatedRecurringRules.length === 0
+                  || trulyUnallocatedPlanned > 0.005
+                  || trulyUnallocatedActual > 0.005;
 
                 return (
                   <React.Fragment key={cat.id}>
                     <tr className={styles.categoryRow}>
                       <td data-label="Categoria">
-                        {hasSubcategories ? (
+                        {hasBreakdownRows ? (
                           <button
                             type="button"
                             className={styles.categoryToggle}
@@ -506,7 +545,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                           >
                             {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                             <span>{cat.name}</span>
-                            <small>{categorySubcategories.length} sottocategorie</small>
+                            <small>{breakdownCount} voci</small>
                             {hasAutomaticCategoryBudget && <em className={styles.autoBudgetBadge}>{recurringBadgeLabel}</em>}
                           </button>
                         ) : (
@@ -523,9 +562,9 @@ export const MonthlyBudgetPage: React.FC = () => {
                         <><input
                           type="number"
                           min={subcategoryPlannedTotal(cat.id)}
-                          step="0.01"
+                          step={wholeNumberDisplay ? '1' : '0.01'}
                           className={styles.inputAmount}
-                          value={categoryTotalDrafts[cat.id] ?? (planned || '')}
+                          value={budgetInputValue(categoryTotalDrafts[cat.id] ?? (planned || ''))}
                           onChange={event => handleCategoryTotalChange(cat.id, event.target.value)}
                           onBlur={event => handleCategoryTotalBlur(cat.id, event.currentTarget.value)}
                           aria-label={`Totale previsto ${cat.name}`}
@@ -540,26 +579,38 @@ export const MonthlyBudgetPage: React.FC = () => {
                       </td>
                     </tr>
 
-                    {hasSubcategories && isExpanded && (
+                    {hasBreakdownRows && isExpanded && (
                       <>
-                        <tr className={`${styles.subcategoryRow} ${styles.unallocatedRow}`}>
-                          <td data-label="Voce">
-                            <div className={styles.subcategoryName}>
-                              Non ripartito
-                              {unallocatedRecurringRules.map(rule => (
-                                <em key={rule.id} className={styles.autoBudgetBadge}>Spesa fissa: {rule.description}</em>
-                              ))}
-                            </div>
-                          </td>
-                          <td data-label="Previsto" className={styles.amount}>
-                            <strong>{formatCurrency(categoryBudgets[cat.id] || 0, household?.currency || 'EUR')}</strong>
-                            <small className={styles.calculatedLabel}>calcolato</small>
-                          </td>
-                          <td data-label="Effettivo" className={styles.amount}>{formatCurrency(actuals.unallocatedByCategory[cat.id] || 0, household?.currency || 'EUR')}</td>
-                          <td data-label="Differenza" className={`${styles.amount} ${(categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0) >= 0 ? styles.diffPositive : styles.diffNegative}`}>
-                            {((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0)) > 0 ? '+' : ''}{formatCurrency((categoryBudgets[cat.id] || 0) - (actuals.unallocatedByCategory[cat.id] || 0), household?.currency || 'EUR')}
-                          </td>
-                        </tr>
+                        {unallocatedFixedRows.map(rule => {
+                          return (
+                            <tr key={`fixed-${rule.id}`} className={`${styles.subcategoryRow} ${styles.fixedExpenseRow}`}>
+                              <td data-label="Voce">
+                                <div className={styles.subcategoryName}>
+                                  {rule.description}
+                                  <em className={styles.autoBudgetBadge}>Spesa fissa</em>
+                                </div>
+                              </td>
+                              <td data-label="Previsto" className={styles.amount}>{formatCurrency(rule.planned, household?.currency || 'EUR')}</td>
+                              <td data-label="Effettivo" className={styles.amount}>{formatCurrency(rule.actual, household?.currency || 'EUR')}</td>
+                              <td data-label="Differenza" className={`${styles.amount} ${rule.difference >= 0 ? styles.diffPositive : styles.diffNegative}`}>
+                                {rule.difference > 0 ? '+' : ''}{formatCurrency(rule.difference, household?.currency || 'EUR')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        {showTrulyUnallocated && (
+                          <tr className={`${styles.subcategoryRow} ${styles.unallocatedRow}`}>
+                            <td data-label="Voce"><div className={styles.subcategoryName}>Non ripartito</div></td>
+                            <td data-label="Previsto" className={styles.amount}>
+                              <strong>{formatCurrency(trulyUnallocatedPlanned, household?.currency || 'EUR')}</strong>
+                              <small className={styles.calculatedLabel}>calcolato</small>
+                            </td>
+                            <td data-label="Effettivo" className={styles.amount}>{formatCurrency(trulyUnallocatedActual, household?.currency || 'EUR')}</td>
+                            <td data-label="Differenza" className={`${styles.amount} ${trulyUnallocatedPlanned - trulyUnallocatedActual >= 0 ? styles.diffPositive : styles.diffNegative}`}>
+                              {trulyUnallocatedPlanned - trulyUnallocatedActual > 0 ? '+' : ''}{formatCurrency(trulyUnallocatedPlanned - trulyUnallocatedActual, household?.currency || 'EUR')}
+                            </td>
+                          </tr>
+                        )}
                         {categorySubcategories.map(subcategory => {
                           const subcategoryPlanned = subcategoryBudgets[subcategory.id] || 0;
                           const subcategoryActual = actuals.bySubcategory[subcategory.id] || 0;
@@ -577,9 +628,9 @@ export const MonthlyBudgetPage: React.FC = () => {
                                 <input
                                   type="number"
                                   min="0"
-                                  step="0.01"
+                                  step={wholeNumberDisplay ? '1' : '0.01'}
                                   className={styles.inputAmount}
-                                  value={subcategoryBudgets[subcategory.id] || ''}
+                                  value={budgetInputValue(subcategoryBudgets[subcategory.id] || '')}
                                   onChange={event => handleSubcategoryBudgetChange(cat.id, subcategory.id, event.target.value)}
                                   onBlur={() => handleSubcategoryBudgetBlur(cat.id, subcategory.id)}
                                   placeholder="0"

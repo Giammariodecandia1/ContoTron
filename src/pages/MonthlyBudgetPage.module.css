@@ -308,6 +308,10 @@
   background: var(--color-warning-bg);
 }
 
+.fixedExpenseRow td {
+  background: var(--color-info-bg);
+}
+
 .inputAmount {
   width: 100px;
   padding: var(--space-2);

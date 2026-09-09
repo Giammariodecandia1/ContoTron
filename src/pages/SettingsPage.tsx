@@ -444,7 +444,7 @@ export const SettingsPage: React.FC = () => {
               <p className="text-muted fs-sm">Aggiungi, modifica o rimuovi categorie e sottocategorie di spesa.</p>
             </Card>
 
-            <Card title="Spese fisse" icon={<CalendarClock size={20} />} action={<Button size="sm" onClick={() => navigate('/impostazioni/spese-fisse')}>Gestisci</Button>}>
+            <Card title="Abbonamenti e spese ricorrenti" icon={<CalendarClock size={20} />} action={<Button size="sm" onClick={() => navigate('/abbonamenti')}>Gestisci</Button>}>
               <p className="text-muted fs-sm">
                 Configura canoni, finanziamenti e uscite mensili che devono risultare gia impegnate all'apertura del mese.
               </p>

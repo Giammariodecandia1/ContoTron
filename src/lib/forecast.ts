@@ -1,4 +1,5 @@
 import { getMonthBoundaries, getDaysPassedInMonth } from './dates';
+import { formatCurrency } from './money';
 import type { ForecastResult } from '../types/finance';
 
 /**
@@ -19,7 +20,7 @@ export function calculateDailyAverageForecast(
   
   return {
     value: Math.round(projected * 100) / 100,
-    reason: `Proiezione basata su spesa media giornaliera di €${dailyAverage.toFixed(2)}`
+    reason: `Proiezione basata su spesa media giornaliera di ${formatCurrency(dailyAverage)}`
   };
 }
 
@@ -35,6 +36,6 @@ export function calculateEndOfMonthForecast(
   
   return {
     value: Math.round(total * 100) / 100,
-    reason: `Effettivo + ${committedRemaining.toFixed(2)} impegnati + stima di ${variableProjected.toFixed(2)} su spese variabili`
+    reason: `Effettivo + ${formatCurrency(committedRemaining)} impegnati + stima di ${formatCurrency(variableProjected)} su spese variabili`
   };
 }

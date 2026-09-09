@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Card } from '../ui/Card';
+import { formatCurrency } from '../../lib/money';
 
 interface ExpenseChartsProps {
   transactions: Array<{
@@ -16,7 +17,7 @@ const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 const formatTooltipCurrency = (value: unknown) => {
   const amount = Number(value ?? 0);
-  return `${amount.toFixed(2)} €`;
+  return formatCurrency(amount);
 };
 
 export const ExpenseCharts: React.FC<ExpenseChartsProps> = ({ transactions, selectedYear }) => {

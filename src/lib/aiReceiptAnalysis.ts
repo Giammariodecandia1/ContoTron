@@ -101,11 +101,12 @@ ${ocrText.slice(0, 30_000)}`;
     timeoutMs: 90_000,
   });
   const raw = parseJsonObject(typeof response.content === 'string' ? response.content : '');
-  const categoryId = typeof raw.category_id === 'string' && allowedCategoryIds.has(raw.category_id)
+  const proposedCategoryId = typeof raw.category_id === 'string' && allowedCategoryIds.has(raw.category_id)
     ? raw.category_id
     : '';
   const subcategory = typeof raw.subcategory_id === 'string' ? allowedSubcategories.get(raw.subcategory_id) : null;
-  const subcategoryId = subcategory && (!categoryId || subcategory.category_id === categoryId) ? subcategory.id : '';
+  const categoryId = proposedCategoryId || subcategory?.category_id || '';
+  const subcategoryId = subcategory && subcategory.category_id === categoryId ? subcategory.id : '';
   const rawItems = Array.isArray(raw.items) ? raw.items : [];
   const items: AiReceiptItem[] = [];
 
@@ -115,11 +116,12 @@ ${ocrText.slice(0, 30_000)}`;
     const description = optionalText(item.description, 160);
     const amount = optionalAmount(item.amount);
     if (!description || amount === null) return;
-    const itemCategoryId = typeof item.category_id === 'string' && allowedCategoryIds.has(item.category_id)
+    const proposedItemCategoryId = typeof item.category_id === 'string' && allowedCategoryIds.has(item.category_id)
       ? item.category_id
       : '';
     const itemSubcategory = typeof item.subcategory_id === 'string' ? allowedSubcategories.get(item.subcategory_id) : null;
-    const itemSubcategoryId = itemSubcategory && (!itemCategoryId || itemSubcategory.category_id === itemCategoryId)
+    const itemCategoryId = proposedItemCategoryId || itemSubcategory?.category_id || '';
+    const itemSubcategoryId = itemSubcategory && itemSubcategory.category_id === itemCategoryId
       ? itemSubcategory.id
       : '';
     items.push({ description, amount, categoryId: itemCategoryId, subcategoryId: itemSubcategoryId });

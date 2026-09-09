@@ -36,6 +36,35 @@ const decrypt = async (ciphertext: string) => {
   return new TextDecoder().decode(plaintext);
 };
 
+const exchangeRefreshToken = async (refreshToken: string) => {
+  const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: requiredEnv('GOOGLE_OAUTH_CLIENT_ID'),
+      client_secret: requiredEnv('GOOGLE_OAUTH_CLIENT_SECRET'),
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    }),
+  });
+  const tokenPayload = await tokenResponse.json() as {
+    access_token?: string;
+    expires_in?: number;
+    error_description?: string;
+  };
+  if (!tokenResponse.ok || !tokenPayload.access_token) {
+    throw new Error(tokenPayload.error_description || 'Autorizzazione Google Drive non piu valida.');
+  }
+  return tokenPayload;
+};
+
+const verifyDriveFileScope = async (accessToken: string) => {
+  const response = await fetch('https://www.googleapis.com/drive/v3/files?pageSize=1&fields=files(id)', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok) throw new Error('Il consenso Google non include il permesso necessario per Contotron Drive.');
+};
+
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Metodo non supportato.' }, 405);
@@ -51,6 +80,8 @@ Deno.serve(async request => {
 
     if (body.action === 'store_refresh_token') {
       if (!body.refreshToken?.trim()) return json({ error: 'Refresh token Google mancante.' }, 400);
+      const verifiedToken = await exchangeRefreshToken(body.refreshToken.trim());
+      await verifyDriveFileScope(verifiedToken.access_token as string);
       const { error } = await admin.from('google_drive_oauth_credentials').upsert({
         user_id: user.id,
         refresh_token_ciphertext: await encrypt(body.refreshToken.trim()),
@@ -65,18 +96,7 @@ Deno.serve(async request => {
         .select('refresh_token_ciphertext').eq('user_id', user.id).maybeSingle();
       if (error) throw error;
       if (!credential) return json({ error: 'Google Drive deve essere collegato.' }, 404);
-      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          client_id: requiredEnv('GOOGLE_OAUTH_CLIENT_ID'),
-          client_secret: requiredEnv('GOOGLE_OAUTH_CLIENT_SECRET'),
-          grant_type: 'refresh_token',
-          refresh_token: await decrypt(credential.refresh_token_ciphertext),
-        }),
-      });
-      const tokenPayload = await tokenResponse.json() as { access_token?: string; expires_in?: number; error_description?: string };
-      if (!tokenResponse.ok || !tokenPayload.access_token) return json({ error: tokenPayload.error_description || 'Autorizzazione Google Drive non piu valida.' }, 401);
+      const tokenPayload = await exchangeRefreshToken(await decrypt(credential.refresh_token_ciphertext));
       return json({ accessToken: tokenPayload.access_token, expiresIn: tokenPayload.expires_in || 3600 });
     }
     return json({ error: 'Azione non valida.' }, 400);

@@ -8,7 +8,9 @@ import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions
 import { formatCurrency } from '../lib/money';
 import { toIsoDate } from '../lib/dates';
 import { supabase } from '../lib/supabaseClient';
-import type { RecurringRule } from '../types/database';
+import { getTransactionFrequencyLabel, transactionFrequencyOptions } from '../lib/transactionFrequencies';
+import { paymentMethodOptions } from '../lib/paymentTiming';
+import type { PaymentMethod, RecurringRule, TransactionFrequency } from '../types/database';
 import styles from './RecurringRulesPage.module.css';
 
 const todayString = () => toIsoDate(new Date());
@@ -46,13 +48,16 @@ export const RecurringRulesPage: React.FC = () => {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
   const [description, setDescription] = useState('');
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState('subscription');
   const [merchant, setMerchant] = useState('');
   const [amount, setAmount] = useState('');
   const [accountId, setAccountId] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
   const [startDate, setStartDate] = useState(todayString());
+  const [frequency, setFrequency] = useState<TransactionFrequency>('monthly');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('standard');
+  const [isShared, setIsShared] = useState(true);
   const [durationMonths, setDurationMonths] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -117,12 +122,15 @@ export const RecurringRulesPage: React.FC = () => {
   const resetForm = () => {
     setEditingRuleId(null);
     setDescription('');
-    setReason('');
+    setReason('subscription');
     setMerchant('');
     setAmount('');
     setCategoryId('');
     setSubcategoryId('');
     setStartDate(todayString());
+    setFrequency('monthly');
+    setPaymentMethod('standard');
+    setIsShared(true);
     setDurationMonths('');
     setNotes('');
   };
@@ -137,6 +145,9 @@ export const RecurringRulesPage: React.FC = () => {
     setCategoryId(rule.category_id || '');
     setSubcategoryId(rule.subcategory_id || '');
     setStartDate(rule.start_date);
+    setFrequency((rule.frequency || 'monthly') as TransactionFrequency);
+    setPaymentMethod(rule.payment_method || 'standard');
+    setIsShared(rule.is_shared !== false);
     setDurationMonths(rule.duration_months ? String(rule.duration_months) : '');
     setNotes(rule.notes || '');
     setMessage(null);
@@ -153,8 +164,8 @@ export const RecurringRulesPage: React.FC = () => {
     const finalDescription = description.trim() || reasonLabel;
     const parsedDuration = durationMonths ? Number(durationMonths) : null;
 
-    if (!reason || !categoryId || !finalDescription || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      setError('Seleziona tipo, categoria e importo. Per Altro specifica anche la descrizione.');
+    if (!reason || !categoryId || !description.trim() || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      setError('Inserisci nome, tipo, categoria e importo dell abbonamento.');
       return;
     }
     if (parsedDuration !== null && (!Number.isInteger(parsedDuration) || parsedDuration <= 0)) {
@@ -175,7 +186,9 @@ export const RecurringRulesPage: React.FC = () => {
         amount: parsedAmount,
         category_id: categoryId || null,
         subcategory_id: subcategoryId || null,
-        frequency: 'monthly',
+        frequency,
+        payment_method: paymentMethod,
+        is_shared: isShared,
         reason_code: reason,
         duration_months: parsedDuration,
         start_date: startDate,
@@ -208,8 +221,8 @@ export const RecurringRulesPage: React.FC = () => {
       await syncCurrentMonth();
       await fetchRules();
       setMessage(wasEditing
-        ? 'Spesa ripetitiva modificata. Il mese corrente e le prossime generazioni sono stati aggiornati.'
-        : 'Spesa fissa salvata. Comparira automaticamente nel budget quando inizia il mese.');
+        ? 'Abbonamento modificato. Le prossime scadenze useranno i nuovi dati.'
+        : 'Abbonamento salvato. La spesa verrà aggiunta automaticamente alla data prevista.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile salvare la spesa fissa.');
     } finally {
@@ -275,13 +288,13 @@ export const RecurringRulesPage: React.FC = () => {
           Indietro
         </Button>
         <div>
-          <h1 className={styles.title}>Spese fisse e ripetitive</h1>
-          <p className="text-muted">Canoni, finanziamenti e uscite mensili caricate automaticamente soltanto quando inizia il mese.</p>
+          <h1 className={styles.title}>Abbonamenti</h1>
+          <p className="text-muted">Netflix, internet, palestra e altre spese che Contotron registra automaticamente alla data prevista.</p>
         </div>
       </header>
 
       <div className={styles.grid}>
-        <Card title={editingRuleId ? 'Modifica spesa fissa' : 'Nuova spesa fissa'} icon={editingRuleId ? <Pencil size={20} /> : <Plus size={20} />}>
+        <Card title={editingRuleId ? 'Modifica abbonamento' : 'Nuovo abbonamento'} icon={editingRuleId ? <Pencil size={20} /> : <Plus size={20} />}>
           <form
             className={styles.form}
             onSubmit={handleSaveRule}
@@ -296,12 +309,12 @@ export const RecurringRulesPage: React.FC = () => {
             {error && <div className={`${styles.message} ${styles.error}`}>{error}</div>}
 
             <div className={styles.monthlyTagInfo}>
-              <strong>TAG: RIPETITIVA MENSILE</strong>
-              <span>Comparira nel budget e nelle transazioni all'inizio del mese, mai nei mesi futuri.</span>
+              <strong>INSERIMENTO AUTOMATICO</strong>
+              <span>La voce entra nelle transazioni soltanto quando arriva la scadenza impostata e non viene mai duplicata.</span>
             </div>
 
             <div className={styles.formGroup}>
-              <label>Tipo di spesa fissa</label>
+              <label>Tipo di abbonamento o spesa</label>
               <select className={styles.select} value={reason} onChange={event => setReason(event.target.value)} required>
                 <option value="">Seleziona tipo...</option>
                 {fixedExpenseReasons.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -309,13 +322,13 @@ export const RecurringRulesPage: React.FC = () => {
             </div>
 
             <div className={styles.formGroup}>
-              <label>{reason === 'other' ? 'Descrizione obbligatoria' : 'Descrizione opzionale'}</label>
+              <label>Nome / descrizione</label>
               <input
                 className={styles.input}
                 value={description}
                 onChange={event => setDescription(event.target.value)}
-                placeholder={reason === 'other' ? 'Descrivi la spesa fissa' : 'es. Auto, operatore, numero polizza...'}
-                required={reason === 'other'}
+                placeholder="es. Netflix, fibra internet, palestra..."
+                required
               />
             </div>
 
@@ -363,6 +376,30 @@ export const RecurringRulesPage: React.FC = () => {
             </div>
 
             <div className={styles.formGroup}>
+              <label>Cadenza</label>
+              <select className={styles.select} value={frequency} onChange={event => setFrequency(event.target.value as TransactionFrequency)}>
+                {transactionFrequencyOptions
+                  .filter(option => option.value !== 'other')
+                  .map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+
+            <div className={styles.formGroup}>
+              <label>Tipologia pagamento</label>
+              <select className={styles.select} value={paymentMethod} onChange={event => setPaymentMethod(event.target.value as PaymentMethod)}>
+                {paymentMethodOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </div>
+
+            <label className={`${styles.personalToggle} ${!isShared ? styles.personalToggleActive : ''}`}>
+              <input type="checkbox" checked={!isShared} onChange={event => setIsShared(!event.target.checked)} />
+              <span>
+                <strong>Abbonamento personale</strong>
+                <small>Non inserire le spese generate nello Split familiare</small>
+              </span>
+            </label>
+
+            <div className={styles.formGroup}>
               <label>Durata in mesi (opzionale)</label>
               <input
                 className={styles.input}
@@ -387,7 +424,7 @@ export const RecurringRulesPage: React.FC = () => {
 
             <div className={styles.formActions}>
               <Button type="submit" disabled={saving}>
-                {saving ? 'Salvataggio...' : editingRuleId ? 'Salva modifiche' : 'Salva spesa fissa'}
+                {saving ? 'Salvataggio...' : editingRuleId ? 'Salva modifiche' : 'Salva abbonamento'}
               </Button>
               {editingRuleId && (
                 <Button type="button" variant="secondary" onClick={resetForm} disabled={saving}>
@@ -398,21 +435,21 @@ export const RecurringRulesPage: React.FC = () => {
           </form>
         </Card>
 
-        <Card title="Spese fisse salvate">
+        <Card title="Abbonamenti salvati">
           {loading ? (
             <div className={styles.empty}>Caricamento...</div>
           ) : rules.length === 0 ? (
-            <div className={styles.empty}>Nessuna spesa fissa configurata.</div>
+            <div className={styles.empty}>Nessun abbonamento configurato.</div>
           ) : (
             <div className={styles.rulesList}>
               {rules.map(rule => (
                 <article key={rule.id} className={styles.ruleCard}>
                   <div className={styles.ruleHeader}>
                     <div>
-                      <span className={styles.monthlyTag}>RIPETITIVA MENSILE</span>
+                      <span className={styles.monthlyTag}>{getTransactionFrequencyLabel(rule.frequency).toUpperCase()}</span>
                       <div className={styles.ruleTitle}>{rule.description}</div>
                       <div className={styles.ruleMeta}>
-                        Mensile dal {new Date(`${rule.start_date}T00:00:00`).toLocaleDateString('it-IT')}
+                        {getTransactionFrequencyLabel(rule.frequency)} dal {new Date(`${rule.start_date}T00:00:00`).toLocaleDateString('it-IT')}
                         {rule.end_date ? ` al ${new Date(`${rule.end_date}T00:00:00`).toLocaleDateString('it-IT')}` : ' senza scadenza'}
                         {' - '}
                         {categoryName(rule.category_id)}
@@ -424,6 +461,8 @@ export const RecurringRulesPage: React.FC = () => {
                         <div className={styles.ruleMeta}>Tipo: {reasonName(rule.reason_code)}</div>
                       )}
                       {rule.notes && <div className={styles.ruleMeta}>{rule.notes}</div>}
+                      <div className={styles.ruleMeta}>{rule.is_shared === false ? 'Personale · escluso dallo Split' : 'Familiare · incluso nello Split'}</div>
+                      {rule.next_due_date && rule.is_active && <div className={styles.ruleMeta}>Prossima scadenza: {new Date(`${rule.next_due_date}T00:00:00`).toLocaleDateString('it-IT')}</div>}
                       {!rule.is_active && <div className={styles.ruleMeta}>Disattivata</div>}
                     </div>
                     <div className={styles.ruleAmount}>

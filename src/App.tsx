@@ -62,12 +62,13 @@ function App() {
               <RouterRoute path="/analisi-annuale" element={advancedOnly(<AnnualAnalysisPage />)} />
               <RouterRoute path="/analisi-alimentari" element={advancedOnly(<FoodWeeklyAnalysisPage />)} />
               <RouterRoute path="/split" element={<SplitPage />} />
+              <RouterRoute path="/abbonamenti" element={<RecurringRulesPage />} />
               <RouterRoute path="/assistente" element={isAiEnabled ? <AiAssistantPage /> : <RouterNavigate to="/impostazioni" replace />} />
               <RouterRoute path="/scan" element={<ScanReceiptPage />} />
               <RouterRoute path="/impostazioni" element={<SettingsPage />} />
               <RouterRoute path="/impostazioni/categorie" element={advancedOnly(<CategoriesPage />)} />
               <RouterRoute path="/impostazioni/nucleo" element={<HouseholdMembersPage />} />
-              <RouterRoute path="/impostazioni/spese-fisse" element={advancedOnly(<RecurringRulesPage />)} />
+              <RouterRoute path="/impostazioni/spese-fisse" element={<RouterNavigate to="/abbonamenti" replace />} />
               <RouterRoute path="*" element={<RouterNavigate to={isSimple ? '/dashboard' : '/transazioni/nuova'} replace />} />
             </RouterRoutes>
           </Suspense>

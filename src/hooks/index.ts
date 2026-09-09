@@ -7,3 +7,4 @@ export * from './useTransactions';
 export * from './useBudget';
 export * from './usePersonalDriveConnection';
 export * from './useAiConfiguration';
+export * from './useHouseholdMembers';

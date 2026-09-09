@@ -24,8 +24,10 @@ const receiptUrl = await transpileModule('src/lib/receiptParsing.ts', [
 ]);
 const splitUrl = await transpileModule('src/lib/splitCalculator.ts');
 const supabaseStubUrl = `data:text/javascript;base64,${Buffer.from('export const supabase = {};').toString('base64')}`;
+const paymentTimingStubUrl = `data:text/javascript;base64,${Buffer.from("export const getCashImpactDate = date => date;").toString('base64')}`;
 const recurringUrl = await transpileModule('src/lib/recurringTransactions.ts', [
   ["'./supabaseClient'", `'${supabaseStubUrl}'`],
+  ["'./paymentTiming'", `'${paymentTimingStubUrl}'`],
 ]);
 const moneyStubUrl = `data:text/javascript;base64,${Buffer.from('export const roundMoney = value => Math.round(value * 100) / 100;').toString('base64')}`;
 const recurringBudgetPlanUrl = await transpileModule('src/lib/recurringBudgetPlans.ts', [
@@ -36,6 +38,7 @@ const viewModeUrl = await transpileModule('src/lib/viewModePreference.ts');
 const navigationVisibilityUrl = await transpileModule('src/lib/navigationVisibilityPreference.ts');
 const memberSummaryUrl = await transpileModule('src/lib/memberTransactionSummary.ts');
 const personalSpendingUrl = await transpileModule('src/lib/personalSpending.ts');
+const monthlyBudgetBreakdownUrl = await transpileModule('src/lib/monthlyBudgetBreakdown.ts');
 const aiConfigurationUrl = await transpileModule('src/lib/aiConfiguration.ts');
 
 const {
@@ -44,7 +47,7 @@ const {
 } = await import(receiptUrl);
 const { parseReceiptDiscount } = await import(discountUrl);
 const { calculateEqualSplit, transactionBelongsToSplit } = await import(splitUrl);
-const { recurringRuleAppliesToMonth } = await import(recurringUrl);
+const { recurringRuleAppliesToMonth, recurringRuleDueDateForMonth } = await import(recurringUrl);
 const { calculateMonthlyBudgetAllocations } = await import(recurringBudgetPlanUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
 const { getHiddenNavigationPaths, saveHiddenNavigationPaths } = await import(navigationVisibilityUrl);
@@ -54,6 +57,7 @@ const {
   unattributedMemberId,
 } = await import(memberSummaryUrl);
 const { calculatePersonalSpending } = await import(personalSpendingUrl);
+const { calculateUnallocatedBudgetBreakdown } = await import(monthlyBudgetBreakdownUrl);
 const {
   createDefaultAiDraft,
   resolveAiChatEndpoint,
@@ -125,6 +129,16 @@ assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 3), true);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 8), true);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 2), false);
 assert.equal(recurringRuleAppliesToMonth(monthlyRule, 2026, 9), false);
+
+const subscriptionRule = {
+  start_date: '2026-09-15',
+  end_date: null,
+  frequency: 'bimonthly',
+};
+assert.equal(recurringRuleDueDateForMonth(subscriptionRule, 2026, 9), '2026-09-15');
+assert.equal(recurringRuleDueDateForMonth(subscriptionRule, 2026, 10), null);
+assert.equal(recurringRuleDueDateForMonth(subscriptionRule, 2026, 11), '2026-11-15');
+assert.equal(recurringRuleDueDateForMonth({ ...subscriptionRule, frequency: 'yearly' }, 2027, 9), '2027-09-15');
 
 const weeklyFoodPlan = [
   2.5319607843137262, 1.1460784313725492, 1.7468627450980392, 0.84392156862745094,
@@ -211,6 +225,23 @@ assert.deepEqual(calculatePersonalSpending([
   personalTotal: 70,
 });
 
+assert.deepEqual(calculateUnallocatedBudgetBreakdown({
+  categoryBudget: 26.99,
+  unallocatedActual: 16.99,
+  fixedRules: [{ id: 'sim', description: 'SIM CELLULARE', amount: 6.99 }],
+  actualByRecurringRule: { sim: 6.99 },
+}), {
+  fixedRows: [{
+    id: 'sim',
+    description: 'SIM CELLULARE',
+    planned: 6.99,
+    actual: 6.99,
+    difference: 0,
+  }],
+  trulyUnallocatedPlanned: 20,
+  trulyUnallocatedActual: 10,
+});
+
 const reportsPageSource = await readFile(new URL('../src/pages/ReportsPage.tsx', import.meta.url), 'utf8');
 assert.equal(reportsPageSource.includes('<Card title="Frequenza delle spese">'), false);
 assert.equal(reportsPageSource.includes('<Card title="Persone e conti">'), false);
@@ -254,21 +285,29 @@ assert.equal(newTransactionSource.includes('addTransactionWithItems(createPayloa
 assert.equal(scanReceiptSource.includes('addTransactionWithItems(transactionPayload, itemRows)'), true);
 assert.equal(newTransactionSource.includes("Seleziona la frequenza dell'operazione."), false);
 assert.equal(scanReceiptSource.includes("Seleziona la periodicita dell'acquisto."), false);
+assert.equal(newTransactionSource.includes('Transazione effettuata da'), true);
+assert.equal(newTransactionSource.includes('inserted_by: insertedBy || user?.id || null'), true);
+assert.equal(scanReceiptSource.includes('Transazione effettuata da'), true);
+assert.equal(scanReceiptSource.includes('attachReceiptAnalysis({'), true);
+assert.equal(scanReceiptSource.includes('importo e data originali restano invariati'), true);
 
 const appSource = await readFile(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const simpleDashboardSource = await readFile(new URL('../src/pages/SimpleDashboardPage.tsx', import.meta.url), 'utf8');
 const sidebarSource = await readFile(new URL('../src/components/layout/Sidebar.tsx', import.meta.url), 'utf8');
 assert.equal(appSource.includes('<RouterRoute path="/scan" element={<ScanReceiptPage />} />'), true);
+assert.equal(appSource.includes('<RouterRoute path="/abbonamenti" element={<RecurringRulesPage />} />'), true);
 assert.equal(simpleDashboardSource.includes("navigate('/assistente')"), true);
 assert.equal(simpleDashboardSource.includes("navigate('/scan')"), true);
 assert.equal(simpleDashboardSource.includes('La mia spesa del mese'), true);
 assert.equal(sidebarSource.indexOf("path: '/report'") < sidebarSource.indexOf("path: '/mensile'"), true);
 assert.equal(sidebarSource.includes(".filter(item => !isHidden(item.path))"), true);
+assert.equal(sidebarSource.includes("path: '/abbonamenti', label: 'Abbonamenti'"), true);
 
 const settingsSource = await readFile(new URL('../src/pages/SettingsPage.tsx', import.meta.url), 'utf8');
 assert.equal(settingsSource.includes('Voci da mostrare nel menu'), true);
 assert.equal(settingsSource.includes('Mostra tutte'), true);
 assert.equal(settingsSource.includes('Senza decimali'), true);
+assert.equal(settingsSource.includes('Abbonamenti e spese ricorrenti'), true);
 
 const documentArchiveSource = await readFile(new URL('../src/lib/documentArchive.ts', import.meta.url), 'utf8');
 assert.equal(documentArchiveSource.includes("const requiresGoogleDrive = desiredProvider === 'google_drive';"), true);
@@ -286,6 +325,7 @@ assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), tr
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(googleDriveSource.includes('?alt=media'), true);
 assert.equal(googleDriveSource.includes('accessToken: serverAccessToken || dedicatedDriveToken || providerToken'), true);
+assert.equal(googleDriveSource.includes('getGoogleDriveServerAccessToken(true)'), true);
 assert.equal(googleDriveSource.includes('reader.readAsDataURL(blob)'), true);
 assert.equal(googleDriveSource.includes('return URL.createObjectURL(blob)'), false);
 assert.equal(googleDriveSource.includes('markGoogleDriveConnectionRequested()'), true);
@@ -299,13 +339,23 @@ assert.equal(googleDriveTokenSource.includes('TOKEN_LIFETIME_MS = 50 * 60 * 1000
 assert.equal(authContextSource.includes('exchangeData.session.provider_token'), true);
 assert.equal(authContextSource.includes("hashParams.get('provider_token')"), true);
 assert.equal(authContextSource.includes('sessionData.session.user.id'), true);
+assert.equal(authContextSource.includes('availableProviderRefreshToken'), true);
 assert.equal(settingsSource.includes('driveCallbackAttemptedRef.current = true'), true);
 assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
 assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
 assert.equal(scanReceiptSource.includes('scan_receipt_attached_to_existing_transaction'), true);
 assert.equal(scanReceiptSource.includes('Scontrino collegato alla transazione esistente.'), true);
+assert.equal(scanReceiptSource.indexOf('styles.addItemAction') > scanReceiptSource.indexOf('receiptItems.map'), true);
 assert.equal(scanReceiptSource.includes("if (attachTarget && documentStorageProvider === 'google_drive'"), true);
 assert.equal(scanReceiptSource.includes('Transazione salvata. Non sono riuscito ad archiviare le foto'), true);
+
+const actorReceiptMigrationSource = await readFile(new URL('../supabase/migrations/028_transaction_actor_and_receipt_analysis.sql', import.meta.url), 'utf8');
+assert.equal(actorReceiptMigrationSource.includes('create trigger transactions_enforce_actor'), true);
+assert.equal(actorReceiptMigrationSource.includes('Only the household owner can add a transaction for another member'), true);
+assert.equal(actorReceiptMigrationSource.includes('create or replace function public.attach_receipt_analysis'), true);
+assert.equal(actorReceiptMigrationSource.includes("source = 'receipt_ocr'::public.transaction_source"), true);
+assert.equal(actorReceiptMigrationSource.includes('amount ='), false);
+assert.equal(actorReceiptMigrationSource.includes('transaction_date ='), false);
 
 const atomicMigrationSource = await readFile(new URL('../supabase/migrations/025_atomic_transaction_items.sql', import.meta.url), 'utf8');
 assert.equal(atomicMigrationSource.includes('create or replace function public.create_transaction_with_items'), true);
@@ -313,13 +363,25 @@ assert.equal(atomicMigrationSource.includes('security invoker'), true);
 assert.equal(atomicMigrationSource.includes('return to_jsonb(saved_transaction);'), true);
 
 const monthlyBudgetSource = await readFile(new URL('../src/pages/MonthlyBudgetPage.tsx', import.meta.url), 'utf8');
-assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), true);
 assert.equal(monthlyBudgetSource.includes('<RecurringBudgetPlanPanel'), true);
+assert.equal(monthlyBudgetSource.includes('dirtyCategoryBudgetIdsRef'), true);
+assert.equal(monthlyBudgetSource.includes('budgetInputValue'), true);
+assert.equal(monthlyBudgetSource.includes('unallocatedFixedRows.map'), true);
+assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), false);
 const recurringSource = await readFile(new URL('../src/lib/recurringTransactions.ts', import.meta.url), 'utf8');
+const recurringRulesPageSource = await readFile(new URL('../src/pages/RecurringRulesPage.tsx', import.meta.url), 'utf8');
 assert.equal(
   recurringSource.indexOf('await syncFixedExpensesIntoBudget') < recurringSource.indexOf('if (requestedMonth > currentMonth)'),
   true,
 );
+assert.equal(recurringSource.includes('if (!dueDate || dueDate > today) continue;'), true);
+assert.equal(recurringRulesPageSource.includes('<label>Cadenza</label>'), true);
+assert.equal(recurringRulesPageSource.includes('Abbonamento personale'), true);
+
+const subscriptionMigrationSource = await readFile(new URL('../supabase/migrations/029_recurring_subscription_fields.sql', import.meta.url), 'utf8');
+assert.equal(subscriptionMigrationSource.includes('add column if not exists payment_method'), true);
+assert.equal(subscriptionMigrationSource.includes('add column if not exists is_shared'), true);
+assert.equal(subscriptionMigrationSource.includes('transactions_one_recurring_due_date'), true);
 
 const splitPageSource = await readFile(new URL('../src/pages/SplitPage.tsx', import.meta.url), 'utf8');
 assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);
@@ -334,8 +396,10 @@ assert.equal(newTransactionSource.includes('webkitSpeechRecognition'), true);
 assert.equal(newTransactionSource.includes('Compila modulo'), true);
 assert.equal(newTransactionSource.includes('nulla viene salvato senza la tua conferma'), true);
 assert.equal(googleDriveServerTokenSource.includes("action: 'get_access_token'"), true);
+assert.equal(googleDriveServerTokenSource.includes('cachedAccessToken'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('store_refresh_token'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('crypto.subtle.encrypt'), true);
+assert.equal(googleDriveTokenFunctionSource.includes('verifyDriveFileScope'), true);
 
 console.log('Verifica beta: logiche finanziarie e fix visuali agosto 2026 OK');

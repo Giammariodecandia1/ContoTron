@@ -18,7 +18,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { useAiConfiguration, useAuth, useHousehold, usePersonalDriveConnection, useTransactions } from '../hooks';
+import { useAiConfiguration, useAuth, useHousehold, useHouseholdMembers, usePersonalDriveConnection, useTransactions } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { toIsoDate } from '../lib/dates';
 import { dataUrlToFile, uploadArchiveDocumentPages } from '../lib/documentArchive';
@@ -355,11 +355,14 @@ export const ScanReceiptPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const attachTransactionId = searchParams.get('transactionId');
   const [attachTarget, setAttachTarget] = useState<Transaction | null>(null);
+  const [attachTargetItemCount, setAttachTargetItemCount] = useState(0);
   const [attachTargetLoading, setAttachTargetLoading] = useState(false);
   const [attachTargetError, setAttachTargetError] = useState<string | null>(null);
   const { household, accounts, categories, subcategories, refreshData } = useHousehold();
   const { user } = useAuth();
-  const { addTransaction, addTransactionWithItems } = useTransactions();
+  const { addTransaction, addTransactionWithItems, attachReceiptAnalysis } = useTransactions();
+  const { members, isOwner } = useHouseholdMembers();
+  const [insertedBy, setInsertedBy] = useState(user?.id || '');
   const { configuration: aiConfiguration } = useAiConfiguration();
   const documentStorageProvider = getDocumentStorageProvider(household);
   const {
@@ -379,6 +382,7 @@ export const ScanReceiptPage: React.FC = () => {
     if (!attachTransactionId) {
       const clearTimer = window.setTimeout(() => {
         setAttachTarget(null);
+        setAttachTargetItemCount(0);
         setAttachTargetError(null);
         setAttachTargetLoading(false);
       }, 0);
@@ -391,16 +395,24 @@ export const ScanReceiptPage: React.FC = () => {
       setAttachTargetLoading(true);
       setAttachTargetError(null);
 
-      const { data, error } = await supabase
-        .from('transactions')
-        .select('*')
-        .eq('id', attachTransactionId)
-        .eq('household_id', household.id)
-        .maybeSingle();
+      const [{ data, error }, { count: itemCount, error: itemCountError }] = await Promise.all([
+        supabase
+          .from('transactions')
+          .select('*')
+          .eq('id', attachTransactionId)
+          .eq('household_id', household.id)
+          .maybeSingle(),
+        supabase
+          .from('transaction_items')
+          .select('id', { count: 'exact', head: true })
+          .eq('transaction_id', attachTransactionId)
+          .eq('household_id', household.id),
+      ]);
 
       if (cancelled) return;
       if (error || !data) {
         setAttachTarget(null);
+        setAttachTargetItemCount(0);
         setAttachTargetError(error?.message || 'La transazione selezionata non e disponibile.');
         setAttachTargetLoading(false);
         return;
@@ -415,6 +427,7 @@ export const ScanReceiptPage: React.FC = () => {
       }
 
       setAttachTarget(transaction);
+      setAttachTargetItemCount(itemCountError ? 0 : itemCount || 0);
       setAmount(String(transaction.amount));
       setMerchant(transaction.merchant || transaction.description.replace(/^Acquisto\s+/i, ''));
       setDate(transaction.transaction_date);
@@ -589,7 +602,7 @@ export const ScanReceiptPage: React.FC = () => {
       const foundMerchant = findMerchantLine(firstPageLines);
       const cleanMerchant = foundMerchant.replace(/[^a-zA-Z0-9\s.&-]/g, '').substring(0, 40).trim();
 
-      setAmount(totalResult.amount ? totalResult.amount.toFixed(2) : '0.00');
+      if (!attachTarget) setAmount(totalResult.amount ? totalResult.amount.toFixed(2) : '0.00');
       setMerchant(cleanMerchant || 'Esercente sconosciuto');
 
       let matchedCategoryId = '';
@@ -669,7 +682,7 @@ export const ScanReceiptPage: React.FC = () => {
           });
           if (aiResult.merchant) finalMerchant = aiResult.merchant;
           if (aiResult.total !== null) finalAmount = aiResult.total.toFixed(2);
-          if (aiResult.date) setDate(aiResult.date);
+          if (aiResult.date && !attachTarget) setDate(aiResult.date);
           if (aiResult.categoryId) finalCategoryId = aiResult.categoryId;
           if (aiResult.subcategoryId) finalSubcategoryId = aiResult.subcategoryId;
           if (aiResult.items.length > 0) {
@@ -698,7 +711,7 @@ export const ScanReceiptPage: React.FC = () => {
         }
       }
 
-      setAmount(finalAmount);
+      if (!attachTarget) setAmount(finalAmount);
       setMerchant(finalMerchant);
       setDetectedCategoryId(finalCategoryId);
       setDetectedSubcategoryId(finalSubcategoryId);
@@ -855,7 +868,7 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
-    if (!attachTarget && !quickSaveMode && receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
+    if (!quickSaveMode && receiptDifference !== null && Math.abs(receiptDifference) > 0.05) {
       const confirmed = window.confirm(
         `La somma degli articoli (${receiptItemsTotal.toFixed(2)} EUR) differisce dal totale (${receiptAmountNumber.toFixed(2)} EUR) di ${receiptDifference.toFixed(2)} EUR. Vuoi procedere comunque?`,
       );
@@ -873,6 +886,12 @@ export const ScanReceiptPage: React.FC = () => {
       )));
 
       if (attachTarget) {
+        if (attachTargetItemCount > 0 && items.length > 0) {
+          const replaceConfirmed = window.confirm(
+            `Questa transazione contiene già ${attachTargetItemCount} ${attachTargetItemCount === 1 ? 'articolo' : 'articoli'}. Le righe lette dallo scontrino le sostituiranno. Vuoi continuare?`,
+          );
+          if (!replaceConfirmed) return;
+        }
         const document = await uploadArchiveDocumentPages({
           householdId: household.id,
           household,
@@ -884,17 +903,35 @@ export const ScanReceiptPage: React.FC = () => {
           totalAmount: attachTarget.amount,
         });
 
-        const { data: linkedTransaction, error: linkError } = await supabase
-          .from('transactions')
-          .update({ document_id: document.id, updated_at: new Date().toISOString() })
-          .eq('id', attachTarget.id)
-          .eq('household_id', household.id)
-          .is('document_id', null)
-          .select('id')
-          .maybeSingle();
+        const linkedTransaction = await attachReceiptAnalysis({
+          transactionId: attachTarget.id,
+          documentId: document.id,
+          merchant: merchant.trim() || null,
+          detectedCategoryId: detectedCategoryId || null,
+          detectedSubcategoryId: detectedSubcategoryId || null,
+          items: items.map(item => ({
+            description: item.description,
+            amount: item.amount,
+            category_id: item.categoryId || null,
+            subcategory_id: item.subcategoryId || null,
+            is_confirmed: true,
+          })),
+        });
 
-        if (linkError || !linkedTransaction) {
-          throw new Error(linkError?.message || 'La transazione e stata aggiornata altrove e non posso collegare lo scontrino.');
+        if (!linkedTransaction) {
+          throw new Error('Non riesco a collegare in modo completo lo scontrino e la sua analisi alla transazione.');
+        }
+
+        if (items.length > 0) {
+          await saveProductClassificationRules({
+            householdId: household.id,
+            userId: user?.id || null,
+            products: items.map(item => ({
+              description: item.description,
+              categoryId: item.categoryId || null,
+              subcategoryId: item.subcategoryId || null,
+            })),
+          }).catch(error => console.warn('Apprendimento prodotti non completato:', error));
         }
 
         const averageConfidence = ocrPages.length > 0
@@ -930,7 +967,9 @@ export const ScanReceiptPage: React.FC = () => {
           replace: true,
           state: {
             createdTransactionId: attachTarget.id,
-            notice: 'Scontrino collegato alla transazione esistente.',
+            notice: items.length > 0
+              ? 'Scontrino collegato: analisi AI/OCR e categorie degli articoli salvate nella transazione.'
+              : 'Scontrino collegato alla transazione esistente.',
           },
         });
         return;
@@ -975,7 +1014,7 @@ export const ScanReceiptPage: React.FC = () => {
         category_id: transactionCategoryId,
         subcategory_id: transactionSubcategoryId,
         is_shared: true,
-        inserted_by: user?.id || null,
+        inserted_by: insertedBy || user?.id || null,
         notes: notes.trim() || null,
       };
       const itemRows = accountingItems.map(item => ({
@@ -1243,7 +1282,7 @@ export const ScanReceiptPage: React.FC = () => {
                 <h2>Dati estratti</h2>
                 <p className="text-muted fs-sm">
                   {attachTarget
-                    ? 'Controlla la lettura: lo scontrino verra collegato senza modificare i dati contabili della transazione.'
+                    ? 'Controlla la lettura: importo e data originali restano invariati; articoli e categorie AI/OCR verranno salvati nella transazione.'
                     : 'Controlla totale, righe e categorie prima di creare la transazione.'}
                 </p>
               </div>
@@ -1269,6 +1308,18 @@ export const ScanReceiptPage: React.FC = () => {
                   <label>Conto</label>
                   <select className={styles.input} value={accountId || accounts[0]?.id || ''} onChange={event => setAccountId(event.target.value)} disabled={Boolean(attachTarget)}>
                     {accounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select>
+                </div>
+              )}
+              {!attachTarget && isOwner && members.length > 1 && (
+                <div className={styles.formGroup}>
+                  <label>Transazione effettuata da</label>
+                  <select className={styles.input} value={insertedBy || user?.id || ''} onChange={event => setInsertedBy(event.target.value)}>
+                    {members.map(member => (
+                      <option key={member.userId} value={member.userId}>
+                        {member.displayName}{member.userId === user?.id ? ' (io)' : ''}
+                      </option>
+                    ))}
                   </select>
                 </div>
               )}
@@ -1328,9 +1379,6 @@ export const ScanReceiptPage: React.FC = () => {
                   <h3>Articoli rilevati</h3>
                   <p className="text-muted fs-sm">Correggi descrizione, prezzo e classificazione di ogni riga.</p>
                 </div>
-                <Button type="button" variant="secondary" size="sm" icon={<Plus size={16} />} onClick={addReceiptItem}>
-                  Aggiungi riga
-                </Button>
               </div>
 
               <p className={styles.learningNotice}>
@@ -1379,6 +1427,12 @@ export const ScanReceiptPage: React.FC = () => {
                   </div>
                 );
               })}
+
+              <div className={styles.addItemAction}>
+                <Button type="button" variant="secondary" size="sm" icon={<Plus size={16} />} onClick={addReceiptItem}>
+                  Aggiungi riga
+                </Button>
+              </div>
 
               <div className={styles.reconciliationSummary}>
                 <span>Somma articoli: <strong>{receiptItemsTotal.toFixed(2)} EUR</strong></span>

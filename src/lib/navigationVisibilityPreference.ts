@@ -7,6 +7,7 @@ export interface NavigationVisibilityOption {
 export const navigationVisibilityOptions: NavigationVisibilityOption[] = [
   { path: '/transazioni', label: 'Transazioni' },
   { path: '/split', label: 'Split' },
+  { path: '/abbonamenti', label: 'Abbonamenti' },
   { path: '/report', label: 'Consuntivo mensile' },
   { path: '/mensile', label: 'Budget mensile' },
   { path: '/analisi-annuale', label: 'Analisi annuale' },

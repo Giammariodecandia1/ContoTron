@@ -13,7 +13,10 @@ import {
   markGoogleDriveConnectionRequested,
   readGoogleDriveAccessToken,
 } from './googleDriveTokenStorage';
-import { getGoogleDriveServerAccessToken } from './googleDriveServerToken';
+import {
+  clearGoogleDriveServerAccessTokenCache,
+  getGoogleDriveServerAccessToken,
+} from './googleDriveServerToken';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
@@ -87,7 +90,7 @@ export const getGoogleDriveAccessToken = async () => {
   };
 };
 
-const driveRequest = async (url: string, init: RequestInit = {}) => {
+const driveRequest = async (url: string, init: RequestInit = {}, retryAfterRefresh = true) => {
   const { accessToken, userId } = await getGoogleDriveAccessToken();
   if (!accessToken) {
     throw new GoogleDriveAuthError();
@@ -103,6 +106,22 @@ const driveRequest = async (url: string, init: RequestInit = {}) => {
 
   if (response.status === 401 || response.status === 403) {
     if (userId) clearGoogleDriveAccessToken(userId);
+    clearGoogleDriveServerAccessTokenCache();
+    if (retryAfterRefresh) {
+      try {
+        const renewedAccessToken = await getGoogleDriveServerAccessToken(true);
+        const retryResponse = await fetch(url, {
+          ...init,
+          headers: {
+            Authorization: `Bearer ${renewedAccessToken}`,
+            ...(init.headers || {}),
+          },
+        });
+        if (retryResponse.ok) return retryResponse;
+      } catch {
+        // Il messaggio seguente invita al consenso solo quando anche il rinnovo server fallisce.
+      }
+    }
     throw new GoogleDriveAuthError('Google Drive richiede una nuova autorizzazione.');
   }
 

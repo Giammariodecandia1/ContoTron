@@ -297,6 +297,8 @@ export interface RecurringRule {
   category_id: string | null;
   subcategory_id: string | null;
   frequency: string;
+  payment_method?: PaymentMethod;
+  is_shared?: boolean;
   reason_code?: string | null;
   duration_months?: number | null;
   start_date: string;

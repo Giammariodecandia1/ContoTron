@@ -3,7 +3,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, Mic, Square, Sparkles } from 'lucide-react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import { useAiConfiguration, useAuth, useHousehold, useTransactions, useViewMode } from '../hooks';
+import { useAiConfiguration, useAuth, useHousehold, useHouseholdMembers, useTransactions, useViewMode } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { getCashImpactDate, paymentMethodOptions } from '../lib/paymentTiming';
 import { transactionFrequencyOptions } from '../lib/transactionFrequencies';
@@ -69,6 +69,7 @@ export const NewTransactionPage: React.FC = () => {
   const { household, accounts, categories, subcategories } = useHousehold();
   const { user } = useAuth();
   const { configuration: aiConfiguration } = useAiConfiguration();
+  const { members, isOwner } = useHouseholdMembers();
   const { isSimple } = useViewMode();
   const { addTransaction, addTransactionWithItems, updateTransaction, loading } = useTransactions();
   const initialState = (location.state || {}) as TransactionFormState;
@@ -87,6 +88,7 @@ export const NewTransactionPage: React.FC = () => {
   const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || 'other');
   const [isShared, setIsShared] = useState(initialState.isShared ?? true);
   const [accountId, setAccountId] = useState('');
+  const [insertedBy, setInsertedBy] = useState(user?.id || '');
   const [editLoading, setEditLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [voiceTranscript, setVoiceTranscript] = useState('');
@@ -264,6 +266,7 @@ export const NewTransactionPage: React.FC = () => {
 
     const createPayload = {
       ...txData,
+      inserted_by: insertedBy || user?.id || null,
       document_id: initialState.documentId || null,
       source: initialState.documentId ? 'receipt_ocr' as const : 'manual' as const,
     };
@@ -370,6 +373,20 @@ export const NewTransactionPage: React.FC = () => {
               <label>Data</label>
               <input type="date" required className={styles.input} value={date} onChange={e => setDate(e.target.value)} />
             </div>
+
+            {!isEditMode && isOwner && members.length > 1 && (
+              <div className={styles.formGroup}>
+                <label>Transazione effettuata da</label>
+                <select className={styles.input} value={insertedBy || user?.id || ''} onChange={event => setInsertedBy(event.target.value)}>
+                  {members.map(member => (
+                    <option key={member.userId} value={member.userId}>
+                      {member.displayName}{member.userId === user?.id ? ' (io)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <small className={styles.helpText}>Solo il creatore del nucleo può registrare una spesa per un altro componente.</small>
+              </div>
+            )}
 
             {transactionType === 'expense' && !isSimple && (
               <div className={styles.formGroup}>

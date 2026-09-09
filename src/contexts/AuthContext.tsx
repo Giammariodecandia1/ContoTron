@@ -65,11 +65,15 @@ const cleanAuthCallbackUrl = () => {
   window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}`);
 };
 
-const persistDriveRefreshToken = (refreshToken: string | null | undefined) => {
+const persistDriveRefreshToken = async (refreshToken: string | null | undefined) => {
   if (!refreshToken) return;
-  void saveGoogleDriveRefreshToken(refreshToken).catch(error => {
+  try {
+    await saveGoogleDriveRefreshToken(refreshToken);
+  } catch (error) {
+    // Il collegamento corrente resta utilizzabile; non si deve mai perdere la
+    // sessione Contotron per un problema separato nel deposito del rinnovo Drive.
     console.warn('Salvataggio sicuro del rinnovo Google Drive non disponibile:', error);
-  });
+  }
 };
 
 const ensureProfile = async (authUser: SupabaseUser): Promise<AppUser> => {
@@ -171,6 +175,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
       const accessToken = hashParams.get('access_token');
       const refreshToken = hashParams.get('refresh_token');
       const providerToken = hashParams.get('provider_token');
+      const providerRefreshToken = hashParams.get('provider_refresh_token');
       const callbackInUrl = hasAuthCallbackInUrl();
       const driveConnectionRequested = url.searchParams.get('connectDrive') === '1'
         || hasGoogleDriveConnectionRequest();
@@ -197,7 +202,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
               exchangeData.session.user.id,
               exchangeData.session.provider_token,
             );
-            persistDriveRefreshToken(exchangeData.session.provider_refresh_token);
           }
         } else if (accessToken && refreshToken) {
           const { data: sessionData, error } = await supabase.auth.setSession({
@@ -214,11 +218,17 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
               sessionData.session.user.id,
               providerToken,
             );
-            persistDriveRefreshToken(sessionData.session.provider_refresh_token);
           }
         }
 
         const { data } = await supabase.auth.getSession();
+        const availableProviderRefreshToken = data.session?.provider_refresh_token || providerRefreshToken;
+        if (availableProviderRefreshToken) {
+          // Recupera automaticamente anche i collegamenti Drive effettuati prima
+          // che il rinnovo server fosse disponibile. La funzione server accetta
+          // soltanto token che possiedono davvero il permesso drive.file.
+          await persistDriveRefreshToken(availableProviderRefreshToken);
+        }
         if (
           driveConnectionRequested
           && data.session?.user.id
@@ -228,7 +238,6 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
             data.session.user.id,
             data.session.provider_token,
           );
-          persistDriveRefreshToken(data.session.provider_refresh_token);
           clearGoogleDriveConnectionRequest();
         }
         if (isMounted) {

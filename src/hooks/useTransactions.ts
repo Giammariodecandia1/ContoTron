@@ -146,7 +146,7 @@ export const useTransactions = () => {
         .insert([{
           ...transaction,
           household_id: householdId,
-          inserted_by: transaction.inserted_by || user?.id || null
+          inserted_by: transaction.inserted_by ?? user?.id ?? null
         }])
         .select()
         .single();
@@ -185,7 +185,7 @@ export const useTransactions = () => {
         p_transaction: {
           ...transaction,
           household_id: householdId,
-          inserted_by: transaction.inserted_by || user?.id || null,
+          inserted_by: transaction.inserted_by ?? user?.id ?? null,
         },
         p_items: items,
       });
@@ -233,6 +233,44 @@ export const useTransactions = () => {
     }
   };
 
+  const attachReceiptAnalysis = async ({
+    transactionId,
+    documentId,
+    merchant,
+    detectedCategoryId,
+    detectedSubcategoryId,
+    items,
+  }: {
+    transactionId: string;
+    documentId: string;
+    merchant: string | null;
+    detectedCategoryId: string | null;
+    detectedSubcategoryId: string | null;
+    items: TransactionItemDraft[];
+  }) => {
+    if (!householdId) return null;
+    setLoading(true);
+    setError(null);
+    try {
+      const { data, error: attachError } = await supabase.rpc('attach_receipt_analysis', {
+        p_transaction_id: transactionId,
+        p_document_id: documentId,
+        p_merchant: merchant,
+        p_detected_category_id: detectedCategoryId,
+        p_detected_subcategory_id: detectedSubcategoryId,
+        p_items: items,
+      });
+      if (attachError) throw attachError;
+      return data as Transaction;
+    } catch (err: unknown) {
+      console.error('Error attaching receipt analysis:', err);
+      setError(errorMessage(err));
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const deleteTransaction = async (id: string) => {
     if (!householdId) return false;
     
@@ -261,6 +299,7 @@ export const useTransactions = () => {
     addTransaction,
     addTransactionWithItems,
     updateTransaction,
+    attachReceiptAnalysis,
     deleteTransaction,
     loading,
     error

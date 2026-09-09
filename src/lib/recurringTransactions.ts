@@ -1,5 +1,6 @@
 import { supabase } from './supabaseClient';
 import type { Account, RecurringRule, Transaction } from '../types/database';
+import { getCashImpactDate } from './paymentTiming';
 
 const AUTO_FIXED_BUDGET_NOTE = 'AUTO_SPESE_FISSE';
 
@@ -30,6 +31,15 @@ const monthKey = (year: number, month: number) => `${year}-${String(month).padSt
 
 const lastDayOfMonth = (year: number, month: number) => new Date(year, month, 0).getDate();
 
+const frequencyMonthStep: Record<string, number> = {
+  monthly: 1,
+  bimonthly: 2,
+  quarterly: 3,
+  four_monthly: 4,
+  semiannual: 6,
+  yearly: 12,
+};
+
 const recurringMarker = (ruleId: string, year: number, month: number) => (
   `[RICORRENZA:${ruleId}:${monthKey(year, month)}]`
 );
@@ -38,6 +48,26 @@ const dueDateForMonth = (startDate: string, year: number, month: number) => {
   const start = new Date(`${startDate}T00:00:00`);
   const day = Math.min(start.getDate(), lastDayOfMonth(year, month));
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+};
+
+export const recurringRuleDueDateForMonth = (rule: RecurringRule, year: number, month: number) => {
+  if (!recurringRuleAppliesToMonth(rule, year, month)) return null;
+  const step = frequencyMonthStep[rule.frequency];
+  if (!step) return null;
+  const [startYear, startMonth] = rule.start_date.split('-').map(Number);
+  const monthDistance = (year - startYear) * 12 + (month - startMonth);
+  if (monthDistance < 0 || monthDistance % step !== 0) return null;
+  const dueDate = dueDateForMonth(rule.start_date, year, month);
+  return rule.end_date && dueDate > rule.end_date ? null : dueDate;
+};
+
+const nextDueDateAfter = (rule: RecurringRule, dueDate: string) => {
+  const step = frequencyMonthStep[rule.frequency];
+  if (!step) return null;
+  const [year, month] = dueDate.split('-').map(Number);
+  const target = new Date(year, month - 1 + step, 1);
+  const next = dueDateForMonth(rule.start_date, target.getFullYear(), target.getMonth() + 1);
+  return rule.end_date && next > rule.end_date ? null : next;
 };
 
 export const recurringRuleAppliesToMonth = (rule: RecurringRule, year: number, month: number) => {
@@ -155,17 +185,17 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
     .from('recurring_rules')
     .select('*')
     .eq('household_id', householdId)
-    .eq('is_active', true)
-    .eq('frequency', 'monthly');
+    .eq('is_active', true);
 
   if (rulesError) throw rulesError;
 
   const activeRules = ((rules || []) as RecurringRule[])
-    .filter(rule => recurringRuleAppliesToMonth(rule, year, month));
+    .filter(rule => recurringRuleDueDateForMonth(rule, year, month));
 
   const now = new Date();
   const requestedMonth = new Date(year, month - 1, 1);
   const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   await syncFixedExpensesIntoBudget({
     householdId,
     activeRules,
@@ -182,6 +212,8 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
   let createdCount = 0;
 
   for (const rule of activeRules) {
+    const dueDate = recurringRuleDueDateForMonth(rule, year, month);
+    if (!dueDate || dueDate > today) continue;
     const marker = recurringMarker(rule.id, year, month);
     const { data: existing, error: existingError } = await supabase
       .from('transactions')
@@ -203,16 +235,16 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
       type: rule.type,
       status: 'confirmed',
       source: 'recurring_rule',
-      payment_method: 'standard',
-      cash_impact_date: dueDateForMonth(rule.start_date, year, month),
-      frequency: 'monthly',
-      transaction_date: dueDateForMonth(rule.start_date, year, month),
+      payment_method: rule.payment_method || 'standard',
+      cash_impact_date: getCashImpactDate(dueDate, rule.payment_method || 'standard'),
+      frequency: rule.frequency as Transaction['frequency'],
+      transaction_date: dueDate,
       description: rule.description,
       merchant: rule.merchant || null,
       amount: rule.amount,
       category_id: rule.category_id || null,
       subcategory_id: rule.subcategory_id || null,
-      is_shared: true,
+      is_shared: rule.is_shared !== false,
       notes: `Generata automaticamente da spesa fissa. ${marker}${rule.notes ? ` ${rule.notes}` : ''}`,
     };
 
@@ -231,6 +263,11 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
         .eq('id', existing[0].id)
         .eq('household_id', householdId);
       if (updateError) throw updateError;
+      const { error: existingDueUpdateError } = await supabase.from('recurring_rules').update({
+        next_due_date: nextDueDateAfter(rule, dueDate),
+        updated_at: new Date().toISOString(),
+      }).eq('id', rule.id).eq('household_id', householdId);
+      if (existingDueUpdateError) throw existingDueUpdateError;
       continue;
     }
 
@@ -238,8 +275,13 @@ const ensureMonthlyRecurringTransactionsInternal = async ({
       .from('transactions')
       .insert([transaction]);
 
-    if (insertError) throw insertError;
-    createdCount += 1;
+    if (insertError && insertError.code !== '23505') throw insertError;
+    const { error: dueUpdateError } = await supabase.from('recurring_rules').update({
+      next_due_date: nextDueDateAfter(rule, dueDate),
+      updated_at: new Date().toISOString(),
+    }).eq('id', rule.id).eq('household_id', householdId);
+    if (dueUpdateError) throw dueUpdateError;
+    if (!insertError) createdCount += 1;
   }
 
   return { createdCount, rulesCount: activeRules.length, rules: activeRules };
