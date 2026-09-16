@@ -23,6 +23,10 @@ const receiptUrl = await transpileModule('src/lib/receiptParsing.ts', [
   ["'./receiptDiscounts'", `'${discountUrl}'`],
 ]);
 const splitUrl = await transpileModule('src/lib/splitCalculator.ts');
+const paymentTimingUrl = await transpileModule('src/lib/paymentTiming.ts');
+const annualCashFlowUrl = await transpileModule('src/lib/annualCashFlow.ts', [
+  ["'./paymentTiming'", `'${paymentTimingUrl}'`],
+]);
 const supabaseStubUrl = `data:text/javascript;base64,${Buffer.from('export const supabase = {};').toString('base64')}`;
 const paymentTimingStubUrl = `data:text/javascript;base64,${Buffer.from("export const getCashImpactDate = date => date;").toString('base64')}`;
 const recurringUrl = await transpileModule('src/lib/recurringTransactions.ts', [
@@ -51,8 +55,9 @@ const {
   calculateEqualSplit,
   transactionBelongsToSplit,
 } = await import(splitUrl);
+const { calculateEffectiveIncome, summarizeAnnualCashFlow } = await import(annualCashFlowUrl);
 const { recurringRuleAppliesToMonth, recurringRuleDueDateForMonth, resolveFixedBudgetTarget } = await import(recurringUrl);
-const { calculateMonthlyBudgetAllocations } = await import(recurringBudgetPlanUrl);
+const { calculateMonthlyBudgetAllocations, recurringBudgetPeriodsForYear } = await import(recurringBudgetPlanUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
 const { getHiddenNavigationPaths, saveHiddenNavigationPaths } = await import(navigationVisibilityUrl);
 const {
@@ -86,7 +91,7 @@ assert.deepEqual(resolveFixedBudgetTarget({
   existingAmount: 38,
   existingNotes: null,
   fixedAmount: 25,
-}), { amount: 38, notes: null });
+}), { amount: 25, notes: 'AUTO_SPESE_FISSE' });
 
 assert.equal(parseReceiptDiscount('SCONTO -1,20'), 1.2);
 assert.equal(parseReceiptDiscount('VALORI SCONTI - EUR 0,50'), 0.5);
@@ -142,6 +147,93 @@ const roundedAllocations = allocateTransactionAcrossSplitMonths({
 assert.deepEqual(roundedAllocations.map(row => row.amountCents), [34, 33, 33]);
 assert.deepEqual(roundedAllocations.map(row => row.allocationDate), ['2026-01-31', '2026-02-28', '2026-03-31']);
 assert.equal(roundedAllocations.reduce((sum, row) => sum + row.amountCents, 0), 100);
+const cardSplitAllocations = allocateTransactionAcrossSplitMonths({
+  amount: 90,
+  transaction_date: '2026-07-20',
+  cash_impact_date: '2026-08-01',
+  split_months: 3,
+});
+assert.deepEqual(
+  cardSplitAllocations.map(row => row.allocationDate),
+  ['2026-07-20', '2026-08-20', '2026-09-20'],
+);
+
+const annualCashFlow = summarizeAnnualCashFlow([
+  {
+    amount: 120,
+    type: 'expense',
+    status: 'confirmed',
+    transaction_date: '2026-07-20',
+    cash_impact_date: '2026-08-01',
+    payment_method: 'credit_card',
+  },
+  {
+    amount: 50,
+    type: 'expense',
+    status: 'confirmed',
+    transaction_date: '2026-07-21',
+    cash_impact_date: '2026-07-21',
+    payment_method: 'standard',
+  },
+  {
+    amount: 80,
+    type: 'expense',
+    status: 'confirmed',
+    transaction_date: '2025-12-10',
+    cash_impact_date: '2026-01-01',
+    payment_method: 'credit_card',
+  },
+  {
+    amount: 30,
+    type: 'expense',
+    status: 'confirmed',
+    transaction_date: '2026-09-12',
+    cash_impact_date: null,
+    payment_method: 'credit_card',
+  },
+  {
+    amount: 2200,
+    type: 'income',
+    status: 'confirmed',
+    transaction_date: '2026-08-27',
+  },
+  {
+    amount: 999,
+    type: 'expense',
+    status: 'rejected',
+    transaction_date: '2026-07-22',
+    payment_method: 'standard',
+  },
+], 2026);
+assert.deepEqual(annualCashFlow[7], {
+  nominalExpense: 170,
+  immediateExpense: 50,
+  recordedIncome: 0,
+  creditCardAdvance: 0,
+  creditCardAdvanceDetails: [],
+});
+assert.deepEqual(annualCashFlow[8], {
+  nominalExpense: 0,
+  immediateExpense: 0,
+  recordedIncome: 2200,
+  creditCardAdvance: 120,
+  creditCardAdvanceDetails: [{
+    amount: 120,
+    description: 'Spesa con carta',
+    purchaseDate: '2026-07-20',
+  }],
+});
+assert.equal(annualCashFlow[1].creditCardAdvance, 80);
+assert.equal(annualCashFlow[9].nominalExpense, 30);
+assert.equal(annualCashFlow[10].creditCardAdvance, 30);
+assert.deepEqual(annualCashFlow[10].creditCardAdvanceDetails, [{
+  amount: 30,
+  description: 'Spesa con carta',
+  purchaseDate: '2026-09-12',
+}]);
+assert.equal(calculateEffectiveIncome(2233, 0, 120), 2113);
+assert.equal(calculateEffectiveIncome(2233, 2200, 120), 2080);
+assert.equal(annualCashFlow[7].immediateExpense + annualCashFlow[8].creditCardAdvance, 170);
 
 const threePeople = calculateEqualSplit(
   [
@@ -192,6 +284,17 @@ const weeklyFoodPlan = [
 const normalizedFoodPlan = calculateMonthlyBudgetAllocations(weeklyFoodPlan, 4.75, 650);
 assert.equal(Math.round(normalizedFoodPlan.reduce((sum, item) => sum + item.monthlyAmount, 0) * 100), 65000);
 assert.equal(normalizedFoodPlan.every(item => item.monthlyAmount >= 0), true);
+assert.deepEqual(recurringBudgetPeriodsForYear(2027, 2026, 9), Array.from(
+  { length: 12 },
+  (_, index) => ({ year: 2027, month: index + 1 }),
+));
+assert.deepEqual(recurringBudgetPeriodsForYear(2026, 2026, 9), [
+  { year: 2026, month: 9 },
+  { year: 2026, month: 10 },
+  { year: 2026, month: 11 },
+  { year: 2026, month: 12 },
+]);
+assert.deepEqual(recurringBudgetPeriodsForYear(2025, 2026, 9), []);
 
 const storedPreferences = new Map();
 globalThis.window = {
@@ -300,8 +403,10 @@ assert.notEqual(annualExpensesPosition, -1);
 assert.notEqual(categoryBudgetPosition, -1);
 assert.equal(annualExpensesPosition < categoryBudgetPosition, true);
 assert.equal(dashboardSource.includes(".eq('status', 'confirmed')"), true);
-assert.equal(dashboardSource.includes('actualDelta: total.actualIncome - total.actualExpense'), true);
-assert.equal(dashboardSource.includes('const actualDelta = row.actualIncome - row.actualExpense'), true);
+assert.equal(dashboardSource.includes('actualDelta: total.actualIncome - total.immediateExpense'), true);
+assert.equal(dashboardSource.includes('const actualDelta = row.actualIncome - row.immediateExpense'), true);
+assert.equal(dashboardSource.includes('<th>Anticipo carta di credito</th>'), true);
+assert.equal(dashboardSource.includes('Dettagli ({row.creditCardAdvanceDetails.length})'), true);
 assert.equal(dashboardSource.includes('<th>Entrate effettive</th>'), true);
 assert.equal(dashboardSource.includes('const isOverBudget = month.actual > month.planned;'), true);
 assert.equal(dashboardStylesSource.includes('.categoryMonthOverBudget'), true);
@@ -420,7 +525,8 @@ const monthlyBudgetSource = await readFile(new URL('../src/pages/MonthlyBudgetPa
 assert.equal(monthlyBudgetSource.includes('<RecurringBudgetPlanPanel'), true);
 assert.equal(monthlyBudgetSource.includes('dirtyCategoryBudgetIdsRef'), true);
 assert.equal(monthlyBudgetSource.includes('budgetInputValue'), true);
-assert.equal(monthlyBudgetSource.includes("const wholeNumberDisplay = getMoneyDisplayMode() === 'whole';"), true);
+assert.equal(monthlyBudgetSource.includes("const wholeNumberDisplay = moneyDisplayMode === 'whole';"), true);
+assert.equal(monthlyBudgetSource.includes('moneyDisplayModeEvent'), true);
 assert.equal(monthlyBudgetSource.includes('wholeNumberDisplay ? String(Math.round(numericValue)) : value'), true);
 assert.equal(monthlyBudgetSource.includes("step={wholeNumberDisplay ? '1' : '0.01'}"), true);
 assert.equal(monthlyBudgetSource.includes('unallocatedFixedRows.map'), true);
@@ -428,7 +534,12 @@ assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), fa
 assert.equal(monthlyBudgetSource.includes('<span>Totale effettivo</span>'), false);
 assert.equal(monthlyBudgetSource.includes('<th style={{textAlign: \'right\'}}>Effettivo</th>'), false);
 assert.equal(monthlyBudgetSource.includes('<th style={{textAlign: \'right\'}}>Differenza</th>'), false);
-assert.equal(monthlyBudgetSource.includes('<b>{subcategory?.name || rule.description}</b>'), true);
+assert.equal(monthlyBudgetSource.includes('<b>{rule.description}</b>'), true);
+assert.equal(monthlyBudgetSource.includes("linkedRecurringRules.map(rule => rule.description).join(' + ')"), true);
+assert.equal(monthlyBudgetSource.includes("sort((left, right) => left.label.localeCompare(right.label, 'it-IT'))"), true);
+const recurringClassificationMigrationSource = await readFile(new URL('../supabase/migrations/031_fix_tester_recurring_classification.sql', import.meta.url), 'utf8');
+assert.equal(recurringClassificationMigrationSource.includes("regexp_replace(lower(trim(name)), '\\s+', ' ', 'g') = 'acquisto 3'"), true);
+assert.equal(recurringClassificationMigrationSource.includes("lower(trim(description)) = 'protesi acustiche'"), true);
 const recurringSource = await readFile(new URL('../src/lib/recurringTransactions.ts', import.meta.url), 'utf8');
 const recurringRulesPageSource = await readFile(new URL('../src/pages/RecurringRulesPage.tsx', import.meta.url), 'utf8');
 const foodWeeklyAnalysisSource = await readFile(new URL('../src/pages/FoodWeeklyAnalysisPage.tsx', import.meta.url), 'utf8');
@@ -443,6 +554,7 @@ assert.equal(recurringRulesPageSource.includes('Abbonamento personale'), true);
 assert.equal(recurringRulesPageSource.includes('budget dei prossimi 12 mesi'), true);
 assert.equal(foodWeeklyAnalysisSource.includes('Medie mensili per sottocategoria'), true);
 assert.equal(foodWeeklyAnalysisSource.includes('syncRecurringBudgetPlanMonths'), true);
+assert.equal(foodWeeklyAnalysisSource.includes('recurringBudgetPeriodsForYear'), true);
 assert.equal(foodWeeklyAnalysisSource.includes('Le modifiche manuali di un singolo mese restano invariate.'), true);
 
 const subscriptionMigrationSource = await readFile(new URL('../supabase/migrations/029_recurring_subscription_fields.sql', import.meta.url), 'utf8');

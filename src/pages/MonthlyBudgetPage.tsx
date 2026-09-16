@@ -7,7 +7,7 @@ import { useAuth, useHousehold, useTransactions } from '../hooks';
 import { useBudget } from '../hooks/useBudget';
 import { syncRecurringBudgetPlans } from '../lib/recurringBudgetPlans';
 import { formatCurrency } from '../lib/money';
-import { getMoneyDisplayMode } from '../lib/moneyDisplayPreference';
+import { getMoneyDisplayMode, moneyDisplayModeEvent, type MoneyDisplayMode } from '../lib/moneyDisplayPreference';
 import { calculateUnallocatedBudgetBreakdown } from '../lib/monthlyBudgetBreakdown';
 import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
@@ -43,6 +43,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [recurringError, setRecurringError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [prefillNotice, setPrefillNotice] = useState<string | null>(null);
+  const [moneyDisplayMode, setMoneyDisplayMode] = useState<MoneyDisplayMode>(() => getMoneyDisplayMode());
   const loadRequestRef = useRef(0);
   const dirtyCategoryBudgetIdsRef = useRef(new Set<string>());
   const dirtySubcategoryBudgetIdsRef = useRef(new Set<string>());
@@ -102,7 +103,7 @@ export const MonthlyBudgetPage: React.FC = () => {
 
     // 1. Fetch transactions for the current month
     try {
-      const txs = await fetchTransactions(month, year, undefined, 'cash_impact');
+      const txs = await fetchTransactions(month, year);
       if (loadRequestRef.current !== requestId) return;
       const validTransactions = txs.filter(t => (
         t.type === 'expense'
@@ -177,6 +178,16 @@ export const MonthlyBudgetPage: React.FC = () => {
     const timer = window.setTimeout(() => void loadData(), 0);
     return () => window.clearTimeout(timer);
   }, [householdId, loadData]);
+
+  useEffect(() => {
+    const refreshMoneyDisplayMode = () => setMoneyDisplayMode(getMoneyDisplayMode());
+    window.addEventListener(moneyDisplayModeEvent, refreshMoneyDisplayMode);
+    window.addEventListener('storage', refreshMoneyDisplayMode);
+    return () => {
+      window.removeEventListener(moneyDisplayModeEvent, refreshMoneyDisplayMode);
+      window.removeEventListener('storage', refreshMoneyDisplayMode);
+    };
+  }, []);
 
   const handlePrevMonth = () => {
     if (month === 1) {
@@ -353,7 +364,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const totalPlanned = expenseCategories.reduce((acc, cat) => acc + plannedForCategory(cat.id), 0);
   const monthlyRecurringTotal = monthlyRecurringRules.reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
   const unclassifiedRecurringRules = monthlyRecurringRules.filter(rule => !rule.category_id);
-  const wholeNumberDisplay = getMoneyDisplayMode() === 'whole';
+  const wholeNumberDisplay = moneyDisplayMode === 'whole';
   const budgetInputValue = (value: string | number | undefined) => {
     if (value === '' || value === undefined) return '';
     const numericValue = Number(value);
@@ -439,10 +450,10 @@ export const MonthlyBudgetPage: React.FC = () => {
                 return (
                   <div key={rule.id} className={styles.recurringRuleItem}>
                     <span>
-                      <b>{subcategory?.name || rule.description}</b>
+                      <b>{rule.description}</b>
                       <small>
                         {category?.name || 'Categoria da assegnare'}
-                        {subcategory && subcategory.name !== rule.description ? ` / ${rule.description}` : ''}
+                        {subcategory ? ` / ${subcategory.name}` : ''}
                       </small>
                     </span>
                     <strong>{formatCurrency(Number(rule.amount || 0), household?.currency || 'EUR')}</strong>
@@ -524,6 +535,25 @@ export const MonthlyBudgetPage: React.FC = () => {
                 const showTrulyUnallocated = unallocatedRecurringRules.length === 0
                   || trulyUnallocatedPlanned > 0.005
                   || trulyUnallocatedActual > 0.005;
+                const sortedBreakdownRows = [
+                  ...unallocatedFixedRows.map(rule => ({
+                    kind: 'fixed' as const,
+                    id: rule.id,
+                    label: rule.description,
+                    rule,
+                  })),
+                  ...categorySubcategories.map(subcategory => {
+                    const linkedRecurringRules = categoryRecurringRules.filter(rule => rule.subcategory_id === subcategory.id);
+                    return {
+                      kind: 'subcategory' as const,
+                      id: subcategory.id,
+                      label: linkedRecurringRules.length > 0
+                        ? linkedRecurringRules.map(rule => rule.description).join(' + ')
+                        : subcategory.name,
+                      subcategory,
+                    };
+                  }),
+                ].sort((left, right) => left.label.localeCompare(right.label, 'it-IT'));
 
                 return (
                   <React.Fragment key={cat.id}>
@@ -568,19 +598,6 @@ export const MonthlyBudgetPage: React.FC = () => {
 
                     {hasBreakdownRows && isExpanded && (
                       <>
-                        {unallocatedFixedRows.map(rule => {
-                          return (
-                            <tr key={`fixed-${rule.id}`} className={`${styles.subcategoryRow} ${styles.fixedExpenseRow}`}>
-                              <td data-label="Voce">
-                                <div className={styles.subcategoryName}>
-                                  {rule.description}
-                                  <em className={styles.autoBudgetBadge}>Spesa fissa</em>
-                                </div>
-                              </td>
-                              <td data-label="Previsto" className={styles.amount}>{formatCurrency(rule.planned, household?.currency || 'EUR')}</td>
-                            </tr>
-                          );
-                        })}
                         {showTrulyUnallocated && (
                           <tr className={`${styles.subcategoryRow} ${styles.unallocatedRow}`}>
                             <td data-label="Voce"><div className={styles.subcategoryName}>Non ripartito</div></td>
@@ -590,13 +607,27 @@ export const MonthlyBudgetPage: React.FC = () => {
                             </td>
                           </tr>
                         )}
-                        {categorySubcategories.map(subcategory => {
+                        {sortedBreakdownRows.map(row => {
+                          if (row.kind === 'fixed') {
+                            return (
+                              <tr key={`fixed-${row.id}`} className={`${styles.subcategoryRow} ${styles.fixedExpenseRow}`}>
+                                <td data-label="Voce">
+                                  <div className={styles.subcategoryName}>
+                                    {row.label}
+                                    <em className={styles.autoBudgetBadge}>Spesa fissa</em>
+                                  </div>
+                                </td>
+                                <td data-label="Previsto" className={styles.amount}>{formatCurrency(row.rule.planned, household?.currency || 'EUR')}</td>
+                              </tr>
+                            );
+                          }
+                          const { subcategory } = row;
                           const isAutomaticBudget = automaticBudgetKeys.has(`${cat.id}:${subcategory.id}`);
                           return (
                             <tr key={subcategory.id} className={styles.subcategoryRow}>
                               <td data-label="Sottocategoria">
                                 <div className={styles.subcategoryName}>
-                                  {subcategory.name}
+                                  {row.label}
                                   {isAutomaticBudget && <em className={styles.autoBudgetBadge}>Spesa fissa</em>}
                                 </div>
                               </td>

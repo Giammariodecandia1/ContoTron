@@ -137,7 +137,7 @@ const getYearRange = (year: number) => ({
 const budgetImpactDate = (transaction: {
   transaction_date?: string | null;
   cash_impact_date?: string | null;
-}) => transaction.cash_impact_date || transaction.transaction_date || '';
+}) => transaction.transaction_date || '';
 
 const normalizeKey = (value: string) => (
   value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')

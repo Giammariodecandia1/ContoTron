@@ -6,6 +6,7 @@ import { useHousehold } from '../hooks';
 import { formatCurrency } from '../lib/money';
 import {
   fetchRecurringBudgetPlans,
+  recurringBudgetPeriodsForYear,
   syncRecurringBudgetPlanMonths,
   type RecurringBudgetPlanWithItems,
 } from '../lib/recurringBudgetPlans';
@@ -41,7 +42,7 @@ const normalizeKey = (value: string) => (
 const impactDate = (transaction: {
   transaction_date?: string | null;
   cash_impact_date?: string | null;
-}) => transaction.cash_impact_date || transaction.transaction_date || '';
+}) => transaction.transaction_date || '';
 
 const isoWeek = (date: Date) => {
   const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -83,12 +84,7 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
     const yearEnd = `${selectedYear}-12-31`;
     const transactionStart = `${selectedYear - 1}-12-01`;
     const now = new Date();
-    const firstMonthToSync = selectedYear > now.getFullYear()
-      ? 1
-      : selectedYear === now.getFullYear() ? now.getMonth() + 1 : 13;
-    const monthsToSync = firstMonthToSync <= 12
-      ? Array.from({ length: 13 - firstMonthToSync }, (_, index) => ({ year: selectedYear, month: firstMonthToSync + index }))
-      : [];
+    const monthsToSync = recurringBudgetPeriodsForYear(selectedYear, now.getFullYear(), now.getMonth() + 1);
     const planRequest = syncRecurringBudgetPlanMonths(householdId, monthsToSync, [...foodCategoryIds]).catch(async syncError => {
       // Un membro in sola lettura deve comunque poter consultare l'analisi.
       // In quel caso mostriamo il piano senza tentare di modificare i budget.

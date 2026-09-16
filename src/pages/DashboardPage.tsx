@@ -5,6 +5,11 @@ import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
 import { supabase } from '../lib/supabaseClient';
 import { formatCurrency, formatPercentage } from '../lib/money';
+import {
+  calculateEffectiveIncome,
+  summarizeAnnualCashFlow,
+  type CreditCardAdvanceDetail,
+} from '../lib/annualCashFlow';
 import type { Transaction } from '../types/database';
 import styles from './DashboardPage.module.css';
 
@@ -20,6 +25,9 @@ type AnnualRow = {
   plannedIncome: number;
   plannedExpense: number;
   actualExpense: number;
+  immediateExpense: number;
+  creditCardAdvance: number;
+  creditCardAdvanceDetails: CreditCardAdvanceDetail[];
   actualIncome: number;
 };
 
@@ -156,29 +164,26 @@ export const DashboardPage: React.FC = () => {
   }, [loadDashboard]);
 
   const annualRows = useMemo<AnnualRow[]>(() => {
-    const actualExpenses: Record<number, number> = {};
-    const actualIncomes: Record<number, number> = {};
-
-    transactions.forEach(tx => {
-      const txDate = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
-      if (txDate.getFullYear() !== selectedYear) return;
-      const month = txDate.getMonth() + 1;
-      if (tx.type === 'expense') {
-        actualExpenses[month] = (actualExpenses[month] || 0) + Number(tx.amount || 0);
-      } else if (tx.type === 'income') {
-        actualIncomes[month] = (actualIncomes[month] || 0) + Number(tx.amount || 0);
-      }
-    });
+    const cashFlow = summarizeAnnualCashFlow(transactions, selectedYear);
 
     return monthNames.map((label, index) => {
       const month = index + 1;
+      const plannedIncome = incomeTargets[month]?.planned_income || 0;
+      const monthFlow = cashFlow[month];
       return {
         month,
         label,
-        plannedIncome: incomeTargets[month]?.planned_income || 0,
+        plannedIncome,
         plannedExpense: plannedExpenses[month] || 0,
-        actualExpense: actualExpenses[month] || 0,
-        actualIncome: actualIncomes[month] || 0,
+        actualExpense: monthFlow.nominalExpense,
+        immediateExpense: monthFlow.immediateExpense,
+        creditCardAdvance: monthFlow.creditCardAdvance,
+        creditCardAdvanceDetails: monthFlow.creditCardAdvanceDetails,
+        actualIncome: calculateEffectiveIncome(
+          plannedIncome,
+          monthFlow.recordedIncome,
+          monthFlow.creditCardAdvance,
+        ),
       };
     });
   }, [incomeTargets, plannedExpenses, selectedYear, transactions]);
@@ -188,18 +193,22 @@ export const DashboardPage: React.FC = () => {
       plannedIncome: acc.plannedIncome + row.plannedIncome,
       plannedExpense: acc.plannedExpense + row.plannedExpense,
       actualExpense: acc.actualExpense + row.actualExpense,
+      immediateExpense: acc.immediateExpense + row.immediateExpense,
+      creditCardAdvance: acc.creditCardAdvance + row.creditCardAdvance,
       actualIncome: acc.actualIncome + row.actualIncome,
     }), {
       plannedIncome: 0,
       plannedExpense: 0,
       actualExpense: 0,
+      immediateExpense: 0,
+      creditCardAdvance: 0,
       actualIncome: 0,
     });
 
     return {
       ...total,
       plannedDelta: total.plannedIncome - total.plannedExpense,
-      actualDelta: total.actualIncome - total.actualExpense,
+      actualDelta: total.actualIncome - total.immediateExpense,
     };
   }, [annualRows]);
 
@@ -233,7 +242,7 @@ export const DashboardPage: React.FC = () => {
     const expenseById = new Map<string, DashboardTransaction>();
     transactions.forEach(tx => {
       if (tx.type !== 'expense') return;
-      const date = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
+      const date = new Date(`${tx.transaction_date}T00:00:00`);
       if (date.getFullYear() !== selectedYear) return;
       expenseById.set(tx.id, tx);
     });
@@ -252,7 +261,7 @@ export const DashboardPage: React.FC = () => {
 
     expenseById.forEach(tx => {
       if (!tx.category_id || itemizedTransactionIds.has(tx.id)) return;
-      const date = new Date(`${tx.cash_impact_date || tx.transaction_date}T00:00:00`);
+      const date = new Date(`${tx.transaction_date}T00:00:00`);
       const month = date.getMonth() + 1;
       const months = actual.get(tx.category_id) || {};
       months[month] = (months[month] || 0) + Number(tx.amount || 0);
@@ -263,7 +272,7 @@ export const DashboardPage: React.FC = () => {
       const transaction = expenseById.get(transactionId);
       if (!transaction) return;
       const itemTotal = group.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-      const date = new Date(`${transaction.cash_impact_date || transaction.transaction_date}T00:00:00`);
+      const date = new Date(`${transaction.transaction_date}T00:00:00`);
       const month = date.getMonth() + 1;
 
       group.forEach(item => {
@@ -438,6 +447,11 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       <Card title="Previsione annuale" icon={<Wallet size={20} />}>
+        <p className="text-muted fs-sm">
+          Le spese con carta restano nel mese dell'acquisto. Nel Delta reale incidono una sola volta,
+          come Anticipo carta di credito nel mese dell'addebito successivo. Se non sono state registrate
+          entrate reali, le Entrate effettive partono dalle entrate previste.
+        </p>
         {message && <div className={`${styles.notice} ${styles.success}`}>{message}</div>}
         {error && <div className={`${styles.notice} ${styles.error}`}>{error}</div>}
         {loading ? (
@@ -451,6 +465,7 @@ export const DashboardPage: React.FC = () => {
                   <th>Entrate previste</th>
                   <th>Uscite previste</th>
                   <th>Delta previsto</th>
+                  <th>Anticipo carta di credito</th>
                   <th>Entrate effettive</th>
                   <th>Uscite effettive</th>
                   <th>Delta reale</th>
@@ -459,7 +474,7 @@ export const DashboardPage: React.FC = () => {
               <tbody>
                 {annualRows.map(row => {
                   const plannedDelta = row.plannedIncome - row.plannedExpense;
-                  const actualDelta = row.actualIncome - row.actualExpense;
+                  const actualDelta = row.actualIncome - row.immediateExpense;
 
                   return (
                     <tr key={row.month}>
@@ -480,6 +495,27 @@ export const DashboardPage: React.FC = () => {
                       <td data-label="Delta previsto" className={plannedDelta >= 0 ? styles.positive : styles.negative}>
                         {currency(plannedDelta, currencyCode)}
                       </td>
+                      <td data-label="Anticipo carta di credito">
+                        <div className={styles.creditCardAdvance}>
+                          <span>{currency(row.creditCardAdvance, currencyCode)}</span>
+                          {row.creditCardAdvanceDetails.length > 0 && (
+                            <details className={styles.creditCardDetails}>
+                              <summary>Dettagli ({row.creditCardAdvanceDetails.length})</summary>
+                              <ul>
+                                {row.creditCardAdvanceDetails.map((detail, index) => (
+                                  <li key={`${detail.purchaseDate}-${detail.description}-${index}`}>
+                                    <span>{detail.description}</span>
+                                    <small>
+                                      Acquisto {new Date(`${detail.purchaseDate}T00:00:00`).toLocaleDateString('it-IT')}
+                                      {' · '}{currency(detail.amount, currencyCode)}
+                                    </small>
+                                  </li>
+                                ))}
+                              </ul>
+                            </details>
+                          )}
+                        </div>
+                      </td>
                       <td data-label="Entrate effettive">{currency(row.actualIncome, currencyCode)}</td>
                       <td data-label="Uscite effettive">{currency(row.actualExpense, currencyCode)}</td>
                       <td data-label="Delta reale" className={actualDelta >= 0 ? styles.positive : styles.negative}>
@@ -497,6 +533,7 @@ export const DashboardPage: React.FC = () => {
                   <td className={totals.plannedDelta >= 0 ? styles.positive : styles.negative}>
                     {currency(totals.plannedDelta / 12, currencyCode)}
                   </td>
+                  <td>{currency(totals.creditCardAdvance / 12, currencyCode)}</td>
                   <td>{currency(actualIncomeAverage, currencyCode)}</td>
                   <td>{currency(actualExpenseAverage, currencyCode)}</td>
                   <td className={totals.actualDelta >= 0 ? styles.positive : styles.negative}>

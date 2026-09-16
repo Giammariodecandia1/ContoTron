@@ -97,7 +97,7 @@
 
 .annualTable {
   border-collapse: collapse;
-  min-width: 860px;
+  min-width: 1040px;
   width: 100%;
 }
 
@@ -132,6 +132,51 @@
   border-top: 2px solid var(--color-primary);
   color: var(--color-gray-900);
   font-weight: 850;
+}
+
+.creditCardAdvance {
+  align-items: flex-end;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.creditCardDetails {
+  color: var(--color-gray-600);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.creditCardDetails summary {
+  color: var(--color-primary);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.creditCardDetails ul {
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-sm);
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  min-width: 220px;
+  padding: var(--space-2);
+}
+
+.creditCardDetails li {
+  display: grid;
+  gap: 2px;
+}
+
+.creditCardDetails li span {
+  color: var(--color-gray-800);
+  font-weight: 700;
+}
+
+.creditCardDetails li small {
+  color: var(--color-gray-500);
 }
 
 .categoryAnnualList {

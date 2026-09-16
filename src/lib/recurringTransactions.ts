@@ -3,7 +3,6 @@ import type { Account, RecurringRule, Transaction } from '../types/database';
 import { getCashImpactDate } from './paymentTiming';
 
 const AUTO_FIXED_BUDGET_NOTE = 'AUTO_SPESE_FISSE';
-const AUTO_PLAN_BUDGET_NOTE_PREFIX = 'AUTO_PIANO_BUDGET:';
 
 type RecurringSyncArgs = {
   householdId: string;
@@ -90,19 +89,15 @@ const budgetGroupKey = (categoryId: string, subcategoryId: string | null) => (
 );
 
 export const resolveFixedBudgetTarget = ({
-  existingAmount,
-  existingNotes,
   fixedAmount,
 }: {
   existingAmount: number;
   existingNotes: string | null;
   fixedAmount: number;
 }) => {
-  const replacesAutomaticTarget = existingNotes === AUTO_FIXED_BUDGET_NOTE
-    || existingNotes?.startsWith(AUTO_PLAN_BUDGET_NOTE_PREFIX) === true;
   return {
-    amount: replacesAutomaticTarget ? fixedAmount : Math.max(existingAmount, fixedAmount),
-    notes: replacesAutomaticTarget ? AUTO_FIXED_BUDGET_NOTE : existingNotes,
+    amount: fixedAmount,
+    notes: AUTO_FIXED_BUDGET_NOTE,
   };
 };
 

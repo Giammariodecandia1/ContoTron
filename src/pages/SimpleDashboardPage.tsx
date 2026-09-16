@@ -25,7 +25,7 @@ export const SimpleDashboardPage: React.FC = () => {
   const currency = household?.currency || 'EUR';
 
   const loadTransactions = useCallback(async () => {
-    const rows = await fetchTransactions(month, year, undefined, 'cash_impact');
+    const rows = await fetchTransactions(month, year);
     setTransactions(rows.filter(row => row.status !== 'deleted' && row.status !== 'rejected'));
   }, [fetchTransactions, month, year]);
 

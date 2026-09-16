@@ -17,6 +17,19 @@ export type RecurringBudgetPlanWithItems = RecurringBudgetPlan & {
   items: RecurringBudgetPlanItem[];
 };
 
+export const recurringBudgetPeriodsForYear = (
+  selectedYear: number,
+  currentYear: number,
+  currentMonth: number,
+) => {
+  const firstMonth = selectedYear > currentYear
+    ? 1
+    : selectedYear === currentYear ? currentMonth : 13;
+  return firstMonth <= 12
+    ? Array.from({ length: 13 - firstMonth }, (_, index) => ({ year: selectedYear, month: firstMonth + index }))
+    : [];
+};
+
 const validAmount = (value: number) => Number.isFinite(value) && value >= 0 ? value : 0;
 
 export const calculateMonthlyBudgetAllocations = (

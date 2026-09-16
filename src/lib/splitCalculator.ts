@@ -65,7 +65,7 @@ export const allocateTransactionAcrossSplitMonths = (
   const totalCents = Math.round(Number(transaction.amount || 0) * 100);
   const baseCents = Math.floor(totalCents / installmentCount);
   const remainderCents = totalCents % installmentCount;
-  const startDate = transaction.cash_impact_date || transaction.transaction_date;
+  const startDate = transaction.transaction_date;
 
   return Array.from({ length: installmentCount }, (_, index) => ({
     allocationDate: addMonthsClamped(startDate, index),

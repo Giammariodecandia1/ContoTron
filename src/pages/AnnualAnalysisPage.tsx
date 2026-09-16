@@ -259,11 +259,11 @@ export const AnnualAnalysisPage: React.FC = () => {
     });
     const validAnnualExpenses = expenseRows.filter(row => {
       if (row.type !== 'expense' || row.status === 'rejected') return;
-      const impactDate = new Date(`${row.cash_impact_date || row.transaction_date}T00:00:00`);
+      const impactDate = new Date(`${row.transaction_date}T00:00:00`);
       return impactDate.getFullYear() === selectedYear;
     });
     validAnnualExpenses.forEach(row => {
-      const impactDate = new Date(`${row.cash_impact_date || row.transaction_date}T00:00:00`);
+      const impactDate = new Date(`${row.transaction_date}T00:00:00`);
       const month = impactDate.getMonth() + 1;
       actualByMonth[month] = (actualByMonth[month] || 0) + Number(row.amount || 0);
     });

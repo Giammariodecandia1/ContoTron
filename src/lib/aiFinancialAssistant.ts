@@ -77,10 +77,8 @@ const fetchExpenseTransactions = async (context: ToolContext, args: Record<strin
     .eq('type', 'expense')
     .neq('status', 'deleted')
     .neq('status', 'rejected')
-    .or([
-      `and(cash_impact_date.gte.${from},cash_impact_date.lte.${to})`,
-      `and(cash_impact_date.is.null,transaction_date.gte.${from},transaction_date.lte.${to})`,
-    ].join(','))
+    .gte('transaction_date', from)
+    .lte('transaction_date', to)
     .order('transaction_date', { ascending: false });
   if (error) throw error;
   return { from, to, transactions: (data || []) as unknown as FinancialTransaction[] };
@@ -170,7 +168,7 @@ const recentTransactions = async (context: ToolContext, args: Record<string, unk
     to,
     currency: context.currency,
     transactions: transactions.slice(0, limit).map(transaction => ({
-      date: transaction.cash_impact_date || transaction.transaction_date,
+      date: transaction.transaction_date,
       description: transaction.description,
       merchant: transaction.merchant,
       amount: round(Number(transaction.amount || 0)),

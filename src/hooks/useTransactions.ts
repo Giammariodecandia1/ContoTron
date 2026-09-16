@@ -86,9 +86,8 @@ export const useTransactions = () => {
         .order('created_at', { ascending: false });
 
       if (year && month) {
-        // Budget and annual analysis use calendar months based on the date on
-        // which the amount affects availability. The transaction list keeps
-        // using the household's accounting-period start day.
+        // Competence views use the purchase date. The optional cash-impact
+        // basis is reserved for explicit liquidity views.
         const startDay = dateBasis === 'cash_impact' ? 1 : budgetMonthStartDay;
         const startDate = toIsoDate(new Date(year, month - 1, startDay));
         const endDate = toIsoDate(new Date(year, month, startDay - 1));

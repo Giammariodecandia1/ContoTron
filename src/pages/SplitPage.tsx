@@ -87,10 +87,8 @@ export const SplitPage: React.FC = () => {
           .eq('type', 'expense')
           .eq('is_shared', true)
           .neq('status', 'deleted')
-          .or([
-            `and(cash_impact_date.gte.${lookbackDate},cash_impact_date.lte.${toDate})`,
-            `and(cash_impact_date.is.null,transaction_date.gte.${lookbackDate},transaction_date.lte.${toDate})`,
-          ].join(','))
+          .gte('transaction_date', lookbackDate)
+          .lte('transaction_date', toDate)
           .order('transaction_date', { ascending: true }),
       ]);
 
