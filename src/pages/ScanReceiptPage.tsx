@@ -333,6 +333,9 @@ export const ScanReceiptPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('standard');
   const [frequency, setFrequency] = useState<TransactionFrequency | ''>('other');
   const [notes, setNotes] = useState('');
+  const [isShared, setIsShared] = useState(true);
+  const [splitMonths, setSplitMonths] = useState(1);
+  const [showSplitMonths, setShowSplitMonths] = useState(false);
   const [detectedCategoryId, setDetectedCategoryId] = useState('');
   const [detectedSubcategoryId, setDetectedSubcategoryId] = useState('');
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -457,6 +460,9 @@ export const ScanReceiptPage: React.FC = () => {
     setRemovedOverlapLines(0);
     setQuickSaveMode(false);
     setQuickCategoryId('');
+    setIsShared(true);
+    setSplitMonths(1);
+    setShowSplitMonths(false);
     setAiEnhanced(false);
     setAiNotice(null);
   };
@@ -1013,7 +1019,8 @@ export const ScanReceiptPage: React.FC = () => {
         amount: totalAmount,
         category_id: transactionCategoryId,
         subcategory_id: transactionSubcategoryId,
-        is_shared: true,
+        is_shared: isShared,
+        split_months: isShared ? splitMonths : 1,
         inserted_by: insertedBy || user?.id || null,
         notes: notes.trim() || null,
       };
@@ -1341,6 +1348,54 @@ export const ScanReceiptPage: React.FC = () => {
                 <textarea className={styles.input} rows={3} value={notes} onChange={event => setNotes(event.target.value)} placeholder="Dettaglio opzionale sulla spesa" disabled={Boolean(attachTarget)} />
               </div>
             </div>
+
+            {!attachTarget && (
+              <label className={`${styles.personalToggle} ${!isShared ? styles.personalToggleActive : ''}`}>
+                <input
+                  type="checkbox"
+                  checked={!isShared}
+                  onChange={event => setIsShared(!event.target.checked)}
+                />
+                <span>
+                  <strong>Acquisto personale</strong>
+                  <small>Escludi questa spesa dallo Split familiare</small>
+                </span>
+              </label>
+            )}
+
+            {!attachTarget && isShared && (
+              <div className={styles.splitAllocation}>
+                <button
+                  type="button"
+                  className={styles.splitDisclosureButton}
+                  onClick={() => {
+                    setSplitMonths(current => showSplitMonths ? 1 : Math.max(2, current));
+                    setShowSplitMonths(current => !current);
+                  }}
+                  aria-expanded={showSplitMonths}
+                >
+                  {showSplitMonths ? 'Usa un solo mese' : '+ Distribuisci questa spesa su più mesi'}
+                </button>
+                {showSplitMonths && (
+                  <div className={styles.formGroup}>
+                    <label htmlFor="receipt-split-months">Mesi interessati nello Split</label>
+                    <input
+                      id="receipt-split-months"
+                      type="number"
+                      className={styles.input}
+                      min="2"
+                      max="120"
+                      step="1"
+                      value={Math.max(2, splitMonths)}
+                      onChange={event => setSplitMonths(Math.min(120, Math.max(2, Math.trunc(Number(event.target.value) || 2))))}
+                    />
+                    <small className="text-muted fs-sm">
+                      La transazione resta intera; soltanto lo Split la distribuisce in quote mensili consecutive.
+                    </small>
+                  </div>
+                )}
+              </div>
+            )}
 
             {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
             {aiNotice && <p className={`${styles.aiNotice} ${aiEnhanced ? styles.aiNoticeSuccess : styles.aiNoticeWarning}`}>{aiNotice}</p>}

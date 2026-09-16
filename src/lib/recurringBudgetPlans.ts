@@ -228,9 +228,33 @@ const applyPlanItems = async ({
 };
 
 export const syncRecurringBudgetPlans = async (householdId: string, year: number, month: number) => {
+  return syncRecurringBudgetPlanMonths(householdId, [{ year, month }]);
+};
+
+export const syncRecurringBudgetPlanMonths = async (
+  householdId: string,
+  periods: Array<{ year: number; month: number }>,
+  categoryIds?: string[],
+) => {
   const plans = await fetchRecurringBudgetPlans(householdId);
-  for (const plan of plans.filter(item => item.is_active)) {
-    await applyPlanItems({ householdId, plan, items: plan.items, year, month, overwriteManual: false });
+  const categoryFilter = categoryIds ? new Set(categoryIds) : null;
+  const activePlans = plans.filter(item => item.is_active && (!categoryFilter || categoryFilter.has(item.category_id)));
+  const uniquePeriods = Array.from(new Map(
+    periods
+      .filter(period => Number.isInteger(period.year) && Number.isInteger(period.month) && period.month >= 1 && period.month <= 12)
+      .map(period => [`${period.year}-${period.month}`, period]),
+  ).values());
+  for (const period of uniquePeriods) {
+    for (const plan of activePlans) {
+      await applyPlanItems({
+        householdId,
+        plan,
+        items: plan.items,
+        year: period.year,
+        month: period.month,
+        overwriteManual: false,
+      });
+    }
   }
   return plans;
 };

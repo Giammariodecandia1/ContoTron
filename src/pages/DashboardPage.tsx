@@ -558,13 +558,20 @@ export const DashboardPage: React.FC = () => {
                   </div>
                 </header>
                 <div className={styles.categoryMonthGrid}>
-                  {row.months.map(month => (
-                    <div key={month.month} className={styles.categoryMonthCell}>
-                      <span className={styles.categoryMonthName}>{monthNames[month.month - 1]}</span>
-                      <span className={styles.plannedValue}>Prev. {currency(month.planned, currencyCode)}</span>
-                      <span className={styles.actualValue}>Cons. {currency(month.actual, currencyCode)}</span>
-                    </div>
-                  ))}
+                  {row.months.map(month => {
+                    const isOverBudget = month.actual > month.planned;
+                    return (
+                      <div
+                        key={month.month}
+                        className={`${styles.categoryMonthCell} ${isOverBudget ? styles.categoryMonthOverBudget : ''}`}
+                        aria-label={`${monthNames[month.month - 1]}: previsto ${currency(month.planned, currencyCode)}, consuntivo ${currency(month.actual, currencyCode)}${isOverBudget ? ', budget superato' : ''}`}
+                      >
+                        <span className={styles.categoryMonthName}>{monthNames[month.month - 1]}</span>
+                        <span className={styles.plannedValue}>Prev. {currency(month.planned, currencyCode)}</span>
+                        <span className={styles.actualValue}>Cons. {currency(month.actual, currencyCode)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </section>
             ))}

@@ -160,6 +160,9 @@ export const TransactionsPage: React.FC = () => {
           {tx.type === 'expense' && tx.is_shared === false && (
             <span className={styles.personalBadge}>Personale · fuori Split</span>
           )}
+          {tx.type === 'expense' && tx.is_shared !== false && Number(tx.split_months || 1) > 1 && (
+            <span className={styles.personalBadge}>Split su {tx.split_months} mesi</span>
+          )}
         </div>
         {isSimple ? (
           <>

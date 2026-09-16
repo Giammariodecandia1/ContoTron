@@ -49,7 +49,7 @@ const hasAuthCallbackInUrl = () => {
   );
 };
 
-const cleanAuthCallbackUrl = () => {
+const cleanAuthCallbackUrl = (keepDriveConnection = false) => {
   const url = new URL(window.location.href);
   [
     'code',
@@ -58,8 +58,10 @@ const cleanAuthCallbackUrl = () => {
     'error_code',
     'error_description',
     'type',
-    'connectDrive',
   ].forEach(param => url.searchParams.delete(param));
+
+  if (keepDriveConnection) url.searchParams.set('connectDrive', '1');
+  else url.searchParams.delete('connectDrive');
 
   url.hash = '';
   window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}`);
@@ -193,6 +195,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         if (code) {
           const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
+          await persistDriveRefreshToken(exchangeData.session?.provider_refresh_token);
           if (
             driveConnectionRequested
             && exchangeData.session?.user.id
@@ -209,6 +212,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
             refresh_token: refreshToken,
           });
           if (error) throw error;
+          await persistDriveRefreshToken(providerRefreshToken);
           if (
             driveConnectionRequested
             && sessionData.session?.user.id
@@ -250,7 +254,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
         }
       } finally {
         if (callbackInUrl || driveConnectionRequested) {
-          cleanAuthCallbackUrl();
+          cleanAuthCallbackUrl(driveConnectionRequested);
         }
       }
     };
@@ -262,6 +266,25 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
     };
   // The initial session must be resolved only once; loadSessionUser reads the latest user through userRef.
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) return;
+      const driveConnectionRequested = hasGoogleDriveConnectionRequest();
+      if (driveConnectionRequested && session.provider_token) {
+        saveGoogleDriveAccessToken(session.user.id, session.provider_token);
+      }
+      if (session.provider_refresh_token) {
+        // Le chiamate Supabase asincrone partono fuori dal callback auth per non
+        // interferire con il lock interno usato dal client durante il refresh.
+        window.setTimeout(() => {
+          void persistDriveRefreshToken(session.provider_refresh_token);
+        }, 0);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const loginAs = (profile: AppUser) => {

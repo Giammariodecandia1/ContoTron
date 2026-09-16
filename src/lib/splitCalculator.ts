@@ -32,6 +32,49 @@ export interface SplitEligibleTransaction {
   is_shared: boolean;
 }
 
+export interface SplitMonthlyAllocationInput {
+  amount: number;
+  transaction_date: string;
+  cash_impact_date?: string | null;
+  split_months?: number | null;
+}
+
+export interface SplitMonthlyAllocation {
+  allocationDate: string;
+  amountCents: number;
+  installmentNumber: number;
+  installmentCount: number;
+}
+
+const isoDate = (year: number, monthIndex: number, day: number) => (
+  `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+);
+
+const addMonthsClamped = (dateIso: string, monthOffset: number) => {
+  const [year, month, day] = dateIso.split('-').map(Number);
+  const target = new Date(year, month - 1 + monthOffset, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  return isoDate(target.getFullYear(), target.getMonth(), Math.min(day, lastDay));
+};
+
+export const allocateTransactionAcrossSplitMonths = (
+  transaction: SplitMonthlyAllocationInput,
+): SplitMonthlyAllocation[] => {
+  const requestedMonths = Math.trunc(Number(transaction.split_months || 1));
+  const installmentCount = Math.min(120, Math.max(1, Number.isFinite(requestedMonths) ? requestedMonths : 1));
+  const totalCents = Math.round(Number(transaction.amount || 0) * 100);
+  const baseCents = Math.floor(totalCents / installmentCount);
+  const remainderCents = totalCents % installmentCount;
+  const startDate = transaction.cash_impact_date || transaction.transaction_date;
+
+  return Array.from({ length: installmentCount }, (_, index) => ({
+    allocationDate: addMonthsClamped(startDate, index),
+    amountCents: baseCents + (index < remainderCents ? 1 : 0),
+    installmentNumber: index + 1,
+    installmentCount,
+  }));
+};
+
 export const transactionBelongsToSplit = (transaction: SplitEligibleTransaction) => (
   transaction.type === 'expense'
   && transaction.status !== 'deleted'

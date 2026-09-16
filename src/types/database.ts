@@ -173,6 +173,7 @@ export interface Transaction {
   category_id: string | null;
   subcategory_id: string | null;
   is_shared: boolean;
+  split_months: number;
   inserted_by: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;

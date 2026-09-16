@@ -189,6 +189,16 @@ export const verifyGoogleDriveFolder = async (folderId: string) => {
   return folder;
 };
 
+export const verifyGoogleDriveAutomaticRenewal = async () => {
+  try {
+    await getGoogleDriveServerAccessToken(true);
+  } catch (error) {
+    throw new GoogleDriveAuthError(
+      `Il collegamento temporaneo funziona, ma il rinnovo automatico non e stato memorizzato: ${error instanceof Error ? error.message : 'servizio non disponibile'}`,
+    );
+  }
+};
+
 const folderNameForHousehold = (household: Household) => (
   household.google_drive_folder_name || `Contotron - ${household.name}`
 );

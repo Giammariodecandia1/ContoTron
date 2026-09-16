@@ -192,6 +192,16 @@
   background: var(--color-gray-50);
 }
 
+.categoryMonthOverBudget {
+  background: color-mix(in srgb, var(--color-danger-bg) 78%, var(--color-white));
+  border-color: color-mix(in srgb, var(--color-danger) 38%, var(--color-gray-200));
+}
+
+.categoryMonthOverBudget .categoryMonthName,
+.categoryMonthOverBudget .actualValue {
+  color: var(--color-danger);
+}
+
 .categoryMonthName {
   display: block;
   margin-bottom: 0.3rem;

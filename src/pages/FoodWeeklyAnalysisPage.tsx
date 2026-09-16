@@ -4,6 +4,11 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
 import { formatCurrency } from '../lib/money';
+import {
+  fetchRecurringBudgetPlans,
+  syncRecurringBudgetPlanMonths,
+  type RecurringBudgetPlanWithItems,
+} from '../lib/recurringBudgetPlans';
 import { supabase } from '../lib/supabaseClient';
 import styles from './FoodWeeklyAnalysisPage.module.css';
 
@@ -15,12 +20,14 @@ interface FoodTransaction {
   type: string;
   status: string;
   category_id: string | null;
+  subcategory_id: string | null;
 }
 
 interface FoodItem {
   transaction_id: string;
   amount: number;
   category_id: string | null;
+  subcategory_id: string | null;
   transactions?: {
     transaction_date?: string | null;
     cash_impact_date?: string | null;
@@ -53,11 +60,12 @@ const median = (values: number[]) => {
 };
 
 export const FoodWeeklyAnalysisPage: React.FC = () => {
-  const { household, categories } = useHousehold();
+  const { household, categories, subcategories } = useHousehold();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [transactions, setTransactions] = useState<FoodTransaction[]>([]);
   const [items, setItems] = useState<FoodItem[]>([]);
+  const [foodPlan, setFoodPlan] = useState<RecurringBudgetPlanWithItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const householdId = household?.id || null;
@@ -74,12 +82,29 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
     const yearStart = `${selectedYear}-01-01`;
     const yearEnd = `${selectedYear}-12-31`;
     const transactionStart = `${selectedYear - 1}-12-01`;
+    const now = new Date();
+    const firstMonthToSync = selectedYear > now.getFullYear()
+      ? 1
+      : selectedYear === now.getFullYear() ? now.getMonth() + 1 : 13;
+    const monthsToSync = firstMonthToSync <= 12
+      ? Array.from({ length: 13 - firstMonthToSync }, (_, index) => ({ year: selectedYear, month: firstMonthToSync + index }))
+      : [];
+    const planRequest = syncRecurringBudgetPlanMonths(householdId, monthsToSync, [...foodCategoryIds]).catch(async syncError => {
+      // Un membro in sola lettura deve comunque poter consultare l'analisi.
+      // In quel caso mostriamo il piano senza tentare di modificare i budget.
+      console.warn('Piano Alimentari non sincronizzato automaticamente:', syncError);
+      try {
+        return await fetchRecurringBudgetPlans(householdId);
+      } catch {
+        return [];
+      }
+    });
 
     try {
-      const [transactionResult, itemResult] = await Promise.all([
+      const [transactionResult, itemResult, plans] = await Promise.all([
         supabase
           .from('transactions')
-          .select('id, transaction_date, cash_impact_date, amount, type, status, category_id')
+          .select('id, transaction_date, cash_impact_date, amount, type, status, category_id, subcategory_id')
           .eq('household_id', householdId)
           .gte('transaction_date', transactionStart)
           .lte('transaction_date', yearEnd)
@@ -87,10 +112,11 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
           .order('transaction_date', { ascending: true }),
         supabase
           .from('transaction_items')
-          .select('transaction_id, amount, category_id, transactions!inner(transaction_date, cash_impact_date)')
+          .select('transaction_id, amount, category_id, subcategory_id, transactions!inner(transaction_date, cash_impact_date)')
           .eq('household_id', householdId)
           .gte('transactions.transaction_date', transactionStart)
           .lte('transactions.transaction_date', yearEnd),
+        planRequest,
       ]);
 
       if (transactionResult.error) throw transactionResult.error;
@@ -104,12 +130,13 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
         const date = impactDate(row.transactions || {});
         return date >= yearStart && date <= yearEnd;
       }));
+      setFoodPlan(plans.find(plan => foodCategoryIds.has(plan.category_id)) || null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Impossibile caricare l’analisi alimentare.');
     } finally {
       setLoading(false);
     }
-  }, [householdId, selectedYear]);
+  }, [foodCategoryIds, householdId, selectedYear]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadData(), 0);
@@ -170,6 +197,16 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
 
   const maxAmount = Math.max(...analysis.rows.map(row => row.amount), 1);
   const currency = household?.currency || 'EUR';
+  const foodSubcategories = useMemo(() => subcategories
+    .filter(subcategory => foodCategoryIds.has(subcategory.category_id))
+    .sort((left, right) => left.sort_order - right.sort_order || left.name.localeCompare(right.name)), [foodCategoryIds, subcategories]);
+  const planAmountBySubcategory = useMemo(() => new Map(
+    (foodPlan?.items || []).map(item => [item.subcategory_id, Number(item.monthly_amount || 0)]),
+  ), [foodPlan]);
+  const plannedMonthlyTotal = foodSubcategories.reduce(
+    (sum, subcategory) => sum + (planAmountBySubcategory.get(subcategory.id) || 0),
+    0,
+  );
 
   return (
     <div className={styles.page}>
@@ -214,6 +251,31 @@ export const FoodWeeklyAnalysisPage: React.FC = () => {
                 </div>
               ))}
             </div>
+            <section className={styles.monthlyPlan} aria-labelledby="food-monthly-plan-title">
+              <header>
+                <div>
+                  <h3 id="food-monthly-plan-title">Medie mensili per sottocategoria</h3>
+                  <p>
+                    Valori del piano Alimentari usati automaticamente come previsto nei mesi successivi.
+                    Le modifiche manuali di un singolo mese restano invariate.
+                  </p>
+                </div>
+                <strong>{formatCurrency(plannedMonthlyTotal, currency)}</strong>
+              </header>
+              {!foodPlan && (
+                <p className={styles.planNotice}>
+                  Configura il Piano settimanale facoltativo in Budget mensile per attivare la compilazione automatica.
+                </p>
+              )}
+              <div className={styles.monthlyPlanRows} role="list">
+                {foodSubcategories.map(subcategory => (
+                  <div key={subcategory.id} className={styles.monthlyPlanRow} role="listitem">
+                    <span>{subcategory.name}</span>
+                    <strong>{formatCurrency(planAmountBySubcategory.get(subcategory.id) || 0, currency)}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
           </>
         )}
       </Card>

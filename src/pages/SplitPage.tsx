@@ -4,7 +4,7 @@ import { Button } from '../components/ui/Button';
 import { Card } from '../components/ui/Card';
 import { useHousehold } from '../hooks';
 import { formatCurrency, formatPercentage } from '../lib/money';
-import { calculateEqualSplit, transactionBelongsToSplit } from '../lib/splitCalculator';
+import { allocateTransactionAcrossSplitMonths, calculateEqualSplit, transactionBelongsToSplit } from '../lib/splitCalculator';
 import { supabase } from '../lib/supabaseClient';
 import styles from './SplitPage.module.css';
 
@@ -22,6 +22,7 @@ interface SplitTransaction {
   cash_impact_date: string | null;
   inserted_by: string | null;
   is_shared: boolean;
+  split_months: number;
   status: string;
   type: string;
 }
@@ -42,9 +43,10 @@ const currentMonthEnd = () => {
   return localDateIso(new Date(today.getFullYear(), today.getMonth() + 1, 0));
 };
 
-const transactionImpactDate = (transaction: SplitTransaction) => (
-  transaction.cash_impact_date || transaction.transaction_date
-);
+const splitLookbackStart = (fromDate: string) => {
+  const [year, month] = fromDate.split('-').map(Number);
+  return localDateIso(new Date(year, month - 1 - 119, 1));
+};
 
 export const SplitPage: React.FC = () => {
   const { household, accounts } = useHousehold();
@@ -65,6 +67,7 @@ export const SplitPage: React.FC = () => {
     setError(null);
 
     try {
+      const lookbackDate = splitLookbackStart(fromDate);
       const [memberResult, transactionResult] = await Promise.all([
         supabase
           .from('household_members')
@@ -79,14 +82,14 @@ export const SplitPage: React.FC = () => {
           .order('created_at', { ascending: true }),
         supabase
           .from('transactions')
-          .select('id, account_id, amount, transaction_date, cash_impact_date, inserted_by, is_shared, status, type')
+          .select('id, account_id, amount, transaction_date, cash_impact_date, inserted_by, is_shared, split_months, status, type')
           .eq('household_id', householdId)
           .eq('type', 'expense')
           .eq('is_shared', true)
           .neq('status', 'deleted')
           .or([
-            `and(cash_impact_date.gte.${fromDate},cash_impact_date.lte.${toDate})`,
-            `and(cash_impact_date.is.null,transaction_date.gte.${fromDate},transaction_date.lte.${toDate})`,
+            `and(cash_impact_date.gte.${lookbackDate},cash_impact_date.lte.${toDate})`,
+            `and(cash_impact_date.is.null,transaction_date.gte.${lookbackDate},transaction_date.lte.${toDate})`,
           ].join(','))
           .order('transaction_date', { ascending: true }),
       ]);
@@ -124,27 +127,30 @@ export const SplitPage: React.FC = () => {
 
   const split = useMemo(() => {
     const selectedSet = new Set(selectedMemberIds);
-    const inPeriod = transactions.filter(transaction => {
-      const date = transactionImpactDate(transaction);
-      return transactionBelongsToSplit(transaction)
-        && date >= fromDate
-        && date <= toDate
-        && (accountId === 'all' || transaction.account_id === accountId);
-    });
+    const inPeriod = transactions
+      .filter(transaction => (
+        transactionBelongsToSplit(transaction)
+        && (accountId === 'all' || transaction.account_id === accountId)
+      ))
+      .flatMap(transaction => (
+        allocateTransactionAcrossSplitMonths(transaction)
+          .filter(allocation => allocation.allocationDate >= fromDate && allocation.allocationDate <= toDate)
+          .map(allocation => ({ transaction, allocation }))
+      ));
     const unattributedCents = inPeriod
-      .filter(transaction => !transaction.inserted_by)
-      .reduce((sum, transaction) => sum + Math.round(Number(transaction.amount || 0) * 100), 0);
-    const included = inPeriod.filter(transaction => (
-      !!transaction.inserted_by && selectedSet.has(transaction.inserted_by)
+      .filter(entry => !entry.transaction.inserted_by)
+      .reduce((sum, entry) => sum + entry.allocation.amountCents, 0);
+    const included = inPeriod.filter(entry => (
+      !!entry.transaction.inserted_by && selectedSet.has(entry.transaction.inserted_by)
     ));
     const selectedMembers = members
       .filter(member => selectedSet.has(member.userId))
       .map(member => ({ userId: member.userId, displayName: member.displayName }));
     const calculated = calculateEqualSplit(
       selectedMembers,
-      included.map(transaction => ({
-        userId: transaction.inserted_by || '',
-        amountCents: Math.round(Number(transaction.amount || 0) * 100),
+      included.map(entry => ({
+        userId: entry.transaction.inserted_by || '',
+        amountCents: entry.allocation.amountCents,
       })),
     );
 
@@ -235,7 +241,7 @@ export const SplitPage: React.FC = () => {
         <>
           <div className={styles.summary}>
             <div><span>Spese condivise</span><strong>{formatCurrency(split.totalCents / 100, currency)}</strong></div>
-            <div><span>Movimenti</span><strong>{split.transactionCount}</strong></div>
+            <div><span>Quote nel periodo</span><strong>{split.transactionCount}</strong></div>
             <div><span>Partecipanti</span><strong>{selectedMemberIds.length}</strong></div>
             <div><span>Quota media</span><strong>{formatCurrency(split.totalCents / selectedMemberIds.length / 100, currency)}</strong></div>
           </div>
@@ -261,7 +267,7 @@ export const SplitPage: React.FC = () => {
                 <tbody>
                   {split.memberBalances.map(member => (
                     <tr key={member.userId}>
-                      <td><strong>{member.displayName}</strong><small>{member.transactionCount} movimenti</small></td>
+                      <td><strong>{member.displayName}</strong><small>{member.transactionCount} quote nel periodo</small></td>
                       <td>{formatCurrency(member.paidCents / 100, currency)}</td>
                       <td>{formatPercentage(member.percentage, 1)}</td>
                       <td>{formatCurrency(member.shareCents / 100, currency)}</td>

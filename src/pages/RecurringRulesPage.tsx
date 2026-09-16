@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { useHousehold } from '../hooks';
-import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import { ensureMonthlyRecurringTransactions, syncRecurringBudgetsForMonths } from '../lib/recurringTransactions';
 import { formatCurrency } from '../lib/money';
 import { toIsoDate } from '../lib/dates';
 import { supabase } from '../lib/supabaseClient';
@@ -90,6 +90,16 @@ export const RecurringRulesPage: React.FC = () => {
       month: now.getMonth() + 1,
     });
   }, [accounts, householdId]);
+
+  const syncBudgetHorizon = useCallback(async () => {
+    if (!householdId) return;
+    const now = new Date();
+    const periods = Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(now.getFullYear(), now.getMonth() + index, 1);
+      return { year: date.getFullYear(), month: date.getMonth() + 1 };
+    });
+    await syncRecurringBudgetsForMonths(householdId, periods);
+  }, [householdId]);
 
   const fetchRules = useCallback(async () => {
     if (!householdId) return;
@@ -219,10 +229,11 @@ export const RecurringRulesPage: React.FC = () => {
       const wasEditing = Boolean(editingRuleId);
       resetForm();
       await syncCurrentMonth();
+      await syncBudgetHorizon();
       await fetchRules();
       setMessage(wasEditing
-        ? 'Abbonamento modificato. Le prossime scadenze useranno i nuovi dati.'
-        : 'Abbonamento salvato. La spesa verrà aggiunta automaticamente alla data prevista.');
+        ? 'Abbonamento modificato. Nome, categoria e importo sono stati aggiornati anche nei budget dei prossimi 12 mesi.'
+        : 'Abbonamento salvato. La spesa verrà aggiunta automaticamente alla data prevista e ai budget dei prossimi 12 mesi.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile salvare la spesa fissa.');
     } finally {
@@ -246,6 +257,7 @@ export const RecurringRulesPage: React.FC = () => {
 
       if (updateError) throw updateError;
       await syncCurrentMonth();
+      await syncBudgetHorizon();
       await fetchRules();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile aggiornare la spesa fissa.');

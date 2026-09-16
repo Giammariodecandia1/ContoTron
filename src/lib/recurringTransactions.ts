@@ -3,6 +3,7 @@ import type { Account, RecurringRule, Transaction } from '../types/database';
 import { getCashImpactDate } from './paymentTiming';
 
 const AUTO_FIXED_BUDGET_NOTE = 'AUTO_SPESE_FISSE';
+const AUTO_PLAN_BUDGET_NOTE_PREFIX = 'AUTO_PIANO_BUDGET:';
 
 type RecurringSyncArgs = {
   householdId: string;
@@ -15,6 +16,11 @@ type RecurringSyncResult = {
   createdCount: number;
   rulesCount: number;
   rules: RecurringRule[];
+};
+
+type RecurringBudgetPeriod = {
+  year: number;
+  month: number;
 };
 
 type BudgetTargetRow = {
@@ -82,6 +88,23 @@ export const recurringRuleAppliesToMonth = (rule: RecurringRule, year: number, m
 const budgetGroupKey = (categoryId: string, subcategoryId: string | null) => (
   `${categoryId}:${subcategoryId || 'category'}`
 );
+
+export const resolveFixedBudgetTarget = ({
+  existingAmount,
+  existingNotes,
+  fixedAmount,
+}: {
+  existingAmount: number;
+  existingNotes: string | null;
+  fixedAmount: number;
+}) => {
+  const replacesAutomaticTarget = existingNotes === AUTO_FIXED_BUDGET_NOTE
+    || existingNotes?.startsWith(AUTO_PLAN_BUDGET_NOTE_PREFIX) === true;
+  return {
+    amount: replacesAutomaticTarget ? fixedAmount : Math.max(existingAmount, fixedAmount),
+    notes: replacesAutomaticTarget ? AUTO_FIXED_BUDGET_NOTE : existingNotes,
+  };
+};
 
 const syncFixedExpensesIntoBudget = async ({
   householdId,
@@ -158,20 +181,51 @@ const syncFixedExpensesIntoBudget = async ({
     }
 
     const existingAmount = Number(existing.planned_amount || 0);
-    const nextAmount = existing.notes === AUTO_FIXED_BUDGET_NOTE
-      ? group.amount
-      : Math.max(existingAmount, group.amount);
-    if (nextAmount === existingAmount) continue;
+    const resolved = resolveFixedBudgetTarget({
+      existingAmount,
+      existingNotes: existing.notes,
+      fixedAmount: group.amount,
+    });
+    if (resolved.amount === existingAmount && resolved.notes === existing.notes) continue;
 
     const { error: updateError } = await supabase
       .from('budget_targets')
       .update({
-        planned_amount: nextAmount,
+        planned_amount: resolved.amount,
+        notes: resolved.notes,
         updated_at: new Date().toISOString(),
       })
       .eq('id', existing.id)
       .eq('household_id', householdId);
     if (updateError) throw updateError;
+  }
+};
+
+export const syncRecurringBudgetsForMonths = async (
+  householdId: string,
+  periods: RecurringBudgetPeriod[],
+) => {
+  const { data, error } = await supabase
+    .from('recurring_rules')
+    .select('*')
+    .eq('household_id', householdId)
+    .eq('is_active', true);
+  if (error) throw error;
+
+  const rules = (data || []) as RecurringRule[];
+  const uniquePeriods = Array.from(new Map(
+    periods
+      .filter(period => Number.isInteger(period.year) && Number.isInteger(period.month) && period.month >= 1 && period.month <= 12)
+      .map(period => [`${period.year}-${period.month}`, period]),
+  ).values());
+
+  for (const period of uniquePeriods) {
+    await syncFixedExpensesIntoBudget({
+      householdId,
+      activeRules: rules.filter(rule => recurringRuleDueDateForMonth(rule, period.year, period.month)),
+      year: period.year,
+      month: period.month,
+    });
   }
 };
 

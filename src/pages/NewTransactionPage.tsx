@@ -25,6 +25,7 @@ interface TransactionFormState {
   paymentMethod?: PaymentMethod;
   frequency?: TransactionFrequency;
   isShared?: boolean;
+  splitMonths?: number;
   documentId?: string;
   items?: Array<{
     description: string;
@@ -87,6 +88,8 @@ export const NewTransactionPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialState.paymentMethod || 'standard');
   const [frequency, setFrequency] = useState<TransactionFrequency | ''>(initialState.frequency || 'other');
   const [isShared, setIsShared] = useState(initialState.isShared ?? true);
+  const [splitMonths, setSplitMonths] = useState(initialState.splitMonths || 1);
+  const [showSplitMonths, setShowSplitMonths] = useState((initialState.splitMonths || 1) > 1);
   const [accountId, setAccountId] = useState('');
   const [insertedBy, setInsertedBy] = useState(user?.id || '');
   const [editLoading, setEditLoading] = useState(false);
@@ -141,6 +144,8 @@ export const NewTransactionPage: React.FC = () => {
       setPaymentMethod(data.payment_method || 'standard');
       setFrequency(data.frequency || 'other');
       setIsShared(data.is_shared !== false);
+      setSplitMonths(Math.max(1, Number(data.split_months || 1)));
+      setShowSplitMonths(Number(data.split_months || 1) > 1);
       setAccountId(data.account_id || '');
       setEditLoading(false);
     };
@@ -250,6 +255,7 @@ export const NewTransactionPage: React.FC = () => {
       cash_impact_date: transactionType === 'expense' ? getCashImpactDate(date, paymentMethod) : date,
       frequency: effectiveFrequency,
       is_shared: transactionType === 'expense' ? isShared : true,
+      split_months: transactionType === 'expense' && isShared ? splitMonths : 1,
     };
 
     const itemRows = !isEditMode && initialState.items?.length && household
@@ -477,6 +483,40 @@ export const NewTransactionPage: React.FC = () => {
                   <small>Non inserire questa spesa nello Split familiare</small>
                 </span>
               </label>
+            )}
+
+            {transactionType === 'expense' && isShared && (
+              <div className={styles.splitAllocation}>
+                <button
+                  type="button"
+                  className={styles.splitDisclosureButton}
+                  onClick={() => {
+                    setSplitMonths(current => showSplitMonths ? 1 : Math.max(2, current));
+                    setShowSplitMonths(current => !current);
+                  }}
+                  aria-expanded={showSplitMonths}
+                >
+                  {showSplitMonths ? 'Usa un solo mese' : '+ Distribuisci questa spesa su più mesi'}
+                </button>
+                {showSplitMonths && (
+                  <div className={styles.formGroup}>
+                    <label htmlFor="split-months">Mesi interessati nello Split</label>
+                    <input
+                      id="split-months"
+                      type="number"
+                      className={styles.input}
+                      min="2"
+                      max="120"
+                      step="1"
+                      value={Math.max(2, splitMonths)}
+                      onChange={event => setSplitMonths(Math.min(120, Math.max(2, Math.trunc(Number(event.target.value) || 2))))}
+                    />
+                    <small className={styles.helpText}>
+                      La transazione resta intera; soltanto lo Split la distribuisce in quote mensili consecutive.
+                    </small>
+                  </div>
+                )}
+              </div>
             )}
 
             {!isSimple && (

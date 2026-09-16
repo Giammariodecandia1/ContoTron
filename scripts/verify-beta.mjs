@@ -46,8 +46,12 @@ const {
   extractReceiptItems,
 } = await import(receiptUrl);
 const { parseReceiptDiscount } = await import(discountUrl);
-const { calculateEqualSplit, transactionBelongsToSplit } = await import(splitUrl);
-const { recurringRuleAppliesToMonth, recurringRuleDueDateForMonth } = await import(recurringUrl);
+const {
+  allocateTransactionAcrossSplitMonths,
+  calculateEqualSplit,
+  transactionBelongsToSplit,
+} = await import(splitUrl);
+const { recurringRuleAppliesToMonth, recurringRuleDueDateForMonth, resolveFixedBudgetTarget } = await import(recurringUrl);
 const { calculateMonthlyBudgetAllocations } = await import(recurringBudgetPlanUrl);
 const { getViewMode, saveViewMode } = await import(viewModeUrl);
 const { getHiddenNavigationPaths, saveHiddenNavigationPaths } = await import(navigationVisibilityUrl);
@@ -72,6 +76,17 @@ assert.equal(
   resolveAiChatEndpoint('https://servizio.example/v1'),
   'https://servizio.example/v1/chat/completions',
 );
+
+assert.deepEqual(resolveFixedBudgetTarget({
+  existingAmount: 38,
+  existingNotes: 'AUTO_PIANO_BUDGET:piano-alimentari',
+  fixedAmount: 25,
+}), { amount: 25, notes: 'AUTO_SPESE_FISSE' });
+assert.deepEqual(resolveFixedBudgetTarget({
+  existingAmount: 38,
+  existingNotes: null,
+  fixedAmount: 25,
+}), { amount: 38, notes: null });
 
 assert.equal(parseReceiptDiscount('SCONTO -1,20'), 1.2);
 assert.equal(parseReceiptDiscount('VALORI SCONTI - EUR 0,50'), 0.5);
@@ -103,6 +118,30 @@ assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'confirmed', i
 assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'confirmed', is_shared: false }), false);
 assert.equal(transactionBelongsToSplit({ type: 'income', status: 'confirmed', is_shared: true }), false);
 assert.equal(transactionBelongsToSplit({ type: 'expense', status: 'rejected', is_shared: true }), false);
+
+const condominiumAllocations = allocateTransactionAcrossSplitMonths({
+  amount: 436,
+  transaction_date: '2026-09-16',
+  cash_impact_date: '2026-09-16',
+  split_months: 4,
+});
+assert.deepEqual(
+  condominiumAllocations.map(row => [row.allocationDate, row.amountCents]),
+  [
+    ['2026-09-16', 10900],
+    ['2026-10-16', 10900],
+    ['2026-11-16', 10900],
+    ['2026-12-16', 10900],
+  ],
+);
+const roundedAllocations = allocateTransactionAcrossSplitMonths({
+  amount: 1,
+  transaction_date: '2026-01-31',
+  split_months: 3,
+});
+assert.deepEqual(roundedAllocations.map(row => row.amountCents), [34, 33, 33]);
+assert.deepEqual(roundedAllocations.map(row => row.allocationDate), ['2026-01-31', '2026-02-28', '2026-03-31']);
+assert.equal(roundedAllocations.reduce((sum, row) => sum + row.amountCents, 0), 100);
 
 const threePeople = calculateEqualSplit(
   [
@@ -254,6 +293,7 @@ assert.equal(annualAnalysisSource.includes('row.count += 1;'), true);
 assert.equal(annualAnalysisSource.includes('row.amount += amount;\n    };'), true);
 
 const dashboardSource = await readFile(new URL('../src/pages/DashboardPage.tsx', import.meta.url), 'utf8');
+const dashboardStylesSource = await readFile(new URL('../src/pages/DashboardPage.module.css', import.meta.url), 'utf8');
 const annualExpensesPosition = dashboardSource.indexOf('Spese annuali per categoria');
 const categoryBudgetPosition = dashboardSource.indexOf('Budget per categoria');
 assert.notEqual(annualExpensesPosition, -1);
@@ -263,6 +303,8 @@ assert.equal(dashboardSource.includes(".eq('status', 'confirmed')"), true);
 assert.equal(dashboardSource.includes('actualDelta: total.actualIncome - total.actualExpense'), true);
 assert.equal(dashboardSource.includes('const actualDelta = row.actualIncome - row.actualExpense'), true);
 assert.equal(dashboardSource.includes('<th>Entrate effettive</th>'), true);
+assert.equal(dashboardSource.includes('const isOverBudget = month.actual > month.planned;'), true);
+assert.equal(dashboardStylesSource.includes('.categoryMonthOverBudget'), true);
 
 const transactionHookSource = await readFile(new URL('../src/hooks/useTransactions.ts', import.meta.url), 'utf8');
 assert.equal(transactionHookSource.includes("toISOString().split('T')[0]"), false);
@@ -322,6 +364,7 @@ const personalDriveHookSource = await readFile(new URL('../src/hooks/usePersonal
 const transactionsPageSource = await readFile(new URL('../src/pages/TransactionsPage.tsx', import.meta.url), 'utf8');
 assert.equal(googleDriveSource.includes('verifyGoogleDriveFolder'), true);
 assert.equal(googleDriveSource.includes('verifyGoogleDriveUploadCapability'), true);
+assert.equal(googleDriveSource.includes('verifyGoogleDriveAutomaticRenewal'), true);
 assert.equal(googleDriveSource.includes("method: 'DELETE'"), true);
 assert.equal(googleDriveSource.includes('?alt=media'), true);
 assert.equal(googleDriveSource.includes('accessToken: serverAccessToken || dedicatedDriveToken || providerToken'), true);
@@ -340,7 +383,12 @@ assert.equal(authContextSource.includes('exchangeData.session.provider_token'), 
 assert.equal(authContextSource.includes("hashParams.get('provider_token')"), true);
 assert.equal(authContextSource.includes('sessionData.session.user.id'), true);
 assert.equal(authContextSource.includes('availableProviderRefreshToken'), true);
+assert.equal(authContextSource.includes('await persistDriveRefreshToken(exchangeData.session?.provider_refresh_token);'), true);
+assert.equal(authContextSource.includes("url.searchParams.set('connectDrive', '1')"), true);
+assert.equal(authContextSource.includes('cleanAuthCallbackUrl(driveConnectionRequested)'), true);
+assert.equal(authContextSource.includes('supabase.auth.onAuthStateChange'), true);
 assert.equal(settingsSource.includes('driveCallbackAttemptedRef.current = true'), true);
+assert.equal(settingsSource.includes('await verifyGoogleDriveAutomaticRenewal();'), true);
 assert.equal(personalDriveHookSource.includes('L autorizzazione Google Drive e scaduta'), true);
 assert.equal(transactionsPageSource.includes('/scan?transactionId='), true);
 assert.equal(scanReceiptSource.includes('scan_receipt_attached_to_existing_transaction'), true);
@@ -348,6 +396,12 @@ assert.equal(scanReceiptSource.includes('Scontrino collegato alla transazione es
 assert.equal(scanReceiptSource.indexOf('styles.addItemAction') > scanReceiptSource.indexOf('receiptItems.map'), true);
 assert.equal(scanReceiptSource.includes("if (attachTarget && documentStorageProvider === 'google_drive'"), true);
 assert.equal(scanReceiptSource.includes('Transazione salvata. Non sono riuscito ad archiviare le foto'), true);
+assert.equal(scanReceiptSource.includes('<strong>Acquisto personale</strong>'), true);
+assert.equal(scanReceiptSource.includes('is_shared: isShared'), true);
+assert.equal(scanReceiptSource.includes('split_months: isShared ? splitMonths : 1'), true);
+assert.equal(newTransactionSource.includes("split_months: transactionType === 'expense' && isShared ? splitMonths : 1"), true);
+assert.equal(newTransactionSource.includes('+ Distribuisci questa spesa su più mesi'), true);
+assert.equal(scanReceiptSource.includes('+ Distribuisci questa spesa su più mesi'), true);
 
 const actorReceiptMigrationSource = await readFile(new URL('../supabase/migrations/028_transaction_actor_and_receipt_analysis.sql', import.meta.url), 'utf8');
 assert.equal(actorReceiptMigrationSource.includes('create trigger transactions_enforce_actor'), true);
@@ -366,17 +420,30 @@ const monthlyBudgetSource = await readFile(new URL('../src/pages/MonthlyBudgetPa
 assert.equal(monthlyBudgetSource.includes('<RecurringBudgetPlanPanel'), true);
 assert.equal(monthlyBudgetSource.includes('dirtyCategoryBudgetIdsRef'), true);
 assert.equal(monthlyBudgetSource.includes('budgetInputValue'), true);
+assert.equal(monthlyBudgetSource.includes("const wholeNumberDisplay = getMoneyDisplayMode() === 'whole';"), true);
+assert.equal(monthlyBudgetSource.includes('wholeNumberDisplay ? String(Math.round(numericValue)) : value'), true);
+assert.equal(monthlyBudgetSource.includes("step={wholeNumberDisplay ? '1' : '0.01'}"), true);
 assert.equal(monthlyBudgetSource.includes('unallocatedFixedRows.map'), true);
 assert.equal(monthlyBudgetSource.includes('Spesa fissa: {rule.description}'), false);
+assert.equal(monthlyBudgetSource.includes('<span>Totale effettivo</span>'), false);
+assert.equal(monthlyBudgetSource.includes('<th style={{textAlign: \'right\'}}>Effettivo</th>'), false);
+assert.equal(monthlyBudgetSource.includes('<th style={{textAlign: \'right\'}}>Differenza</th>'), false);
+assert.equal(monthlyBudgetSource.includes('<b>{subcategory?.name || rule.description}</b>'), true);
 const recurringSource = await readFile(new URL('../src/lib/recurringTransactions.ts', import.meta.url), 'utf8');
 const recurringRulesPageSource = await readFile(new URL('../src/pages/RecurringRulesPage.tsx', import.meta.url), 'utf8');
+const foodWeeklyAnalysisSource = await readFile(new URL('../src/pages/FoodWeeklyAnalysisPage.tsx', import.meta.url), 'utf8');
 assert.equal(
   recurringSource.indexOf('await syncFixedExpensesIntoBudget') < recurringSource.indexOf('if (requestedMonth > currentMonth)'),
   true,
 );
 assert.equal(recurringSource.includes('if (!dueDate || dueDate > today) continue;'), true);
+assert.equal(recurringSource.includes('syncRecurringBudgetsForMonths'), true);
 assert.equal(recurringRulesPageSource.includes('<label>Cadenza</label>'), true);
 assert.equal(recurringRulesPageSource.includes('Abbonamento personale'), true);
+assert.equal(recurringRulesPageSource.includes('budget dei prossimi 12 mesi'), true);
+assert.equal(foodWeeklyAnalysisSource.includes('Medie mensili per sottocategoria'), true);
+assert.equal(foodWeeklyAnalysisSource.includes('syncRecurringBudgetPlanMonths'), true);
+assert.equal(foodWeeklyAnalysisSource.includes('Le modifiche manuali di un singolo mese restano invariate.'), true);
 
 const subscriptionMigrationSource = await readFile(new URL('../supabase/migrations/029_recurring_subscription_fields.sql', import.meta.url), 'utf8');
 assert.equal(subscriptionMigrationSource.includes('add column if not exists payment_method'), true);
@@ -386,6 +453,13 @@ assert.equal(subscriptionMigrationSource.includes('transactions_one_recurring_du
 const splitPageSource = await readFile(new URL('../src/pages/SplitPage.tsx', import.meta.url), 'utf8');
 assert.equal(splitPageSource.includes('useState(currentMonthStart)'), true);
 assert.equal(splitPageSource.includes('useState(currentMonthEnd)'), true);
+assert.equal(splitPageSource.includes('allocateTransactionAcrossSplitMonths(transaction)'), true);
+assert.equal(splitPageSource.includes('Quote nel periodo'), true);
+
+const splitMonthsMigrationSource = await readFile(new URL('../supabase/migrations/030_transaction_split_months.sql', import.meta.url), 'utf8');
+assert.equal(splitMonthsMigrationSource.includes('add column if not exists split_months'), true);
+assert.equal(splitMonthsMigrationSource.includes('check (split_months between 1 and 120)'), true);
+assert.equal(splitMonthsMigrationSource.includes("p_transaction ->> 'split_months'"), true);
 
 const voiceTransactionSource = await readFile(new URL('../src/lib/aiVoiceTransaction.ts', import.meta.url), 'utf8');
 const googleDriveServerTokenSource = await readFile(new URL('../src/lib/googleDriveServerToken.ts', import.meta.url), 'utf8');
@@ -397,6 +471,8 @@ assert.equal(newTransactionSource.includes('Compila modulo'), true);
 assert.equal(newTransactionSource.includes('nulla viene salvato senza la tua conferma'), true);
 assert.equal(googleDriveServerTokenSource.includes("action: 'get_access_token'"), true);
 assert.equal(googleDriveServerTokenSource.includes('cachedAccessToken'), true);
+assert.equal(googleDriveServerTokenSource.includes('cachedAccessToken.userId === userId'), true);
+assert.equal(googleDriveServerTokenSource.includes('supabase.auth.refreshSession()'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('store_refresh_token'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('GOOGLE_DRIVE_TOKEN_ENCRYPTION_KEY'), true);
 assert.equal(googleDriveTokenFunctionSource.includes('crypto.subtle.encrypt'), true);

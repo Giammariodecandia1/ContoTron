@@ -75,9 +75,8 @@
 }
 
 .budgetSummary {
-  display: grid;
-  gap: var(--space-3);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  justify-content: center;
   margin: var(--space-4) 0;
 }
 
@@ -87,7 +86,9 @@
   border-radius: var(--border-radius-md);
   display: grid;
   gap: var(--space-1);
+  min-width: min(100%, 320px);
   padding: var(--space-3);
+  text-align: center;
 }
 
 .budgetSummary span {
@@ -97,7 +98,7 @@
 
 .budgetSummary strong {
   color: var(--color-gray-900);
-  font-size: var(--text-lg);
+  font-size: var(--text-2xl);
 }
 
 .periodBanner {
