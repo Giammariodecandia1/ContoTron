@@ -351,6 +351,7 @@ export const ScanReceiptPage: React.FC = () => {
   const [preparingQuickSave, setPreparingQuickSave] = useState(false);
   const [aiEnhanced, setAiEnhanced] = useState(false);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [aiRetrying, setAiRetrying] = useState(false);
 
   const webcamRef = useRef<Webcam>(null);
   const saveInFlightRef = useRef(false);
@@ -380,6 +381,51 @@ export const ScanReceiptPage: React.FC = () => {
   const expenseCategories = categories
     .filter(category => category.type === 'expense')
     .sort((left, right) => left.name.localeCompare(right.name));
+
+  const retryAiAnalysis = async () => {
+    if (!aiConfiguration || !mergedOcrText.trim() || pages.length === 0) return;
+    setAiRetrying(true);
+    setAiNotice('Nuovo tentativo AI in corso...');
+    try {
+      const [aiImages, productRules] = await Promise.all([
+        Promise.all(pages.map(preparePageForAi)),
+        household ? loadProductClassificationRules(household.id) : Promise.resolve([]),
+      ]);
+      const aiResult = await analyzeReceiptWithAi({
+        configuration: aiConfiguration,
+        images: aiImages,
+        ocrText: mergedOcrText,
+        categories,
+        subcategories,
+      });
+      if (aiResult.merchant) setMerchant(aiResult.merchant);
+      if (aiResult.total !== null && !attachTarget) setAmount(aiResult.total.toFixed(2));
+      if (aiResult.date && !attachTarget) setDate(aiResult.date);
+      if (aiResult.categoryId) setDetectedCategoryId(aiResult.categoryId);
+      if (aiResult.subcategoryId) setDetectedSubcategoryId(aiResult.subcategoryId);
+      if (aiResult.items.length > 0) {
+        setReceiptItems(aiResult.items.map(item => {
+          const learnedRule = findProductClassificationRule(item.description, productRules);
+          return {
+            id: `ai-${crypto.randomUUID()}`,
+            rawLine: item.description,
+            description: item.description,
+            amount: item.amount,
+            amountText: item.amount.toFixed(2),
+            categoryId: learnedRule?.category_id || item.categoryId || aiResult.categoryId,
+            subcategoryId: learnedRule?.subcategory_id || item.subcategoryId || '',
+          };
+        }));
+      }
+      setAiEnhanced(true);
+      setAiNotice('Controllo AI completato al nuovo tentativo. Verifica sempre totale, righe e categorie prima di salvare.');
+    } catch (error) {
+      setAiEnhanced(false);
+      setAiNotice(`AI non disponibile anche al nuovo tentativo: ${error instanceof Error ? error.message : 'errore di collegamento'}. Il risultato OCR resta disponibile.`);
+    } finally {
+      setAiRetrying(false);
+    }
+  };
 
   useEffect(() => {
     if (!attachTransactionId) {
@@ -863,6 +909,11 @@ export const ScanReceiptPage: React.FC = () => {
       return;
     }
 
+    if (!attachTarget && isShared && showSplitMonths && (!Number.isInteger(splitMonths) || splitMonths < 2 || splitMonths > 120)) {
+      setArchiveError('Indica da 2 a 120 mesi per distribuire la spesa nello Split.');
+      return;
+    }
+
     const selectedAccountId = accountId || accounts[0]?.id || null;
     if (!selectedAccountId && !attachTarget) {
       setArchiveError('Non e disponibile un conto sul quale registrare la spesa.');
@@ -1020,7 +1071,7 @@ export const ScanReceiptPage: React.FC = () => {
         category_id: transactionCategoryId,
         subcategory_id: transactionSubcategoryId,
         is_shared: isShared,
-        split_months: isShared ? splitMonths : 1,
+        split_months: isShared ? (showSplitMonths ? splitMonths : 1) : 1,
         inserted_by: insertedBy || user?.id || null,
         notes: notes.trim() || null,
       };
@@ -1386,8 +1437,15 @@ export const ScanReceiptPage: React.FC = () => {
                       min="2"
                       max="120"
                       step="1"
-                      value={Math.max(2, splitMonths)}
-                      onChange={event => setSplitMonths(Math.min(120, Math.max(2, Math.trunc(Number(event.target.value) || 2))))}
+                      value={splitMonths || ''}
+                      onChange={event => {
+                        const rawValue = event.target.value;
+                        if (rawValue === '') {
+                          setSplitMonths(0);
+                          return;
+                        }
+                        setSplitMonths(Math.min(120, Math.max(0, Math.trunc(Number(rawValue)))));
+                      }}
                     />
                     <small className="text-muted fs-sm">
                       La transazione resta intera; soltanto lo Split la distribuisce in quote mensili consecutive.
@@ -1398,7 +1456,14 @@ export const ScanReceiptPage: React.FC = () => {
             )}
 
             {ocrHint && <p className={styles.ocrHint}>{ocrHint}</p>}
-            {aiNotice && <p className={`${styles.aiNotice} ${aiEnhanced ? styles.aiNoticeSuccess : styles.aiNoticeWarning}`}>{aiNotice}</p>}
+            {aiNotice && <div className={`${styles.aiNotice} ${aiEnhanced ? styles.aiNoticeSuccess : styles.aiNoticeWarning}`}>
+              <p>{aiNotice}</p>
+              {!aiEnhanced && aiConfiguration && (
+                <Button type="button" size="sm" variant="secondary" onClick={retryAiAnalysis} disabled={aiRetrying}>
+                  {aiRetrying ? 'Riprovo l analisi AI...' : 'Riprova analisi AI'}
+                </Button>
+              )}
+            </div>}
 
             {!attachTarget && <div className={`${styles.quickSavePanel} ${quickSaveMode ? styles.quickSavePanelActive : ''}`}>
               <div>
@@ -1462,7 +1527,7 @@ export const ScanReceiptPage: React.FC = () => {
               {receiptItems.map(item => {
                 const itemSubcategories = subcategories
                   .filter(subcategory => subcategory.category_id === item.categoryId)
-                  .sort((left, right) => left.name.localeCompare(right.name));
+                  .sort((left, right) => left.name.localeCompare(right.name, 'it-IT', { sensitivity: 'base' }));
 
                 return (
                   <div key={item.id} className={styles.itemRow}>
@@ -1504,13 +1569,11 @@ export const ScanReceiptPage: React.FC = () => {
             <div className={`${styles.storageDestination} ${drivePending ? styles.storageDestinationPending : ''}`}>
               <strong>Destinazione dello scontrino</strong>
               <span>
-                {documentStorageProvider === 'supabase'
-                  ? `Archivio interno Contotron. Le ${pages.length} pagine saranno conservate come un unico documento.`
-                  : personalDriveLoading
-                    ? 'Verifica del collegamento al tuo Google Drive...'
-                    : personalDriveReady
-                      ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese.`
-                      : personalDriveError || "Google Drive non e collegato a questo account. La transazione verra comunque registrata; la foto non sara spostata nell archivio interno e potrai collegarla dopo aver ricollegato Drive."}
+                {personalDriveLoading
+                  ? 'Verifica del collegamento al tuo Google Drive...'
+                  : personalDriveReady
+                    ? `Google Drive personale di ${user?.email || 'questo account'}, cartella ${personalDriveConnection?.folderName || 'Contotron'}, organizzata per anno e mese. Le ${pages.length} pagine resteranno collegate alla stessa transazione.`
+                    : personalDriveError || "Google Drive non e collegato a questo account. La transazione verra comunque registrata e potrai allegare la foto dopo aver collegato Drive."}
               </span>
             </div>
             {archiveError && <p className="text-warning fs-sm text-center">{archiveError}</p>}

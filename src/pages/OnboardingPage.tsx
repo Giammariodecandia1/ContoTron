@@ -9,7 +9,6 @@ import {
   documentStorageLabels,
   saveDocumentStoragePreference,
 } from '../lib/documentStoragePreference';
-import type { DocumentStorageProvider } from '../types/database';
 import styles from './OnboardingPage.module.css';
 
 type SetupMode = 'create' | 'join';
@@ -30,7 +29,6 @@ export const OnboardingPage: React.FC = () => {
   const [currency, setCurrency] = useState('EUR');
   const [initialBalance, setInitialBalance] = useState('');
   const [useTemplate, setUseTemplate] = useState(true);
-  const [documentStorageProvider, setDocumentStorageProvider] = useState<DocumentStorageProvider>('supabase');
   const [driveChoiceConfirmed, setDriveChoiceConfirmed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +98,7 @@ export const OnboardingPage: React.FC = () => {
 
       if (memberError) throw memberError;
 
-      await saveDocumentStoragePreference(household.id, documentStorageProvider);
+      await saveDocumentStoragePreference(household.id, 'google_drive');
 
       // 3. Create single account automatically
       const { error: accountError } = await supabase
@@ -134,14 +132,8 @@ export const OnboardingPage: React.FC = () => {
         ]);
       }
 
-      if (documentStorageProvider === 'google_drive') {
-        await refreshData();
-        navigate('/impostazioni?driveSetup=1', { replace: true });
-        return;
-      }
-
       await refreshData();
-      navigate('/', { replace: true });
+      navigate('/impostazioni?driveSetup=1', { replace: true });
 
     } catch (err) {
       console.error(err);
@@ -280,53 +272,34 @@ export const OnboardingPage: React.FC = () => {
         {step === 3 && (
           <div className={styles.stepContent}>
             <h2>Archivio documenti</h2>
-            <p className="text-muted">Scegli dove salvare scontrini, bollette e foto della famiglia.</p>
+            <p className="text-muted">Ogni componente salva i propri scontrini e documenti nel proprio Google Drive.</p>
             <div className={styles.options}>
-              {(['supabase', 'google_drive'] as DocumentStorageProvider[]).map(provider => (
-                <label key={provider} className={styles.radioOption}>
-                  <input
-                    type="radio"
-                    name="documentStorage"
-                    checked={documentStorageProvider === provider}
-                    onChange={() => {
-                      setDocumentStorageProvider(provider);
-                      if (provider !== 'google_drive') setDriveChoiceConfirmed(false);
-                    }}
-                  />
-                  <div>
-                    <strong>{documentStorageLabels[provider]}</strong>
-                    <div className="fs-sm text-muted">{documentStorageDescriptions[provider]}</div>
-                    {provider === 'google_drive' && (
-                      <div className={styles.optionNote}>Dopo il setup autorizzerai il tuo account Google personale.</div>
-                    )}
-                  </div>
-                </label>
-              ))}
+              <div className={styles.radioOption}>
+                <div>
+                  <strong>{documentStorageLabels.google_drive}</strong>
+                  <div className="fs-sm text-muted">{documentStorageDescriptions.google_drive}</div>
+                  <div className={styles.optionNote}>Dopo il setup autorizzerai il tuo account Google personale.</div>
+                </div>
+              </div>
             </div>
-            {documentStorageProvider === 'google_drive' && (
-              <label className={styles.driveAcknowledgement}>
+            <label className={styles.driveAcknowledgement}>
                 <input
                   type="checkbox"
                   checked={driveChoiceConfirmed}
                   onChange={event => setDriveChoiceConfirmed(event.target.checked)}
                 />
                 <span>
-                  Ho capito che ogni membro collega il proprio Google Drive. Contotron potra gestire solo i file creati dall app; se il collegamento non e attivo, gli scontrini saranno salvati nell archivio interno di sicurezza.
+                  Ho capito che ogni membro collega il proprio Google Drive. Se il collegamento non è attivo, potrò registrare le transazioni e allegare gli scontrini in seguito.
                 </span>
-              </label>
-            )}
+            </label>
             <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
               <Button variant="secondary" onClick={() => setStep(2)}>Indietro</Button>
               <Button
                 onClick={handleComplete}
-                disabled={loading || (documentStorageProvider === 'google_drive' && !driveChoiceConfirmed)}
+                disabled={loading || !driveChoiceConfirmed}
                 style={{ flex: 1 }}
               >
-                {loading
-                  ? 'Creazione in corso...'
-                  : documentStorageProvider === 'google_drive'
-                    ? 'Crea nucleo e collega Drive'
-                    : 'Completa Setup'}
+                {loading ? 'Creazione in corso...' : 'Crea nucleo e collega Drive'}
               </Button>
             </div>
           </div>

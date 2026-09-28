@@ -17,18 +17,13 @@ import {
   clearGoogleDriveServerAccessTokenCache,
   getGoogleDriveServerAccessToken,
 } from './googleDriveServerToken';
+import { GoogleDriveAuthError } from './googleDriveErrors';
+export { GoogleDriveAuthError } from './googleDriveErrors';
 
 export const GOOGLE_DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
 const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
-
-export class GoogleDriveAuthError extends Error {
-  constructor(message = 'Google Drive non collegato o autorizzazione scaduta.') {
-    super(message);
-    this.name = 'GoogleDriveAuthError';
-  }
-}
 
 export interface GoogleDriveFile {
   id: string;
@@ -64,7 +59,10 @@ export const requestGoogleDriveConnection = async (redirectTo?: string) => {
       scopes: `openid email profile ${GOOGLE_DRIVE_FILE_SCOPE}`,
       queryParams: {
         access_type: 'offline',
-        prompt: 'consent select_account',
+        // Google invia il refresh token solo quando il consenso offline viene
+        // richiesto esplicitamente. Usiamo il valore documentato dal provider:
+        // la scelta dell'account resta disponibile nella schermata Google.
+        prompt: 'consent',
         include_granted_scopes: 'true',
       },
     },
@@ -77,22 +75,25 @@ export const getGoogleDriveAccessToken = async () => {
   const providerToken = data.session?.provider_token || null;
   const dedicatedDriveToken = userId ? readGoogleDriveAccessToken(userId) : null;
   let serverAccessToken: string | null = null;
+  let renewalError: unknown = null;
 
   try {
     serverAccessToken = await getGoogleDriveServerAccessToken();
-  } catch {
-    // La funzione server viene introdotta senza interrompere i collegamenti esistenti.
+  } catch (error) {
+    renewalError = error;
   }
 
   return {
     accessToken: serverAccessToken || dedicatedDriveToken || providerToken,
     userId,
+    renewalError,
   };
 };
 
 const driveRequest = async (url: string, init: RequestInit = {}, retryAfterRefresh = true) => {
-  const { accessToken, userId } = await getGoogleDriveAccessToken();
+  const { accessToken, userId, renewalError } = await getGoogleDriveAccessToken();
   if (!accessToken) {
+    if (renewalError) throw renewalError;
     throw new GoogleDriveAuthError();
   }
 
@@ -108,18 +109,18 @@ const driveRequest = async (url: string, init: RequestInit = {}, retryAfterRefre
     if (userId) clearGoogleDriveAccessToken(userId);
     clearGoogleDriveServerAccessTokenCache();
     if (retryAfterRefresh) {
-      try {
-        const renewedAccessToken = await getGoogleDriveServerAccessToken(true);
-        const retryResponse = await fetch(url, {
-          ...init,
-          headers: {
-            Authorization: `Bearer ${renewedAccessToken}`,
-            ...(init.headers || {}),
-          },
-        });
-        if (retryResponse.ok) return retryResponse;
-      } catch {
-        // Il messaggio seguente invita al consenso solo quando anche il rinnovo server fallisce.
+      // Preserve server failures instead of asking for Google consent again.
+      const renewedAccessToken = await getGoogleDriveServerAccessToken(true);
+      const retryResponse = await fetch(url, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${renewedAccessToken}`,
+          ...(init.headers || {}),
+        },
+      });
+      if (retryResponse.ok) return retryResponse;
+      if (retryResponse.status !== 401) {
+        throw new Error(`Google Drive ha rifiutato l'accesso al file (${retryResponse.status}). Verifica i permessi del file e lo spazio disponibile.`);
       }
     }
     throw new GoogleDriveAuthError('Google Drive richiede una nuova autorizzazione.');
@@ -190,13 +191,22 @@ export const verifyGoogleDriveFolder = async (folderId: string) => {
 };
 
 export const verifyGoogleDriveAutomaticRenewal = async () => {
-  try {
-    await getGoogleDriveServerAccessToken(true);
-  } catch (error) {
-    throw new GoogleDriveAuthError(
-      `Il collegamento temporaneo funziona, ma il rinnovo automatico non e stato memorizzato: ${error instanceof Error ? error.message : 'servizio non disponibile'}`,
-    );
+  let lastError: unknown = null;
+  // Dopo il ritorno OAuth il salvataggio protetto del refresh token avviene in
+  // parallelo alla pagina Impostazioni. Attendere brevemente evita falsi esiti
+  // negativi e non dichiara Drive collegato finche il rinnovo non e verificato.
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      await getGoogleDriveServerAccessToken(true);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 5) {
+        await new Promise<void>(resolve => window.setTimeout(resolve, 500));
+      }
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error('Rinnovo automatico Google Drive non disponibile.');
 };
 
 const folderNameForHousehold = (household: Household) => (
@@ -357,6 +367,20 @@ export const uploadFileToGoogleDrive = async ({
   });
 
   return response.json() as Promise<GoogleDriveFile>;
+};
+
+export const verifyGoogleDriveFileSize = async (fileId: string, expectedBytes: number) => {
+  const response = await driveRequest(
+    `${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}?fields=id,size,trashed`,
+  );
+  const uploaded = await response.json() as { id?: string; size?: string; trashed?: boolean };
+  if (uploaded.id !== fileId || uploaded.trashed || Number(uploaded.size) !== expectedBytes) {
+    throw new Error('Il file trasferito non supera la verifica dimensionale su Google Drive.');
+  }
+};
+
+export const removeGoogleDriveFile = async (fileId: string) => {
+  await driveRequest(`${DRIVE_API_BASE}/files/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
 };
 
 export const verifyGoogleDriveUploadCapability = async (

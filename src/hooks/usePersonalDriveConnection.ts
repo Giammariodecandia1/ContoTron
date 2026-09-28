@@ -14,17 +14,20 @@ export const usePersonalDriveConnection = (
   const [connection, setConnection] = useState<PersonalDriveConnection | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requiresConsent, setRequiresConsent] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!household || !userId) {
       setConnection(null);
       setError(null);
+      setRequiresConsent(false);
       setLoading(false);
       return null;
     }
 
     setLoading(true);
     setError(null);
+    setRequiresConsent(false);
     try {
       const nextConnection = await getPersonalDriveConnection(household, userId);
       if (nextConnection.status === 'ready' && nextConnection.folderId) {
@@ -42,15 +45,15 @@ export const usePersonalDriveConnection = (
             status: 'connection_error',
           };
           setConnection(unavailableConnection);
-          setError(verificationError instanceof GoogleDriveAuthError
-            ? 'L autorizzazione Google Drive e scaduta o non e disponibile in questo browser. Premi Ricollega Google Drive.'
-            : verificationError instanceof Error
-              ? verificationError.message
-              : 'Impossibile verificare la cartella Google Drive.');
+          setRequiresConsent(verificationError instanceof GoogleDriveAuthError);
+          setError(verificationError instanceof Error
+            ? verificationError.message
+            : 'Impossibile verificare la cartella Google Drive.');
           return unavailableConnection;
         }
       }
       setConnection(nextConnection);
+      setRequiresConsent(!nextConnection.folderId);
       return nextConnection;
     } catch (connectionError) {
       setConnection(null);
@@ -75,6 +78,7 @@ export const usePersonalDriveConnection = (
     connection,
     loading,
     error,
+    requiresConsent,
     refresh,
     setConnection,
   };

@@ -1,7 +1,7 @@
 import { supabase } from './supabaseClient';
 import type { DocumentStorageProvider, DocumentStorageStatus, Household } from '../types/database';
 
-export const DEFAULT_DOCUMENT_STORAGE_PROVIDER: DocumentStorageProvider = 'supabase';
+export const DEFAULT_DOCUMENT_STORAGE_PROVIDER: DocumentStorageProvider = 'google_drive';
 
 interface LocalDocumentStorageState {
   provider: DocumentStorageProvider;
@@ -63,13 +63,14 @@ const writeLocalState = (
 
 export const getDocumentStorageProvider = (household?: Household | null): DocumentStorageProvider => {
   if (!household) return DEFAULT_DOCUMENT_STORAGE_PROVIDER;
-  if (household.document_storage_provider) return household.document_storage_provider;
-
-  return readLocalState(household.id)?.provider || DEFAULT_DOCUMENT_STORAGE_PROVIDER;
+  // Legacy household preferences continue to describe old files, but never
+  // determine the destination of new uploads during the Drive transition.
+  return 'google_drive';
 };
 
 export const getDocumentStorageStatus = (household?: Household | null): DocumentStorageStatus => {
-  if (!household) return 'ready';
+  if (!household) return 'pending_connection';
+  if (household.document_storage_provider !== 'google_drive') return 'pending_connection';
   if (household.document_storage_status) return household.document_storage_status;
   return readLocalState(household.id)?.status || (getDocumentStorageProvider(household) === 'google_drive' ? 'pending_connection' : 'ready');
 };
@@ -101,6 +102,9 @@ export const saveDocumentStoragePreference = async (
   householdId: string,
   provider: DocumentStorageProvider,
 ) => {
+  if (provider !== 'google_drive') {
+    throw new Error('I nuovi documenti possono essere salvati soltanto su Google Drive.');
+  }
   const status: DocumentStorageStatus = provider === 'google_drive' ? 'pending_connection' : 'ready';
   const nextData = {
     document_storage_provider: provider,

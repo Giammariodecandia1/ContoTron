@@ -90,6 +90,54 @@
   text-align: right;
 }
 
+.weekVerification {
+  align-items: end;
+  background: var(--color-gray-50);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-md);
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+  margin-top: var(--space-5);
+  padding: var(--space-4);
+}
+
+.weekVerification h3 {
+  color: var(--color-gray-900);
+  font-size: var(--text-base);
+  margin: 0;
+}
+
+.weekVerification p {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 0;
+}
+
+.weekVerificationControls {
+  align-items: end;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.weekVerificationControls label {
+  color: var(--color-gray-600);
+  display: grid;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  gap: var(--space-1);
+}
+
+.weekVerificationControls input {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-gray-900);
+  font: inherit;
+  padding: var(--space-2);
+  width: 88px;
+}
+
 .track {
   background: var(--color-gray-100);
   border-radius: 999px;
@@ -107,6 +155,52 @@
   border-top: 1px solid var(--color-gray-200);
   margin-top: var(--space-6);
   padding-top: var(--space-5);
+}
+
+.monthlyActual {
+  border-top: 1px solid var(--color-gray-200);
+  margin-top: var(--space-6);
+  padding-top: var(--space-5);
+}
+
+.monthlyActual > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.monthlyActual h3 {
+  color: var(--color-gray-900);
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.monthlyActual header p {
+  color: var(--color-gray-500);
+  font-size: var(--text-sm);
+  margin: var(--space-1) 0 0;
+}
+
+.monthlyActualControls {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.monthlyActualControls select {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-sm);
+  color: var(--color-gray-900);
+  font: inherit;
+  padding: var(--space-2);
+}
+
+.monthlyActualControls strong {
+  color: var(--color-primary);
+  font-size: var(--text-xl);
+  white-space: nowrap;
 }
 
 .monthlyPlan > header {
@@ -208,6 +302,20 @@
 
   .monthlyPlan > header {
     flex-direction: column;
+  }
+
+  .monthlyActual > header {
+    flex-direction: column;
+  }
+
+  .weekVerification {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .weekVerificationControls {
+    align-items: end;
+    flex-wrap: wrap;
   }
 
   .monthlyPlanRows {

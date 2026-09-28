@@ -160,6 +160,9 @@ export interface Transaction {
   destination_account_id: string | null;
   document_id: string | null;
   recurring_rule_id?: string | null;
+  income_source_id?: string | null;
+  income_beneficiary_user_id?: string | null;
+  income_occurrence_kind?: 'regular' | 'thirteenth' | 'fourteenth' | null;
   type: TransactionType;
   status: TransactionStatus;
   source: TransactionSource;

@@ -1,0 +1,29 @@
+.panel {
+  border-top: 1px solid var(--color-gray-200);
+  margin-top: var(--space-5);
+  padding-top: var(--space-5);
+}
+
+.panel h3 {
+  color: var(--color-gray-900);
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-2);
+}
+
+.panel p {
+  color: var(--color-gray-700);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.count strong { color: var(--color-primary); }
+.muted { color: var(--color-gray-500) !important; }
+.warning { color: var(--color-warning) !important; }
+.success { color: var(--color-success) !important; }
+.progress {
+  display: grid;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.progress ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }

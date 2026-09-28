@@ -7,7 +7,9 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 // Create a single supabase client for interacting with your database.
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    autoRefreshToken: false,
+    // La sessione dell'app dura circa un'ora. Il rinnovo automatico e
+    // necessario anche per l'accesso al token Google Drive custodito lato server.
+    autoRefreshToken: true,
     detectSessionInUrl: false,
     persistSession: true,
   },

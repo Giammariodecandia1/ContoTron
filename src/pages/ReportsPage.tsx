@@ -11,6 +11,7 @@ import { spendingTypeOptions } from '../lib/spendingTypes';
 import { getTransactionFrequencyLabel } from '../lib/transactionFrequencies';
 import { useAuth, useHousehold } from '../hooks';
 import { calculatePersonalSpending } from '../lib/personalSpending';
+import { calculateEffectiveIncome, summarizeAnnualCashFlow } from '../lib/annualCashFlow';
 import styles from './ReportsPage.module.css';
 
 const monthLabels = [
@@ -343,8 +344,13 @@ export const ReportsPage: React.FC = () => {
     };
 
     const totalExpense = sumAmounts(expenses, tx => Number(tx.amount || 0));
-    const actualIncome = sumAmounts(incomes, tx => Number(tx.amount || 0));
     const plannedIncome = Number(incomeTargets.find(target => target.month === month)?.planned_income || 0);
+    const monthCashFlow = summarizeAnnualCashFlow(annualValidTransactions, year)[month];
+    const actualIncome = calculateEffectiveIncome(
+      plannedIncome,
+      monthCashFlow.recordedIncome,
+      monthCashFlow.creditCardAdvance,
+    );
     const availableDelta = plannedIncome - totalExpense;
 
     const globalBudget = monthlyBudgetTargets.find(target => !target.category_id && !target.subcategory_id)?.planned_amount || 0;
@@ -469,7 +475,7 @@ export const ReportsPage: React.FC = () => {
     }));
     const foodTotal = sumAmounts(foodWeeklyRows, row => row.amount);
     const foodAverage = foodTotal / 52;
-    const foodMedian = median(weeklyAmounts);
+    const foodMedian = median(weeklyAmounts.filter(amount => amount > 0));
 
     const accountMap = new Map<string, SummaryRow>();
     const insertedByMap = new Map<string, SummaryRow>();
@@ -609,7 +615,7 @@ export const ReportsPage: React.FC = () => {
       monthlyDocuments,
       personalSpending,
     };
-  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, participantCount, subcategories, subcategoryById, transactions, user?.id]);
+  }, [budgetTargets, categoryById, categoryNameById, documents, foodCategoryIds, incomeTargets, items, month, monthRange.end, monthRange.start, participantCount, subcategories, subcategoryById, transactions, user?.id, year]);
 
   const buildPdfLines = () => {
     const money = (value: number) => formatCurrency(value, currency).replace(/\s?\u20ac/g, ' EUR');

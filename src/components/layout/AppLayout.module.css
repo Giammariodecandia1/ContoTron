@@ -164,6 +164,130 @@
   display: none;
 }
 
+.releaseNotesBackdrop {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.62);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--space-4);
+  position: fixed;
+  z-index: 100;
+}
+
+.releaseNotesDialog {
+  background: var(--bg-card);
+  border: 1px solid var(--color-gray-200);
+  border-radius: var(--border-radius-lg);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.3);
+  max-width: 510px;
+  padding: var(--space-6);
+  position: relative;
+  width: 100%;
+}
+
+.releaseNotesDialog h2 {
+  color: var(--color-gray-900);
+  font-size: var(--text-xl);
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.releaseNotesDialog p {
+  color: var(--color-gray-600);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.releaseNotesIcon {
+  align-items: center;
+  background: var(--color-primary-light);
+  border-radius: 999px;
+  color: var(--color-primary);
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.releaseNotesClose {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--color-gray-500);
+  cursor: pointer;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  position: absolute;
+  right: var(--space-4);
+  top: var(--space-4);
+  width: 34px;
+}
+
+.releaseNotesClose:hover {
+  background: var(--color-gray-100);
+  color: var(--color-gray-900);
+}
+
+.releaseNotesDialog ul {
+  display: grid;
+  gap: var(--space-3);
+  list-style: none;
+  margin: var(--space-5) 0;
+  padding: 0;
+}
+
+.releaseNotesDialog li {
+  align-items: flex-start;
+  color: var(--color-gray-900);
+  display: flex;
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  line-height: 1.45;
+}
+
+.releaseNotesDialog li svg {
+  color: var(--color-success);
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.releaseNotesConfirm {
+  align-items: center;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: var(--border-radius-md);
+  color: var(--color-on-primary);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  min-height: 42px;
+  padding: 0 var(--space-5);
+}
+
+.releaseNotesConfirm:hover {
+  background: var(--color-primary-hover);
+  color: var(--color-on-primary);
+  text-decoration: none;
+}
+
+.releaseNotesActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.releaseNotesSecondary {
+  background: transparent;
+  border: 1px solid var(--color-gray-300);
+  border-radius: var(--border-radius-md);
+  color: var(--color-gray-700);
+  cursor: pointer;
+  min-height: 42px;
+  padding: 0 var(--space-4);
+}
+
 @media (max-width: 768px) {
   .appContainer {
     height: 100dvh;
@@ -196,6 +320,12 @@
     right: 0;
     top: 0;
     z-index: 20;
+  }
+
+  .releaseNotesDialog {
+    border-radius: var(--border-radius-lg);
+    max-width: 430px;
+    padding: var(--space-5);
   }
 
   .mobileUser {

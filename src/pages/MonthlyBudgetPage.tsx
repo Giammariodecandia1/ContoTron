@@ -9,7 +9,7 @@ import { syncRecurringBudgetPlans } from '../lib/recurringBudgetPlans';
 import { formatCurrency } from '../lib/money';
 import { getMoneyDisplayMode, moneyDisplayModeEvent, type MoneyDisplayMode } from '../lib/moneyDisplayPreference';
 import { calculateUnallocatedBudgetBreakdown } from '../lib/monthlyBudgetBreakdown';
-import { ensureMonthlyRecurringTransactions } from '../lib/recurringTransactions';
+import { ensureMonthlyRecurringTransactions, syncRecurringBudgetsForMonths } from '../lib/recurringTransactions';
 import { supabase } from '../lib/supabaseClient';
 import type { RecurringRule, Transaction } from '../types/database';
 import styles from './MonthlyBudgetPage.module.css';
@@ -36,6 +36,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const [subcategoryBudgets, setSubcategoryBudgets] = useState<Record<string, number>>({});
   const [automaticBudgetKeys, setAutomaticBudgetKeys] = useState<Set<string>>(new Set());
   const [monthlyRecurringRules, setMonthlyRecurringRules] = useState<RecurringRule[]>([]);
+  const [fixedRuleDrafts, setFixedRuleDrafts] = useState<Record<string, string>>({});
   const [categoryTotalDrafts, setCategoryTotalDrafts] = useState<Record<string, string>>({});
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -47,6 +48,7 @@ export const MonthlyBudgetPage: React.FC = () => {
   const loadRequestRef = useRef(0);
   const dirtyCategoryBudgetIdsRef = useRef(new Set<string>());
   const dirtySubcategoryBudgetIdsRef = useRef(new Set<string>());
+  const dirtyFixedRuleIdsRef = useRef(new Set<string>());
   const householdId = household?.id || null;
 
   const year = selectedYear;
@@ -95,10 +97,12 @@ export const MonthlyBudgetPage: React.FC = () => {
       }
       recurringRulesForMonth = result.rules;
       setMonthlyRecurringRules(result.rules);
+      setFixedRuleDrafts(Object.fromEntries(result.rules.map(rule => [rule.id, String(Number(rule.amount || 0))])));
     } catch (error) {
       console.error('Errore generazione spese fisse:', error);
       setRecurringError(error instanceof Error ? error.message : 'Non riesco a generare le spese fisse del mese.');
       setMonthlyRecurringRules([]);
+      setFixedRuleDrafts({});
     }
 
     // 1. Fetch transactions for the current month
@@ -284,6 +288,58 @@ export const MonthlyBudgetPage: React.FC = () => {
       upsertBudgetTarget(categoryId, categoryBudgets[categoryId] || 0, year, month),
     ]);
     if (saved.some(result => !result)) setLoadError('Non riesco a salvare la ripartizione della categoria. Riprova.');
+  };
+
+  const handleFixedRuleAmountChange = (ruleId: string, value: string) => {
+    dirtyFixedRuleIdsRef.current.add(ruleId);
+    setFixedRuleDrafts(previous => ({ ...previous, [ruleId]: value }));
+  };
+
+  const handleFixedRuleAmountBlur = async (rule: RecurringRule) => {
+    if (!householdId || !dirtyFixedRuleIdsRef.current.delete(rule.id)) return;
+    const draft = fixedRuleDrafts[rule.id] ?? String(Number(rule.amount || 0));
+    const parsed = Number.parseFloat(draft);
+    const amount = Number.isFinite(parsed) ? Math.max(0, parsed) : Number(rule.amount || 0);
+    setFixedRuleDrafts(previous => ({ ...previous, [rule.id]: String(amount) }));
+    if (amount === Number(rule.amount || 0)) return;
+
+    setRecurringError(null);
+    try {
+      const { error } = await supabase
+        .from('recurring_rules')
+        .update({ amount, updated_at: new Date().toISOString() })
+        .eq('id', rule.id)
+        .eq('household_id', householdId);
+      if (error) throw error;
+
+      const difference = amount - Number(rule.amount || 0);
+      setMonthlyRecurringRules(previous => previous.map(current => (
+        current.id === rule.id ? { ...current, amount } : current
+      )));
+      if (!rule.subcategory_id && rule.category_id) {
+        setCategoryBudgets(previous => ({
+          ...previous,
+          [rule.category_id!]: Math.max(0, Number(previous[rule.category_id!] || 0) + difference),
+        }));
+        setCategoryTotalDrafts(previous => ({
+          ...previous,
+          [rule.category_id!]: String(Math.max(0, Number(previous[rule.category_id!] || 0) + difference)),
+        }));
+      }
+      // Il budget selezionato si aggiorna subito. Le altre mensilita verranno
+      // sincronizzate dalla regola senza toccare la cronologia gia registrata.
+      try {
+        await syncRecurringBudgetsForMonths(householdId, [{ year, month }]);
+        setRecurringMessage('Importo della spesa fissa aggiornato per questa ricorrenza.');
+      } catch (syncError) {
+        setRecurringError(
+          `Importo aggiornato, ma il budget di questo mese verra riallineato al prossimo aggiornamento: ${syncError instanceof Error ? syncError.message : 'errore di sincronizzazione.'}`,
+        );
+      }
+    } catch (error) {
+      setFixedRuleDrafts(previous => ({ ...previous, [rule.id]: String(Number(rule.amount || 0)) }));
+      setRecurringError(error instanceof Error ? error.message : 'Non riesco ad aggiornare la spesa fissa.');
+    }
   };
 
   const toggleCategory = (categoryId: string) => {
@@ -541,6 +597,7 @@ export const MonthlyBudgetPage: React.FC = () => {
                     id: rule.id,
                     label: rule.description,
                     rule,
+                    recurringRule: unallocatedRecurringRules.find(recurringRule => recurringRule.id === rule.id)!,
                   })),
                   ...categorySubcategories.map(subcategory => {
                     const linkedRecurringRules = categoryRecurringRules.filter(rule => rule.subcategory_id === subcategory.id);
@@ -617,7 +674,20 @@ export const MonthlyBudgetPage: React.FC = () => {
                                     <em className={styles.autoBudgetBadge}>Spesa fissa</em>
                                   </div>
                                 </td>
-                                <td data-label="Previsto" className={styles.amount}>{formatCurrency(row.rule.planned, household?.currency || 'EUR')}</td>
+                                <td data-label="Previsto" className={styles.amount}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step={wholeNumberDisplay ? '1' : '0.01'}
+                                    className={styles.inputAmount}
+                                    value={budgetInputValue(fixedRuleDrafts[row.id] ?? String(row.rule.planned))}
+                                    onChange={event => handleFixedRuleAmountChange(row.id, event.target.value)}
+                                    onBlur={() => handleFixedRuleAmountBlur(row.recurringRule)}
+                                    aria-label={`Importo spesa fissa ${row.label}`}
+                                    title="Aggiorna l'importo di questa spesa fissa ricorrente"
+                                    placeholder="0"
+                                  /> €
+                                </td>
                               </tr>
                             );
                           }

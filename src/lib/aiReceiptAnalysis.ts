@@ -37,6 +37,9 @@ const parseJsonObject = (text: string): RawAiReceipt => {
   return parsed as RawAiReceipt;
 };
 
+const isMalformedAiJson = (error: unknown) => error instanceof SyntaxError
+  || (error instanceof Error && /JSON|strutturati|risposta ai/i.test(error.message));
+
 const optionalText = (value: unknown, maxLength: number) => (
   typeof value === 'string' && value.trim() ? value.trim().slice(0, maxLength) : null
 );
@@ -81,6 +84,7 @@ Regole:
 - Usa soltanto gli ID presenti nella tassonomia. Se incerto usa null.
 - Non inventare righe illeggibili. Meglio omettere che indovinare.
 - Se lo scontrino continua su piu immagini, elimina le righe sovrapposte.
+- Non restituire piu di 80 item: per scontrini lunghi unisci righe chiaramente uguali, mantenendo il totale corretto.
 
 Tassonomia Contotron:
 ${JSON.stringify(taxonomy)}
@@ -88,19 +92,34 @@ ${JSON.stringify(taxonomy)}
 Testo OCR locale:
 ${ocrText.slice(0, 30_000)}`;
 
-  const response = await requestAiChatCompletion({
-    configuration,
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: prompt },
-        ...images.map(image => ({ type: 'image_url' as const, image_url: { url: image } })),
-      ],
-    }],
-    maxTokens: 2500,
-    timeoutMs: 90_000,
-  });
-  const raw = parseJsonObject(typeof response.content === 'string' ? response.content : '');
+  const requestAnalysis = async (compactRetry: boolean) => {
+    const retryInstruction = compactRetry
+      ? '\nIMPORTANTE: la risposta precedente non era JSON valido. Rispondi di nuovo con JSON rigorosamente valido in UNA SOLA riga, senza testo aggiuntivo. Limita items a 40 e raggruppa le righe ripetute.'
+      : '';
+    const response = await requestAiChatCompletion({
+      configuration,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: `${prompt}${retryInstruction}` },
+          ...images.map(image => ({ type: 'image_url' as const, image_url: { url: image } })),
+        ],
+      }],
+      // The compact retry has a generous budget but a deliberately smaller
+      // item list, preventing a multi-page receipt from producing truncated JSON.
+      maxTokens: compactRetry ? 3000 : 2500,
+      timeoutMs: 90_000,
+    });
+    return parseJsonObject(typeof response.content === 'string' ? response.content : '');
+  };
+
+  let raw: RawAiReceipt;
+  try {
+    raw = await requestAnalysis(false);
+  } catch (error) {
+    if (!isMalformedAiJson(error)) throw error;
+    raw = await requestAnalysis(true);
+  }
   const proposedCategoryId = typeof raw.category_id === 'string' && allowedCategoryIds.has(raw.category_id)
     ? raw.category_id
     : '';

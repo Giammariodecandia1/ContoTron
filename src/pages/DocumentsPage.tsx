@@ -445,7 +445,7 @@ export const DocumentsPage: React.FC = () => {
 
             {ocrProgress && <p className="fs-sm text-muted">{ocrProgress}</p>}
 
-            <Button type="submit" disabled={uploading || !file}>
+            <Button type="submit" disabled={uploading || !file || drivePending}>
               {uploading ? 'Archiviazione...' : 'Archivia documento'}
             </Button>
           </form>

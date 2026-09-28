@@ -1,35 +1,47 @@
 import { supabase } from './supabaseClient';
+import { GoogleDriveAuthError, googleDriveServerError } from './googleDriveErrors';
 
 const FUNCTION_NAME = 'google-drive-token';
-const messageFromError = async (error: unknown) => {
-  const context = error && typeof error === 'object' && 'context' in error
-    ? (error as { context?: unknown }).context
-    : null;
-  if (context instanceof Response) {
-    try {
-      const payload = await context.clone().json() as { error?: unknown };
-      if (typeof payload.error === 'string' && payload.error) return payload.error;
-    } catch {
-      // Mantiene il messaggio originale quando la risposta non contiene JSON.
-    }
-  }
-  return error instanceof Error ? error.message : 'Servizio Google Drive non disponibile.';
-};
 let cachedAccessToken: { userId: string; value: string; expiresAt: number } | null = null;
+const SESSION_REFRESH_SAFETY_WINDOW_MS = 2 * 60 * 1000;
+
+const getSessionReadyForServerRequest = async () => {
+  const { data: initialData } = await supabase.auth.getSession();
+  const initialSession = initialData.session;
+  if (!initialSession) throw new Error('Sessione Contotron non disponibile per Google Drive.');
+
+  // Il browser puo restare aperto per molte ore. Rinnova il JWT prima che
+  // scada, cosi la Edge Function puo sempre leggere il refresh token Drive.
+  const expiresAt = Number(initialSession.expires_at || 0) * 1000;
+  if (!expiresAt || expiresAt - Date.now() > SESSION_REFRESH_SAFETY_WINDOW_MS) return initialSession;
+
+  const { data, error } = await supabase.auth.refreshSession();
+  if (error || !data.session) {
+    throw new Error('Sessione Contotron scaduta: accedi di nuovo per ricollegare Google Drive.');
+  }
+  return data.session;
+};
+
+const invokeDrive = async (body: { action: string; refreshToken?: string }) => {
+  const session = await getSessionReadyForServerRequest();
+  const invoke = (jwt: string) => supabase.functions.invoke(FUNCTION_NAME, {
+    headers: { Authorization: `Bearer ${jwt}` },
+    body,
+  });
+  let result = await invoke(session.access_token);
+  // Refresh the app session only for authentication failures, not for a
+  // missing Google credential or server configuration problem.
+  if (result.error?.context instanceof Response && result.error.context.status === 401) {
+    const { data, error } = await supabase.auth.refreshSession();
+    if (!error && data.session) result = await invoke(data.session.access_token);
+  }
+  if (result.error) throw await googleDriveServerError(result.error);
+  return result.data;
+};
 
 export const saveGoogleDriveRefreshToken = async (refreshToken: string) => {
   if (!refreshToken.trim()) return;
-  const storeToken = () => supabase.functions.invoke(FUNCTION_NAME, {
-    body: { action: 'store_refresh_token', refreshToken },
-  });
-  let result = await storeToken();
-  if (result.error) {
-    // Subito dopo il ritorno OAuth il JWT dell'app puo essere ancora in fase di
-    // aggiornamento. Rinnova la sessione e riprova una sola volta.
-    const { error: refreshError } = await supabase.auth.refreshSession();
-    if (!refreshError) result = await storeToken();
-  }
-  if (result.error) throw new Error(await messageFromError(result.error));
+  await invokeDrive({ action: 'store_refresh_token', refreshToken });
   cachedAccessToken = null;
 };
 
@@ -38,9 +50,8 @@ export const clearGoogleDriveServerAccessTokenCache = () => {
 };
 
 export const getGoogleDriveServerAccessToken = async (forceRefresh = false) => {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const userId = sessionData.session?.user.id || null;
-  if (!userId) throw new Error('Sessione Contotron non disponibile per Google Drive.');
+  const session = await getSessionReadyForServerRequest();
+  const userId = session.user.id;
   if (
     !forceRefresh
     && cachedAccessToken
@@ -49,8 +60,16 @@ export const getGoogleDriveServerAccessToken = async (forceRefresh = false) => {
   ) {
     return cachedAccessToken.value;
   }
-  const { data, error } = await supabase.functions.invoke(FUNCTION_NAME, { body: { action: 'get_access_token' } });
-  if (error) throw new Error(await messageFromError(error));
+  let data;
+  try {
+    data = await invokeDrive({ action: 'get_access_token' });
+  } catch (error) {
+    // Repair a failed OAuth callback deposit while its Google refresh token
+    // is still available. Never replace a saved grant on a service failure.
+    if (!(error instanceof GoogleDriveAuthError) || !session.provider_refresh_token) throw error;
+    await saveGoogleDriveRefreshToken(session.provider_refresh_token);
+    data = await invokeDrive({ action: 'get_access_token' });
+  }
   const payload = data && typeof data === 'object'
     ? data as { accessToken?: unknown; expiresIn?: unknown }
     : null;
@@ -60,7 +79,7 @@ export const getGoogleDriveServerAccessToken = async (forceRefresh = false) => {
   cachedAccessToken = {
     userId,
     value: accessToken,
-    expiresAt: Date.now() + Math.max(60, expiresIn - 120) * 1000,
+    expiresAt: Date.now() + Math.max(0, expiresIn - 120) * 1000,
   };
   return accessToken;
 };

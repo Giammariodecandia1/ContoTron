@@ -25,6 +25,15 @@ interface SplitTransaction {
   split_months: number;
   status: string;
   type: string;
+  merchant: string | null;
+  description: string | null;
+}
+
+interface SplitAllocationDetail {
+  id: string;
+  allocationDate: string;
+  amountCents: number;
+  description: string;
 }
 
 const localDateIso = (date: Date) => [
@@ -60,6 +69,7 @@ export const SplitPage: React.FC = () => {
   const [transactions, setTransactions] = useState<SplitTransaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
 
   const loadSplit = useCallback(async () => {
     if (!householdId) return;
@@ -82,7 +92,7 @@ export const SplitPage: React.FC = () => {
           .order('created_at', { ascending: true }),
         supabase
           .from('transactions')
-          .select('id, account_id, amount, transaction_date, cash_impact_date, inserted_by, is_shared, split_months, status, type')
+          .select('id, account_id, amount, transaction_date, cash_impact_date, inserted_by, is_shared, split_months, status, type, merchant, description')
           .eq('household_id', householdId)
           .eq('type', 'expense')
           .eq('is_shared', true)
@@ -158,6 +168,17 @@ export const SplitPage: React.FC = () => {
       totalCents: calculated.totalCents,
       memberBalances: calculated.balances,
       settlements: selectedMemberIds.length >= 2 ? calculated.settlements : [],
+      allocationsByMember: included.reduce<Record<string, SplitAllocationDetail[]>>((result, entry) => {
+        const userId = entry.transaction.inserted_by || '';
+        if (!result[userId]) result[userId] = [];
+        result[userId].push({
+          id: `${entry.transaction.id}-${entry.allocation.allocationDate}`,
+          allocationDate: entry.allocation.allocationDate,
+          amountCents: entry.allocation.amountCents,
+          description: entry.transaction.merchant || entry.transaction.description || 'Spesa condivisa',
+        });
+        return result;
+      }, {}),
     };
   }, [accountId, fromDate, members, selectedMemberIds, toDate, transactions]);
 
@@ -264,8 +285,19 @@ export const SplitPage: React.FC = () => {
                 </thead>
                 <tbody>
                   {split.memberBalances.map(member => (
-                    <tr key={member.userId}>
-                      <td><strong>{member.displayName}</strong><small>{member.transactionCount} quote nel periodo</small></td>
+                    <React.Fragment key={member.userId}>
+                    <tr>
+                      <td>
+                        <strong>{member.displayName}</strong>
+                        <button
+                          type="button"
+                          className={styles.quoteButton}
+                          onClick={() => setExpandedMemberId(current => current === member.userId ? null : member.userId)}
+                          aria-expanded={expandedMemberId === member.userId}
+                        >
+                          {member.transactionCount} {member.transactionCount === 1 ? 'quota nel periodo' : 'quote nel periodo'}
+                        </button>
+                      </td>
                       <td>{formatCurrency(member.paidCents / 100, currency)}</td>
                       <td>{formatPercentage(member.percentage, 1)}</td>
                       <td>{formatCurrency(member.shareCents / 100, currency)}</td>
@@ -274,6 +306,22 @@ export const SplitPage: React.FC = () => {
                         <span>{formatCurrency(Math.abs(member.balanceCents) / 100, currency)}</span>
                       </td>
                     </tr>
+                    {expandedMemberId === member.userId && (
+                      <tr className={styles.detailRow}>
+                        <td colSpan={5}>
+                          <div className={styles.allocationDetails}>
+                            <strong>Quote di {member.displayName} nel periodo</strong>
+                            {(split.allocationsByMember[member.userId] || []).map(allocation => (
+                              <div key={allocation.id}>
+                                <span>{allocation.allocationDate} · {allocation.description}</span>
+                                <b>{formatCurrency(allocation.amountCents / 100, currency)}</b>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>

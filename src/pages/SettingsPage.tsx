@@ -7,7 +7,6 @@ import {
   CalendarClock,
   CheckCircle2,
   Cloud,
-  Database,
   Info,
   LayoutDashboard,
   Layers3,
@@ -35,8 +34,8 @@ import {
   documentStorageDescriptions,
   documentStorageLabels,
   getDocumentStorageProvider,
-  saveDocumentStoragePreference,
 } from '../lib/documentStoragePreference';
+import { ArchiveMigrationPanel } from '../components/archive/ArchiveMigrationPanel';
 import {
   ensureHouseholdDriveFolder,
   GoogleDriveAuthError,
@@ -49,7 +48,6 @@ import {
   saveFontScale,
   type FontScale,
 } from '../lib/fontScalePreference';
-import type { DocumentStorageProvider } from '../types/database';
 import {
   clearAiConfiguration,
   createDefaultAiDraft,
@@ -75,7 +73,6 @@ export const SettingsPage: React.FC = () => {
   const { user, logout } = useAuth();
   const { configuration: aiConfiguration, isAiEnabled } = useAiConfiguration();
   const userId = user?.id || null;
-  const [storageSaving, setStorageSaving] = useState(false);
   const [driveConnecting, setDriveConnecting] = useState(false);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -99,6 +96,7 @@ export const SettingsPage: React.FC = () => {
     connection: personalDriveConnection,
     loading: driveStatusLoading,
     error: driveStatusError,
+    requiresConsent: driveRequiresConsent,
     refresh: refreshPersonalDriveConnection,
     setConnection: setPersonalDriveConnection,
   } = usePersonalDriveConnection(household, userId);
@@ -160,26 +158,6 @@ export const SettingsPage: React.FC = () => {
     setAiKeyVisible(false);
     setAiError(null);
     setAiMessage('Configurazione eliminata da questo browser. Le funzioni AI sono state disattivate.');
-  };
-
-  const handleStorageChange = async (provider: DocumentStorageProvider) => {
-    if (!household || storageSaving || provider === documentStorageProvider) return;
-
-    setStorageSaving(true);
-    setStorageMessage(null);
-    setStorageError(null);
-
-    try {
-      const result = await saveDocumentStoragePreference(household.id, provider);
-      await refreshData();
-      setStorageMessage(result.savedInDatabase
-        ? `Archivio documenti impostato su ${documentStorageLabels[provider]}.`
-        : 'Scelta salvata localmente. Applica la migrazione Supabase per renderla condivisa con tutta la famiglia.');
-    } catch (error) {
-      setStorageError(error instanceof Error ? error.message : 'Impossibile salvare la preferenza archivio.');
-    } finally {
-      setStorageSaving(false);
-    }
   };
 
   const connectGoogleDrive = useCallback(async (requestConsentIfNeeded: boolean) => {
@@ -451,14 +429,16 @@ export const SettingsPage: React.FC = () => {
                 Configura canoni, finanziamenti e uscite mensili che devono risultare gia impegnate all'apertura del mese.
               </p>
             </Card>
+          </>
+        )}
 
-            <Card title="Archivio documenti" icon={<Cloud size={20} />}>
+        <Card title="Archivio documenti" icon={<Cloud size={20} />}>
           <p className="text-muted fs-sm">
             Formula attiva: {documentStorageLabels[documentStorageProvider]}.
           </p>
-          {fromDriveSetup && documentStorageProvider === 'google_drive' && (
+          {fromDriveSetup && (
             <div className={`${styles.feedback} ${styles.warning}`}>
-              Hai scelto Google Drive per questa famiglia. Puoi usare Contotron subito; collega Drive da qui quando l'account e' abilitato come tester Google.
+              Collega il tuo Google Drive per archiviare i nuovi scontrini e documenti.
             </div>
           )}
           {storageMessage && <div className={`${styles.feedback} ${styles.success}`}>{storageMessage}</div>}
@@ -466,61 +446,35 @@ export const SettingsPage: React.FC = () => {
           {driveStatusError && <div className={`${styles.feedback} ${styles.error}`}>{driveStatusError}</div>}
 
           <div className={`${styles.storageStatus} ${
-            documentStorageProvider === 'google_drive' && !personalDriveReady
+            !personalDriveReady
               ? styles.storageStatusWarning
               : styles.storageStatusReady
           }`}>
-            {documentStorageProvider === 'google_drive' && !personalDriveReady
+            {!personalDriveReady
               ? <AlertTriangle size={22} />
               : <CheckCircle2 size={22} />}
             <div>
               <strong>
-                {documentStorageProvider === 'supabase'
-                  ? 'Archivio interno attivo'
-                  : driveStatusLoading
-                    ? 'Verifica del tuo Google Drive...'
-                    : personalDriveReady
-                      ? 'Google Drive personale attivo'
-                      : 'Google Drive scelto ma non collegato'}
+                {driveStatusLoading
+                  ? 'Verifica del tuo Google Drive...'
+                  : personalDriveReady
+                    ? 'Google Drive personale attivo'
+                    : driveRequiresConsent
+                      ? 'Google Drive da collegare'
+                      : 'Google Drive momentaneamente non disponibile'}
               </strong>
               <p>
-                {documentStorageProvider === 'supabase'
-                  ? 'I nuovi scontrini vengono salvati nello storage privato Contotron del nucleo.'
-                  : personalDriveReady
-                    ? `I file caricati da ${user?.email || 'questo account'} vengono salvati nel suo Drive, cartella ${personalDriveConnection?.folderName || 'Contotron'}.`
-                    : `L account ${user?.email || 'corrente'} deve ancora autorizzare Google Drive. I nuovi documenti verranno bloccati finché non lo colleghi, per evitare salvataggi nell archivio interno.`}
+                {personalDriveReady
+                  ? `I file caricati da ${user?.email || 'questo account'} vengono salvati nel suo Drive, cartella ${personalDriveConnection?.folderName || 'Contotron'}.`
+                  : driveRequiresConsent
+                    ? `L account ${user?.email || 'corrente'} deve autorizzare Google Drive. Potrai allegare documenti appena lo colleghi.`
+                    : 'Puoi continuare a registrare le transazioni e allegare gli scontrini quando Drive torna disponibile.'}
               </p>
             </div>
           </div>
 
-          <div className={styles.storageOptions}>
-            <button
-              type="button"
-              className={documentStorageProvider === 'supabase' ? styles.storageActive : ''}
-              onClick={() => handleStorageChange('supabase')}
-              disabled={storageSaving}
-            >
-              <Database size={18} />
-              <span>
-                <strong>{documentStorageLabels.supabase}</strong>
-                <small>{documentStorageDescriptions.supabase}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={documentStorageProvider === 'google_drive' ? styles.storageActive : ''}
-              onClick={() => handleStorageChange('google_drive')}
-              disabled={storageSaving}
-            >
-              <Cloud size={18} />
-              <span>
-                <strong>{documentStorageLabels.google_drive}</strong>
-                <small>{documentStorageDescriptions.google_drive}</small>
-              </span>
-            </button>
-          </div>
-          {documentStorageProvider === 'google_drive' && (
-            <div className={styles.driveActions}>
+          <p className="text-muted fs-sm">{documentStorageDescriptions.google_drive}</p>
+          <div className={styles.driveActions}>
               <Button
                 size="sm"
                 onClick={() => connectGoogleDrive(true)}
@@ -537,16 +491,14 @@ export const SettingsPage: React.FC = () => {
                   Account: {user?.email || 'Google corrente'} · Cartella: {personalDriveConnection?.folderName || 'Contotron'}
                 </span>
               )}
-            </div>
-          )}
-          {documentStorageProvider === 'google_drive' && (
-            <div className={styles.privacyNote}>
+          </div>
+          <div className={styles.privacyNote}>
               Ogni membro autorizza separatamente il proprio Drive. Contotron non condivide token Google e puo gestire soltanto i file creati dall app.
-            </div>
+          </div>
+          {household && userId && (
+            <ArchiveMigrationPanel household={household} userId={userId} driveReady={personalDriveReady} />
           )}
-            </Card>
-          </>
-        )}
+        </Card>
 
         <Card title="Preferenze" icon={<SettingsIcon size={20} />}>
           <p className="text-muted fs-sm">Tema attivo: {resolvedTheme === 'dark' ? 'scuro' : 'chiaro'}.</p>

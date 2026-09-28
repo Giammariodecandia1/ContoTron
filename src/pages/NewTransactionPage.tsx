@@ -102,7 +102,9 @@ export const NewTransactionPage: React.FC = () => {
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
 
   const filteredCategories = categories.filter(c => c.type === transactionType);
-  const filteredSubcategories = subcategories.filter(s => s.category_id === categoryId);
+  const filteredSubcategories = subcategories
+    .filter(s => s.category_id === categoryId)
+    .sort((left, right) => left.name.localeCompare(right.name, 'it-IT', { sensitivity: 'base' }));
 
   const changeTransactionType = (nextType: TransactionType) => {
     if (nextType === transactionType) return;
@@ -233,6 +235,11 @@ export const NewTransactionPage: React.FC = () => {
       return;
     }
 
+    if (transactionType === 'expense' && isShared && showSplitMonths && (!Number.isInteger(splitMonths) || splitMonths < 2 || splitMonths > 120)) {
+      setError('Indica da 2 a 120 mesi per distribuire la spesa nello Split.');
+      return;
+    }
+
     const selectedAccountId = accountId || accounts[0]?.id;
     if (!selectedAccountId) {
       setError("Nessun conto disponibile. Si e' verificato un errore di sistema.");
@@ -255,7 +262,7 @@ export const NewTransactionPage: React.FC = () => {
       cash_impact_date: transactionType === 'expense' ? getCashImpactDate(date, paymentMethod) : date,
       frequency: effectiveFrequency,
       is_shared: transactionType === 'expense' ? isShared : true,
-      split_months: transactionType === 'expense' && isShared ? splitMonths : 1,
+      split_months: transactionType === 'expense' && isShared ? (showSplitMonths ? splitMonths : 1) : 1,
     };
 
     const itemRows = !isEditMode && initialState.items?.length && household
@@ -508,8 +515,15 @@ export const NewTransactionPage: React.FC = () => {
                       min="2"
                       max="120"
                       step="1"
-                      value={Math.max(2, splitMonths)}
-                      onChange={event => setSplitMonths(Math.min(120, Math.max(2, Math.trunc(Number(event.target.value) || 2))))}
+                      value={splitMonths || ''}
+                      onChange={event => {
+                        const rawValue = event.target.value;
+                        if (rawValue === '') {
+                          setSplitMonths(0);
+                          return;
+                        }
+                        setSplitMonths(Math.min(120, Math.max(0, Math.trunc(Number(rawValue)))));
+                      }}
                     />
                     <small className={styles.helpText}>
                       La transazione resta intera; soltanto lo Split la distribuisce in quote mensili consecutive.

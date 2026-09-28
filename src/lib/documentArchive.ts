@@ -182,9 +182,7 @@ export const uploadArchiveDocument = async ({
   totalAmount,
 }: UploadArchiveDocumentParams): Promise<Document> => {
   const date = documentDate || toDateString(new Date());
-  const [year, month] = date.split('-');
   const storageFile = await optimizeArchiveFile(file);
-  const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${safeFilename(storageFile.name)}`;
   const desiredProvider = getDocumentStorageProvider(household);
   const requiresGoogleDrive = desiredProvider === 'google_drive';
   const canUseGoogleDrive = requiresGoogleDrive && !!household && !!uploadedBy;
@@ -248,62 +246,10 @@ export const uploadArchiveDocument = async ({
     }
   }
 
-  const { error: uploadError } = await supabase.storage
-    .from(DOCUMENT_BUCKET)
-    .upload(storagePath, storageFile, {
-      contentType: storageFile.type || 'application/octet-stream',
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw new Error(
-      `Upload non riuscito. Verifica che il bucket Supabase "${DOCUMENT_BUCKET}" esista e accetti upload dal client. Dettaglio: ${uploadError.message}`,
-    );
-  }
-
-  const payload = {
-    household_id: householdId,
-    uploaded_by: uploadedBy || null,
-    type,
-    original_filename: file.name,
-    storage_path: storagePath,
-    storage_provider: 'supabase',
-    external_file_id: null,
-    external_url: null,
-    mime_type: storageFile.type || null,
-    file_size_bytes: storageFile.size,
-    document_date: date,
-    vendor_name: vendorName?.trim() || null,
-    total_amount: totalAmount ?? null,
-    status: 'archived',
-  };
-
-  const { data, error } = await supabase
-    .from('documents')
-    .insert([payload])
-    .select()
-    .single();
-
-  if (!error) return data as Document;
-
-  if (!isSchemaMissingError(error)) throw error;
-
-  const legacyPayload = { ...payload } as Record<string, unknown>;
-  delete legacyPayload.storage_provider;
-  delete legacyPayload.external_file_id;
-  delete legacyPayload.external_url;
-  const { data: legacyData, error: legacyError } = await supabase
-    .from('documents')
-    .insert([legacyPayload])
-    .select()
-    .single();
-
-  if (legacyError) throw legacyError;
-  return legacyData as Document;
+  throw new GoogleDriveAuthError('Per salvare un documento collega prima il tuo Google Drive dalle Impostazioni.');
 };
 
 const uploadSupplementalDocumentPage = async ({
-  householdId,
   household,
   uploadedBy,
   document,
@@ -311,7 +257,6 @@ const uploadSupplementalDocumentPage = async ({
   documentDate,
   pageNumber,
 }: {
-  householdId: string;
   household?: Household | null;
   uploadedBy?: string | null;
   document: Document;
@@ -323,47 +268,23 @@ const uploadSupplementalDocumentPage = async ({
   const pageFilename = `pagina-${String(pageNumber).padStart(2, '0')}-${safeFilename(storageFile.name)}`;
   const parentUsesDrive = document.storage_provider === 'google_drive' || document.storage_path.startsWith('google_drive:');
 
-  if (parentUsesDrive) {
-    if (!household || !uploadedBy) {
-      throw new GoogleDriveAuthError('Google Drive non e pronto per caricare tutte le pagine. Ricollega Google Drive dalle Impostazioni.');
-    }
-
-    const driveFile = await uploadFileToGoogleDrive({
-      household,
-      userId: uploadedBy,
-      file: storageFile,
-      documentDate,
-      filename: pageFilename,
-    });
-
-    return {
-      storage_path: `google_drive:${driveFile.id}`,
-      storage_provider: 'google_drive' as const,
-      external_file_id: driveFile.id,
-      external_url: driveFile.webViewLink || null,
-      mime_type: storageFile.type || null,
-      file_size_bytes: storageFile.size,
-    };
+  if (!parentUsesDrive || !household || !uploadedBy) {
+    throw new GoogleDriveAuthError('Google Drive non e pronto per caricare tutte le pagine. Ricollega Google Drive dalle Impostazioni.');
   }
 
-  const [year, month] = documentDate.split('-');
-  const storagePath = `${householdId}/${year}/${month}/${Date.now()}-${pageFilename}`;
-  const { error: uploadError } = await supabase.storage
-    .from(DOCUMENT_BUCKET)
-    .upload(storagePath, storageFile, {
-      contentType: storageFile.type || 'application/octet-stream',
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw new Error(`Upload pagina ${pageNumber} non riuscito: ${uploadError.message}`);
-  }
+  const driveFile = await uploadFileToGoogleDrive({
+    household,
+    userId: uploadedBy,
+    file: storageFile,
+    documentDate,
+    filename: pageFilename,
+  });
 
   return {
-    storage_path: storagePath,
-    storage_provider: 'supabase' as const,
-    external_file_id: null,
-    external_url: null,
+    storage_path: `google_drive:${driveFile.id}`,
+    storage_provider: 'google_drive' as const,
+    external_file_id: driveFile.id,
+    external_url: driveFile.webViewLink || null,
     mime_type: storageFile.type || null,
     file_size_bytes: storageFile.size,
   };
@@ -409,7 +330,6 @@ export const uploadArchiveDocumentPages = async ({
     for (let index = 1; index < files.length; index += 1) {
       const pageNumber = index + 1;
       const storedPage = await uploadSupplementalDocumentPage({
-        householdId,
         household,
         uploadedBy,
         document,

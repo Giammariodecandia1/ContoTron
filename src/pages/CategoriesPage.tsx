@@ -29,10 +29,31 @@ export const CategoriesPage: React.FC = () => {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [spendingTypeFilter, setSpendingTypeFilter] = useState<'all' | SpendingType>('all');
+  const [foodCharacteristicFilter, setFoodCharacteristicFilter] = useState<'all' | FoodCharacteristic>('all');
 
   const managedCategories = categories
     .filter(category => category.type === 'expense' || category.type === 'income')
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name));
+
+  const matchesSubcategoryFilters = (subcategory: typeof subcategories[number], category: typeof categories[number]) => {
+    // A subcategory's own classification takes precedence. The category value
+    // remains only as a compatibility fallback for older subcategories.
+    const effectiveSpendingType = subcategory.spending_type ?? category.spending_type;
+    const spendingMatch = spendingTypeFilter === 'all' || effectiveSpendingType === spendingTypeFilter;
+    const foodMatch = foodCharacteristicFilter === 'all'
+      || subcategory.food_characteristic === foodCharacteristicFilter;
+    return spendingMatch && foodMatch;
+  };
+
+  const filteredCategories = managedCategories.filter(category => {
+    const categorySubcategories = subcategories.filter(subcategory => subcategory.category_id === category.id);
+    if (categorySubcategories.length > 0) {
+      return categorySubcategories.some(subcategory => matchesSubcategoryFilters(subcategory, category));
+    }
+    return foodCharacteristicFilter === 'all'
+      && (spendingTypeFilter === 'all' || category.spending_type === spendingTypeFilter);
+  });
 
   const toggleCategory = (id: string) => {
     setExpandedCategories(prev => ({ ...prev, [id]: !prev[id] }));
@@ -309,15 +330,33 @@ export const CategoriesPage: React.FC = () => {
           {saveMessage && <div className={`${styles.saveBanner} ${styles.success}`}>{saveMessage}</div>}
           {saveError && <div className={`${styles.saveBanner} ${styles.error}`}>{saveError}</div>}
 
+          <div className={styles.categoryFilters}>
+            <label>
+              Tipo di spesa
+              <select value={spendingTypeFilter} onChange={event => setSpendingTypeFilter(event.target.value as 'all' | SpendingType)}>
+                <option value="all">Tutti i tipi</option>
+                {spendingTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              Caratteristica alimentare
+              <select value={foodCharacteristicFilter} onChange={event => setFoodCharacteristicFilter(event.target.value as 'all' | FoodCharacteristic)}>
+                <option value="all">Tutte le caratteristiche</option>
+                {foodCharacteristicOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+          </div>
+
           <div className={styles.categoryList}>
-            {managedCategories.length === 0 ? (
+            {filteredCategories.length === 0 ? (
               <div className="text-muted fs-sm text-center py-4">Nessuna categoria configurata</div>
             ) : (
-              managedCategories.map(cat => {
+              filteredCategories.map(cat => {
                 const isExpanded = expandedCategories[cat.id];
                 const isFoodCategory = cat.name.trim().toLowerCase() === 'alimentari';
                 const catSubcategories = subcategories
                   .filter(s => s.category_id === cat.id)
+                  .filter(s => matchesSubcategoryFilters(s, cat))
                   .sort((a, b) => a.name.localeCompare(b.name));
 
                 return (

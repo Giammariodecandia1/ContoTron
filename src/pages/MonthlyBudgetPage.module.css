@@ -309,9 +309,8 @@
   background: var(--color-warning-bg);
 }
 
-.fixedExpenseRow td {
-  background: var(--color-info-bg);
-}
+/* Una spesa fissa resta riconoscibile dal badge, ma la riga e l'importo
+   modificabile hanno lo stesso aspetto delle altre sottocategorie. */
 
 .inputAmount {
   width: 100px;
