@@ -82,6 +82,7 @@ export const useTransactions = () => {
           inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)
         `)
         .eq('household_id', householdId)
+        .neq('status', 'deleted')
         .order('transaction_date', { ascending: false })
         .order('created_at', { ascending: false });
 
@@ -108,6 +109,7 @@ export const useTransactions = () => {
           .from('transactions')
           .select('*')
           .eq('household_id', householdId)
+          .neq('status', 'deleted')
           .order('transaction_date', { ascending: false })
           .order('created_at', { ascending: false });
 

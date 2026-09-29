@@ -12,12 +12,14 @@ import {
 } from '../lib/annualCashFlow';
 import type { Transaction } from '../types/database';
 import { generateIncomeSchedule, type IncomeCadence, type IncomeSourceSchedule, type ScheduledIncome } from '../lib/incomeSchedule';
+import { resolvePlannedIncome } from '../lib/incomeForecast';
 import styles from './DashboardPage.module.css';
 
 type IncomeTargetRow = {
   id?: string;
   month: number;
   planned_income: number;
+  source_override: boolean;
 };
 
 type AnnualRow = {
@@ -55,6 +57,7 @@ type IncomeSourceRow = IncomeSourceSchedule & {
   beneficiary_user_id: string;
   account_id: string | null;
   created_by: string | null;
+  voided_at: string | null;
 };
 
 type IncomeSourceDraft = {
@@ -107,9 +110,11 @@ export const DashboardPage: React.FC = () => {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [transactions, setTransactions] = useState<DashboardTransaction[]>([]);
+  const [voidedIncome, setVoidedIncome] = useState<DashboardTransaction[]>([]);
   const [transactionItems, setTransactionItems] = useState<DashboardItem[]>([]);
   const [incomeTargets, setIncomeTargets] = useState<Record<number, IncomeTargetRow>>({});
   const [incomeDrafts, setIncomeDrafts] = useState<Record<number, string>>({});
+  const [editingMonth, setEditingMonth] = useState<number | null>(null);
   const [plannedExpenses, setPlannedExpenses] = useState<Record<number, number>>({});
   const [budgetTargets, setBudgetTargets] = useState<AnnualBudgetTarget[]>([]);
   const [incomeSources, setIncomeSources] = useState<IncomeSourceRow[]>([]);
@@ -136,7 +141,7 @@ export const DashboardPage: React.FC = () => {
       const transactionStart = `${selectedYear - 1}-12-01`;
       const end = `${selectedYear}-12-31`;
 
-      const [txResult, itemResult, budgetResult, incomeResult, sourcesResult] = await Promise.all([
+      const [txResult, voidedResult, itemResult, budgetResult, incomeResult, sourcesResult] = await Promise.all([
         supabase
           .from('transactions')
           .select('*, categories(name), subcategories(name), inserted_by_profile:profiles!transactions_inserted_by_fkey(display_name, email)')
@@ -144,6 +149,10 @@ export const DashboardPage: React.FC = () => {
           .gte('transaction_date', transactionStart)
           .lte('transaction_date', end)
           .eq('status', 'confirmed')
+          .order('transaction_date', { ascending: false }),
+        supabase.from('transactions').select('*').eq('household_id', householdId)
+          .gte('transaction_date', transactionStart).lte('transaction_date', end)
+          .eq('type', 'income').eq('status', 'deleted').not('income_source_id', 'is', null)
           .order('transaction_date', { ascending: false }),
         supabase
           .from('transaction_items')
@@ -158,17 +167,18 @@ export const DashboardPage: React.FC = () => {
           .eq('year', selectedYear),
         supabase
           .from('monthly_income_targets')
-          .select('id, month, planned_income')
+          .select('id, month, planned_income, source_override')
           .eq('household_id', householdId)
           .eq('year', selectedYear),
         supabase
           .from('income_sources')
-          .select('id, household_id, name, beneficiary_user_id, account_id, amount, payday, cadence, effective_from, effective_to, thirteenth_amount, thirteenth_month, fourteenth_amount, fourteenth_month, created_by')
+          .select('id, household_id, name, beneficiary_user_id, account_id, amount, payday, cadence, effective_from, effective_to, thirteenth_amount, thirteenth_month, fourteenth_amount, fourteenth_month, created_by, voided_at')
           .eq('household_id', householdId)
           .order('created_at', { ascending: true }),
       ]);
 
       if (txResult.error) throw txResult.error;
+      if (voidedResult.error) throw voidedResult.error;
       if (itemResult.error) throw itemResult.error;
       if (budgetResult.error) throw budgetResult.error;
       if (incomeResult.error) throw incomeResult.error;
@@ -187,11 +197,13 @@ export const DashboardPage: React.FC = () => {
           id: row.id,
           month: row.month,
           planned_income: Number(row.planned_income || 0),
+          source_override: Boolean(row.source_override),
         };
         draftMap[row.month] = String(Number(row.planned_income || 0));
       });
 
       setTransactions((txResult.data || []) as DashboardTransaction[]);
+      setVoidedIncome((voidedResult.data || []) as DashboardTransaction[]);
       setTransactionItems((itemResult.data || []) as unknown as DashboardItem[]);
       setBudgetTargets((budgetResult.data || []) as AnnualBudgetTarget[]);
       setPlannedExpenses(expenseMap);
@@ -212,7 +224,8 @@ export const DashboardPage: React.FC = () => {
 
   const annualRows = useMemo<AnnualRow[]>(() => {
     const cashFlow = summarizeAnnualCashFlow(transactions, selectedYear);
-    const sourceSchedule = generateIncomeSchedule(incomeSources, selectedYear);
+    const activeSources = incomeSources.filter(source => !source.voided_at);
+    const sourceSchedule = generateIncomeSchedule(activeSources, selectedYear);
     const sourceTotals: Record<number, number> = {};
     sourceSchedule.forEach(entry => {
       sourceTotals[entry.month] = (sourceTotals[entry.month] || 0) + entry.amount;
@@ -222,8 +235,9 @@ export const DashboardPage: React.FC = () => {
       const month = index + 1;
       const monthStart = `${selectedYear}-${String(month).padStart(2, '0')}-01`;
       const monthEnd = `${selectedYear}-${String(month).padStart(2, '0')}-${String(new Date(selectedYear, month, 0).getDate()).padStart(2, '0')}`;
-      const hasIncomeSource = incomeSources.some(source => source.effective_from <= monthEnd && (!source.effective_to || source.effective_to >= monthStart));
-      const plannedIncome = hasIncomeSource ? sourceTotals[month] || 0 : incomeTargets[month]?.planned_income || 0;
+      const hasIncomeSource = activeSources.some(source => source.effective_from <= monthEnd && (!source.effective_to || source.effective_to >= monthStart));
+      const target = incomeTargets[month];
+      const plannedIncome = resolvePlannedIncome(sourceTotals[month] || 0, hasIncomeSource, target?.planned_income, Boolean(target?.source_override));
       const monthFlow = cashFlow[month];
       return {
         month,
@@ -283,7 +297,7 @@ export const DashboardPage: React.FC = () => {
     ? totals.actualExpense / totals.actualIncome * 100
     : 0;
 
-  const scheduledIncome = useMemo(() => generateIncomeSchedule(incomeSources, selectedYear).map(entry => {
+  const scheduledIncome = useMemo(() => generateIncomeSchedule(incomeSources.filter(source => !source.voided_at), selectedYear).map(entry => {
     const source = incomeSources.find(item => item.id === entry.incomeSourceId);
     const transaction = transactions.find(item => (
       item.type === 'income'
@@ -316,16 +330,18 @@ export const DashboardPage: React.FC = () => {
     for (let month = 1; month <= 12; month += 1) {
       const start = `${selectedYear}-${String(month).padStart(2, '0')}-01`;
       const end = `${selectedYear}-${String(month).padStart(2, '0')}-${String(new Date(selectedYear, month, 0).getDate()).padStart(2, '0')}`;
-      covered[month] = incomeSources.some(source => source.effective_from <= end && (!source.effective_to || source.effective_to >= start));
+      covered[month] = incomeSources.some(source => !source.voided_at && source.effective_from <= end && (!source.effective_to || source.effective_to >= start));
     }
     return covered;
   }, [incomeSources, selectedYear]);
 
   const today = new Date().toISOString().slice(0, 10);
   const currentMonth = new Date().getMonth() + 1;
-  const currentMonthPlanned = sourceCoverageByMonth[currentMonth]
+  const currentMonthPlanned = selectedYear !== currentYear ? 0 : incomeTargets[currentMonth]?.source_override
+    ? incomeTargets[currentMonth].planned_income
+    : sourceCoverageByMonth[currentMonth]
     ? sourcePlannedByMonth[currentMonth] || 0
-    : (selectedYear === currentYear ? incomeTargets[currentMonth]?.planned_income || 0 : 0);
+    : incomeTargets[currentMonth]?.planned_income || 0;
   // This card must show only confirmed credits. `actualIncome` in the annual
   // forecast intentionally falls back to the planned amount when no income
   // has been recorded, which would be misleading for the “Ricevute” label.
@@ -338,7 +354,7 @@ export const DashboardPage: React.FC = () => {
       .reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0)
     : 0;
   const currentMonthMemberIncomes = useMemo(() => members.map(member => {
-    const planned = selectedYear === currentYear
+    const planned = selectedYear === currentYear && !incomeTargets[currentMonth]?.source_override
       ? scheduledIncome.filter(entry => entry.month === currentMonth && entry.beneficiary_user_id === member.userId).reduce((sum, entry) => sum + entry.amount, 0)
       : 0;
     const actual = selectedYear === currentYear
@@ -349,7 +365,7 @@ export const DashboardPage: React.FC = () => {
       )).reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0)
       : 0;
     return { userId: member.userId, name: member.displayName, planned, actual };
-  }).filter(member => member.planned > 0 || member.actual > 0), [currentMonth, currentYear, members, scheduledIncome, selectedYear, transactions]);
+  }).filter(member => member.planned > 0 || member.actual > 0), [currentMonth, currentYear, incomeTargets, members, scheduledIncome, selectedYear, transactions]);
 
   const annualCategoryRows = useMemo(() => {
     const planned = new Map<string, Record<number, number>>();
@@ -445,10 +461,11 @@ export const DashboardPage: React.FC = () => {
     setIncomeDrafts(prev => ({ ...prev, [month]: value }));
   };
 
-  const saveIncomeTarget = async (month: number) => {
+  const saveIncomeTarget = async (month: number, draft: string) => {
     if (!householdId) return;
 
-    const value = Number((incomeDrafts[month] || '').replace(',', '.'));
+    const value = Number(draft.replace(',', '.'));
+    const sourceOverride = Boolean(sourceCoverageByMonth[month]);
     if (!Number.isFinite(value) || value < 0) {
       setError('Inserisci una previsione entrate valida.');
       return;
@@ -463,7 +480,7 @@ export const DashboardPage: React.FC = () => {
       if (existing?.id) {
         const { error: updateError } = await supabase
           .from('monthly_income_targets')
-          .update({ planned_income: value, updated_at: new Date().toISOString() })
+          .update({ planned_income: value, source_override: sourceOverride, updated_at: new Date().toISOString() })
           .eq('id', existing.id)
           .eq('household_id', householdId);
 
@@ -476,8 +493,9 @@ export const DashboardPage: React.FC = () => {
             year: selectedYear,
             month,
             planned_income: value,
+            source_override: sourceOverride,
           }])
-          .select('id, month, planned_income')
+          .select('id, month, planned_income, source_override')
           .single();
 
         if (insertError) throw insertError;
@@ -488,6 +506,7 @@ export const DashboardPage: React.FC = () => {
               id: data.id,
               month: data.month,
               planned_income: Number(data.planned_income || 0),
+              source_override: sourceOverride,
             },
           }));
         }
@@ -499,11 +518,30 @@ export const DashboardPage: React.FC = () => {
           ...prev[month],
           month,
           planned_income: value,
+          source_override: sourceOverride,
         },
       }));
       setMessage(`Entrata prevista di ${monthNames[month - 1]} salvata.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Impossibile salvare entrata prevista.');
+    } finally {
+      setSavingMonth(null);
+    }
+  };
+
+  const restoreAutomaticIncome = async (month: number) => {
+    if (!householdId || !incomeTargets[month]?.id) return;
+    setSavingMonth(month);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase.from('monthly_income_targets')
+        .update({ source_override: false, updated_at: new Date().toISOString() })
+        .eq('id', incomeTargets[month].id).eq('household_id', householdId);
+      if (updateError) throw updateError;
+      setIncomeTargets(prev => ({ ...prev, [month]: { ...prev[month], source_override: false } }));
+      setMessage(`Previsione automatica di ${monthNames[month - 1]} ripristinata.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossibile ripristinare la previsione.');
     } finally {
       setSavingMonth(null);
     }
@@ -542,7 +580,7 @@ export const DashboardPage: React.FC = () => {
 
   const saveIncomeSource = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!householdId || !user?.id || !incomeSourceDraft) return;
+    if (!householdId || !user?.id || !incomeSourceDraft || savingIncome) return;
     const amount = Number(incomeSourceDraft.amount.replace(',', '.'));
     const thirteenthAmount = Number(incomeSourceDraft.thirteenth_amount.replace(',', '.') || 0);
     const fourteenthAmount = Number(incomeSourceDraft.fourteenth_amount.replace(',', '.') || 0);
@@ -559,6 +597,13 @@ export const DashboardPage: React.FC = () => {
       setError('Il beneficiario deve appartenere al nucleo.');
       return;
     }
+    const possibleDuplicate = !editingIncomeSource && incomeSources.some(source => (
+      !source.voided_at
+      && source.name.trim().toLocaleLowerCase('it-IT') === incomeSourceDraft.name.trim().toLocaleLowerCase('it-IT')
+      && source.beneficiary_user_id === incomeSourceDraft.beneficiary_user_id
+      && (!source.effective_to || source.effective_to >= incomeSourceDraft.effective_from)
+    ));
+    if (possibleDuplicate && !window.confirm('Esiste già una fonte con lo stesso nome e beneficiario in questo periodo. Vuoi davvero aggiungerne un’altra? Potresti contare due volte lo stipendio.')) return;
     setSavingIncome(true);
     setError(null);
     setMessage(null);
@@ -623,6 +668,72 @@ export const DashboardPage: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Impossibile terminare la fonte.');
     } finally {
       setSavingIncome(false);
+    }
+  };
+
+  const toggleVoidedIncomeSource = async (source: IncomeSourceRow) => {
+    if (!householdId || !window.confirm(source.voided_at
+      ? `Ripristinare la fonte “${source.name}”? Le sue previsioni torneranno nei mesi originari.`
+      : `Annullare la fonte “${source.name}” inserita per errore? Le sue previsioni spariranno, ma gli accrediti già confermati resteranno finché non li annulli separatamente.`)) return;
+    setSavingIncome(true);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase.from('income_sources')
+        .update({ voided_at: source.voided_at ? null : new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', source.id).eq('household_id', householdId);
+      if (updateError) throw updateError;
+      await loadDashboard();
+      setMessage(source.voided_at ? 'Fonte ripristinata.' : 'Fonte annullata. Controlla anche gli accrediti già confermati.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossibile correggere la fonte.');
+    } finally {
+      setSavingIncome(false);
+    }
+  };
+
+  const editReceivedIncome = async (transaction: DashboardTransaction) => {
+    if (!householdId) return;
+    const answer = window.prompt(`Nuovo importo ricevuto per “${transaction.description}” (€):`, String(transaction.amount));
+    if (answer === null) return;
+    const amount = Number(answer.trim().replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('L’importo ricevuto deve essere maggiore di zero. Per annullare usa “Annulla accredito”.');
+      return;
+    }
+    setSavingOccurrence(transaction.id);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase.from('transactions')
+        .update({ amount }).eq('id', transaction.id).eq('household_id', householdId)
+        .eq('type', 'income').eq('status', 'confirmed');
+      if (updateError) throw updateError;
+      await loadDashboard();
+      setMessage('Importo ricevuto corretto.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossibile correggere l’accredito.');
+    } finally {
+      setSavingOccurrence(null);
+    }
+  };
+
+  const toggleVoidedIncome = async (transaction: DashboardTransaction, restore: boolean) => {
+    if (!householdId || !window.confirm(restore
+      ? `Ripristinare l’accredito “${transaction.description}” di ${currency(transaction.amount, currencyCode)}?`
+      : `Annullare l’accredito “${transaction.description}” di ${currency(transaction.amount, currencyCode)}? Non verrà più conteggiato e potrai ripristinarlo.`)) return;
+    setSavingOccurrence(transaction.id);
+    setError(null);
+    try {
+      const { error: updateError } = await supabase.from('transactions')
+        .update({ status: restore ? 'confirmed' : 'deleted' })
+        .eq('id', transaction.id).eq('household_id', householdId)
+        .eq('type', 'income').eq('status', restore ? 'deleted' : 'confirmed');
+      if (updateError) throw updateError;
+      await loadDashboard();
+      setMessage(restore ? 'Accredito ripristinato.' : 'Accredito annullato: non è più conteggiato.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Impossibile modificare l’accredito.');
+    } finally {
+      setSavingOccurrence(null);
     }
   };
 
@@ -756,11 +867,11 @@ export const DashboardPage: React.FC = () => {
                 <Plus size={16} /> Aggiungi fonte
               </button>
             )}
-            {incomeSources.length === 0 ? (
+            {incomeSources.filter(source => !source.voided_at).length === 0 ? (
               <div className={styles.empty}>Nessuna entrata ricorrente configurata. La previsione manuale annuale continua a funzionare.</div>
             ) : (
               <div className={styles.incomeSources}>
-                {incomeSources.map(source => {
+                {incomeSources.filter(source => !source.voided_at).map(source => {
                   const beneficiary = members.find(member => member.userId === source.beneficiary_user_id);
                   const account = accounts.find(item => item.id === source.account_id);
                   return (
@@ -776,16 +887,28 @@ export const DashboardPage: React.FC = () => {
                           {source.effective_to ? ` · conclusa il ${new Date(`${source.effective_to}T00:00:00`).toLocaleDateString('it-IT')}` : ''}
                         </small>
                       </div>
-                      {!source.effective_to && currentMembership && currentMembership.role !== 'viewer' && (
+                      {currentMembership && currentMembership.role !== 'viewer' && (
                         <div className={styles.incomeSourceActions}>
-                          <button type="button" aria-label={`Modifica ${source.name} dal mese prossimo`} title="Modifica dal mese prossimo" onClick={() => openIncomeSourceForm(source)} disabled={savingIncome}><Pencil size={15} /></button>
-                          <button type="button" aria-label={`Termina ${source.name}`} title="Termina fonte" onClick={() => void stopIncomeSource(source)} disabled={savingIncome}><X size={16} /></button>
+                          {!source.effective_to && <button type="button" aria-label={`Modifica ${source.name} dal mese prossimo`} title="Modifica dal mese prossimo" onClick={() => openIncomeSourceForm(source)} disabled={savingIncome}><Pencil size={15} /></button>}
+                          {!source.effective_to && <button type="button" aria-label={`Termina ${source.name}`} title="Termina solo le previsioni future" onClick={() => void stopIncomeSource(source)} disabled={savingIncome}><X size={16} /></button>}
+                          <button type="button" title="Escludi anche dai mesi passati, senza cancellare accrediti" onClick={() => void toggleVoidedIncomeSource(source)} disabled={savingIncome}>Annulla fonte</button>
                         </div>
                       )}
                     </article>
                   );
                 })}
               </div>
+            )}
+            {incomeSources.some(source => source.voided_at) && (
+              <details className={styles.incomeCorrectionSection}>
+                <summary>Fonti annullate ({incomeSources.filter(source => source.voided_at).length})</summary>
+                {incomeSources.filter(source => source.voided_at).map(source => (
+                  <div className={styles.incomeCorrectionRow} key={source.id}>
+                    <span>{source.name} · {currency(source.amount, currencyCode)}</span>
+                    {currentMembership && currentMembership.role !== 'viewer' && <button type="button" onClick={() => void toggleVoidedIncomeSource(source)} disabled={savingIncome}>Ripristina fonte</button>}
+                  </div>
+                ))}
+              </details>
             )}
 
             {incomeFormOpen && incomeSourceDraft && (
@@ -837,7 +960,11 @@ export const DashboardPage: React.FC = () => {
                           <span>{entry.beneficiaryName} · {new Date(`${entry.date}T00:00:00`).toLocaleDateString('it-IT')}{accountName ? ` · ${accountName}` : ''}</span>
                         </div>
                         {entry.transaction ? (
-                          <strong className={styles.incomeConfirmed}>Ricevuto {currency(entry.transaction.amount, currencyCode)}</strong>
+                          <div className={styles.incomeConfirmControl}>
+                            <strong className={styles.incomeConfirmed}>Ricevuto {currency(entry.transaction.amount, currencyCode)}</strong>
+                            {currentMembership && currentMembership.role !== 'viewer' && <button type="button" onClick={() => void editReceivedIncome(entry.transaction!)} disabled={savingOccurrence === entry.transaction.id}>Modifica</button>}
+                            {currentMembership && currentMembership.role !== 'viewer' && <button type="button" onClick={() => void toggleVoidedIncome(entry.transaction!, false)} disabled={savingOccurrence === entry.transaction.id}>Annulla</button>}
+                          </div>
                         ) : due && currentMembership && currentMembership.role !== 'viewer' ? (
                           <div className={styles.incomeConfirmControl}>
                             <input aria-label={`Importo effettivamente ricevuto per ${entry.name}`} type="number" min="0.01" step="0.01" value={incomeActualDrafts[entry.key] ?? String(entry.amount)} onChange={event => setIncomeActualDrafts(prev => ({ ...prev, [entry.key]: event.target.value }))} />
@@ -850,6 +977,24 @@ export const DashboardPage: React.FC = () => {
                 </div>
               )}
             </div>
+            {(transactions.some(transaction => transaction.type === 'income' && transaction.transaction_date.startsWith(`${selectedYear}-`)) || voidedIncome.some(transaction => transaction.transaction_date.startsWith(`${selectedYear}-`))) && (
+              <details className={styles.incomeCorrectionSection}>
+                <summary>Correggi tutti gli accrediti registrati ({selectedYear})</summary>
+                <p className="text-muted fs-sm">Qui trovi anche gli accrediti collegati a fonti annullate o inseriti manualmente. Annullare non cancella i dati e permette il ripristino.</p>
+                {[...transactions.filter(transaction => transaction.type === 'income' && transaction.transaction_date.startsWith(`${selectedYear}-`)), ...voidedIncome.filter(transaction => transaction.transaction_date.startsWith(`${selectedYear}-`))].map(transaction => {
+                  const isVoided = transaction.status === 'deleted';
+                  return (
+                    <div className={styles.incomeCorrectionRow} key={transaction.id}>
+                      <span>{new Date(`${transaction.transaction_date}T00:00:00`).toLocaleDateString('it-IT')} · {transaction.description} · {currency(transaction.amount, currencyCode)}{isVoided ? ' · annullato' : ''}</span>
+                      {currentMembership && currentMembership.role !== 'viewer' && <div className={styles.incomeSourceActions}>
+                        {!isVoided && <button type="button" onClick={() => void editReceivedIncome(transaction)} disabled={savingOccurrence === transaction.id}>Modifica</button>}
+                        <button type="button" onClick={() => void toggleVoidedIncome(transaction, isVoided)} disabled={savingOccurrence === transaction.id}>{isVoided ? 'Ripristina' : 'Annulla accredito'}</button>
+                      </div>}
+                    </div>
+                  );
+                })}
+              </details>
+            )}
           </div>
         )}
       </Card>
@@ -888,20 +1033,23 @@ export const DashboardPage: React.FC = () => {
                     <tr key={row.month}>
                       <td data-label="Mese">{row.label}</td>
                       <td data-label="Entrate previste">
-                        {sourceCoverageByMonth[row.month] ? (
-                          <span>{currency(row.plannedIncome, currencyCode)}<small className={styles.incomeSourceHint}>Da fonti configurate</small></span>
-                        ) : (
+                        <div>
                           <input
                             className={styles.incomeInput}
                             type="number"
+                            min="0"
                             step="0.01"
-                            value={incomeDrafts[row.month] ?? ''}
+                            aria-label={`Entrate previste di ${row.label}`}
+                            value={editingMonth === row.month ? incomeDrafts[row.month] ?? String(row.plannedIncome) : String(row.plannedIncome)}
+                            onFocus={() => { setEditingMonth(row.month); handleIncomeChange(row.month, String(row.plannedIncome)); }}
                             onChange={event => handleIncomeChange(row.month, event.target.value)}
-                            onBlur={() => saveIncomeTarget(row.month)}
+                            onBlur={event => { setEditingMonth(null); if (event.currentTarget.value !== String(row.plannedIncome)) void saveIncomeTarget(row.month, event.currentTarget.value); }}
                             disabled={savingMonth === row.month}
                             placeholder="0"
                           />
-                        )}
+                          {sourceCoverageByMonth[row.month] && <small className={styles.incomeSourceHint}>{incomeTargets[row.month]?.source_override ? 'Valore personalizzato' : 'Da fonti configurate'}</small>}
+                          {sourceCoverageByMonth[row.month] && incomeTargets[row.month]?.source_override && <button type="button" className={styles.incomeResetButton} onClick={() => void restoreAutomaticIncome(row.month)} disabled={savingMonth === row.month}>Ripristina automatico</button>}
+                        </div>
                       </td>
                       <td data-label="Uscite previste">{currency(row.plannedExpense, currencyCode)}</td>
                       <td data-label="Delta previsto" className={plannedDelta >= 0 ? styles.positive : styles.negative}>

@@ -44,6 +44,7 @@ const memberSummaryUrl = await transpileModule('src/lib/memberTransactionSummary
 const personalSpendingUrl = await transpileModule('src/lib/personalSpending.ts');
 const monthlyBudgetBreakdownUrl = await transpileModule('src/lib/monthlyBudgetBreakdown.ts');
 const aiConfigurationUrl = await transpileModule('src/lib/aiConfiguration.ts');
+const incomeForecastUrl = await transpileModule('src/lib/incomeForecast.ts');
 
 const {
   countReceiptItemLikeLines,
@@ -71,6 +72,12 @@ const {
   createDefaultAiDraft,
   resolveAiChatEndpoint,
 } = await import(aiConfigurationUrl);
+const { resolvePlannedIncome } = await import(incomeForecastUrl);
+
+assert.equal(resolvePlannedIncome(3000, true, 1500, false), 3000);
+assert.equal(resolvePlannedIncome(3000, true, 1500, true), 1500);
+assert.equal(resolvePlannedIncome(0, false, 1500, false), 1500);
+assert.equal(resolvePlannedIncome(0, false, undefined, false), 0);
 
 assert.deepEqual(createDefaultAiDraft('chiave-test'), {
   apiKey: 'chiave-test',
@@ -407,6 +414,9 @@ assert.equal(dashboardSource.includes('actualDelta: total.actualIncome - total.i
 assert.equal(dashboardSource.includes('const actualDelta = row.actualIncome - row.immediateExpense'), true);
 assert.equal(dashboardSource.includes('incomeSources'), true);
 assert.equal(dashboardSource.includes('Conferma accredito'), true);
+assert.equal(dashboardSource.includes('Annulla fonte'), true);
+assert.equal(dashboardSource.includes('Ripristina automatico'), true);
+assert.equal(dashboardSource.includes('Annulla accredito'), true);
 assert.equal(dashboardSource.includes('Entrate del nucleo'), true);
 assert.equal(dashboardSource.includes('<th>Anticipo carta di credito</th>'), true);
 assert.equal(dashboardSource.includes('Dettagli ({row.creditCardAdvanceDetails.length})'), true);
@@ -417,6 +427,7 @@ assert.equal(dashboardStylesSource.includes('.categoryMonthOverBudget'), true);
 const transactionHookSource = await readFile(new URL('../src/hooks/useTransactions.ts', import.meta.url), 'utf8');
 assert.equal(transactionHookSource.includes("toISOString().split('T')[0]"), false);
 assert.equal(transactionHookSource.includes("supabase.rpc('create_transaction_with_items'"), true);
+assert.equal((transactionHookSource.match(/\.neq\('status', 'deleted'\)/g) || []).length >= 2, true);
 
 const localDatePages = [
   'src/pages/NewTransactionPage.tsx',
